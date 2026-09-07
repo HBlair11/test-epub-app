@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="ReaderSettingLabel" parent="Widget.MaterialComponents.TextView">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">20dp</item>
+        <item name="android:layout_marginBottom">4dp</item>
+        <item name="android:textColor">?android:textColorSecondary</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textAllCaps">true</item>
+    </style>
+
+    <style name="ReaderToggleBtn" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+
+    <!-- ===== Patch 17: full-screen reader settings activity =====
+         The activity theme (Theme.EpubReader.Settings) is the static reader
+         chrome: eggplant background, white text, mint accents. These styles
+         keep every control on that surface. -->
+
+    <!-- Stepper row: a horizontal row with a [−] icon button, the live value
+         centered (weight 1), and a [+] icon button. Icon-only Material buttons
+         with a tint that matches the chrome accent. -->
+    <style name="ReaderStepperBtn" parent="Widget.MaterialComponents.Button.TextButton">
+        <item name="android:layout_width">48dp</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:paddingLeft">0dp</item>
+        <item name="android:paddingRight">0dp</item>
+        <item name="iconPadding">0dp</item>
+        <item name="iconTint">?attr/colorPrimary</item>
+        <item name="rippleColor">?attr/colorPrimary</item>
+    </style>
+
+    <!-- The numeric value between the +/- buttons. -->
+    <style name="ReaderStepperValue" parent="Widget.MaterialComponents.TextView">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textColor">?android:textColorPrimary</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- A toggle row (switch + caps label above) laid out exactly like the
+         stepper rows so the whole screen reads as one consistent list. -->
+    <style name="ReaderSwitchRow" parent="Widget.MaterialComponents.TextView">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:minHeight">48dp</item>
+    </style>
+
+    <!-- Wrapper that pads each setting block consistently. -->
+    <style name="ReaderSettingBlock">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:paddingTop">6dp</item>
+        <item name="android:paddingBottom">6dp</item>
+    </style>
+
+    <!-- ===== Patch 18 (Fix #1): shared icon-button style — the SINGLE SOURCE
+         OF TRUTH for icon-button size + background ripple, applied to every
+         reader icon button (top bar, seeker prev/next, overlay back, search
+         back) and item_bookmark's delete button. Reused buttons (back / search /
+         settings / chevrons) can never drift out of sync. Override
+         android:layout_width/height per location when a different touch size is
+         needed. Tint is NOT set here — see the note inside the style. -->
+
+    <style name="EpubReaderIconButton">
+        <item name="android:layout_width">44dp</item>
+        <item name="android:layout_height">44dp</item>
+        <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
+        <!-- Tint is NOT set here. Icons are white vectors on dark reader chrome,
+             so they render white from their own color. Set app:tint on a view only
+             for a non-white tint or when used on a light background. -->
+    </style>
+</resources>

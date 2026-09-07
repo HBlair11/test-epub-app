@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Patch 17 (Issue #1): full-screen reader settings ACTIVITY (replaces the
+     BottomSheet). Every numeric control is a +/- stepper (no sliders, so a
+     vertical scroll can never nudge a value) and every multi-option control is
+     an ExposedDropdownMenu (scales cleanly as more options are added).
+     Order: Theme -> Font Face -> Alignment -> Font Size -> Line Spacing ->
+     Margin -> Top & Bottom Margin -> Hyphenation -> Page Turn Animation.
+     (Alignment is retained as a dropdown to avoid a feature regression.) -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?android:colorBackground"
+    android:fitsSystemWindows="true"
+    android:orientation="vertical">
+
+    <!-- Toolbar with back + Done. Inherits chrome colors from the activity theme. -->
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/settingsToolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="?android:colorBackground"
+        app:title="@string/reader_settings_title"
+        app:titleTextColor="@color/reader_chrome_text"
+        app:navigationIcon="@drawable/ic_arrow_back"
+        app:navigationIconTint="@color/reader_chrome_text"
+        app:navigationContentDescription="@string/action_back" />
+
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/settingsScroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:scrollbars="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="@dimen/app_row_content_padding_h"
+            android:paddingEnd="@dimen/app_row_content_padding_h"
+            android:paddingBottom="32dp">
+
+            <!-- ============ Theme ============ -->
+            <TextView style="@style/ReaderSettingLabel" android:text="@string/reader_theme" />
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/themeLayout"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+                <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                    android:id="@+id/themeDropdown"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="none"
+                    android:textColor="@color/reader_chrome_text"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="8dp" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- ============ Font Face ============ -->
+            <TextView style="@style/ReaderSettingLabel" android:text="@string/reader_font_face" />
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/fontLayout"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+                <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                    android:id="@+id/fontDropdown"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="none"
+                    android:textColor="@color/reader_chrome_text"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="8dp" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- ============ Alignment ============ -->
+            <TextView style="@style/ReaderSettingLabel" android:text="@string/reader_alignment" />
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/alignLayout"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+                <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                    android:id="@+id/alignDropdown"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="none"
+                    android:textColor="@color/reader_chrome_text"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="8dp" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- ============ Font Size stepper ============ -->
+            <TextView style="@style/ReaderSettingLabel" android:text="@string/reader_font_size" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/fontSizeMinus"
+                    style="@style/ReaderStepperBtn"
+                    app:icon="@drawable/ic_minus"
+                    android:contentDescription="@string/stepper_decrease" />
+                <TextView
+                    android:id="@+id/fontSizeValue"
+                    style="@style/ReaderStepperValue" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/fontSizePlus"
+                    style="@style/ReaderStepperBtn"
+                    app:icon="@drawable/ic_add"
+                    android:contentDescription="@string/stepper_increase" />
+            </LinearLayout>
+
+            <!-- ============ Line Spacing stepper ============ -->
+            <TextView style="@style/ReaderSettingLabel" android:text="@string/reader_line_height" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/lineHeightMinus"
+                    style="@style/ReaderStepperBtn"
+                    app:icon="@drawable/ic_minus"
+                    android:contentDescription="@string/stepper_decrease" />
+                <TextView
+                    android:id="@+id/lineHeightValue"
+                    style="@style/ReaderStepperValue" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/lineHeightPlus"
+                    style="@style/ReaderStepperBtn"
+                    app:icon="@drawable/ic_add"
+                    android:contentDescription="@string/stepper_increase" />
+            </LinearLayout>
+
+            <!-- ============ Margin stepper ============ -->
+            <TextView style="@style/ReaderSettingLabel" android:text="@string/reader_margin" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/marginMinus"
+                    style="@style/ReaderStepperBtn"
+                    app:icon="@drawable/ic_minus"
+                    android:contentDescription="@string/stepper_decrease" />
+                <TextView
+                    android:id="@+id/marginValue"
+                    style="@style/ReaderStepperValue" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/marginPlus"
+                    style="@style/ReaderStepperBtn"
+                    app:icon="@drawable/ic_add"
+                    android:contentDescription="@string/stepper_increase" />
+            </LinearLayout>
+
+            <!-- ============ Top & Bottom Margin toggle ============ -->
+            <TextView style="@style/ReaderSettingLabel" android:text="@string/reader_bottom_margin" />
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/bottomMarginSwitch"
+                style="@style/ReaderSwitchRow"
+                android:text="@string/reader_bottom_margin_summary"
+                android:textColor="?android:textColorSecondary"
+                android:textSize="13sp" />
+
+            <!-- ============ Hyphenation toggle ============ -->
+            <TextView style="@style/ReaderSettingLabel" android:text="@string/reader_hyphenation" />
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/hyphenationSwitch"
+                style="@style/ReaderSwitchRow"
+                android:text="@string/reader_hyphenation_summary"
+                android:textColor="?android:textColorSecondary"
+                android:textSize="13sp" />
+
+            <!-- ============ Page Turn Animation toggle (Patch 17, Addition #2) ============ -->
+            <TextView style="@style/ReaderSettingLabel" android:text="@string/reader_page_turn_animation" />
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/pageTurnAnimSwitch"
+                style="@style/ReaderSwitchRow"
+                android:text="@string/reader_page_turn_animation_summary"
+                android:textColor="?android:textColorSecondary"
+                android:textSize="13sp" />
+
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+</LinearLayout>

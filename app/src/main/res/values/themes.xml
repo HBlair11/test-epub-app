@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Light (main app / bookshelf). -->
+    <style name="Theme.EpubReader" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/light_bg</item>
+        <!-- System bars are always solid black across the whole app, regardless
+             of reading theme. The status bar and navigation bar sit above a
+             black DrawerLayout/root background, and their own colors are black
+             too, so no themed color (mint/eggplant/etc.) ever bleeds through. -->
+        <item name="android:statusBarColor">@color/black</item>
+        <item name="android:navigationBarColor">@color/black</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowTranslucentStatus">false</item>
+        <item name="android:enforceStatusBarContrast" tools:targetApi="q">false</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="q">false</item>
+        <item name="android:fitsSystemWindows">true</item>
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorPrimaryVariant">@color/accent_dark</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/secondary</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="android:colorBackground">@color/light_bg</item>
+        <item name="colorSurface">@color/light_surface</item>
+        <item name="colorOnSurface">@color/light_text</item>
+        <item name="android:textColorPrimary">@color/light_text</item>
+        <item name="android:textColorSecondary">@color/light_text_muted</item>
+    </style>
+
+    <!--
+      Reader activity. The chrome (top/bottom bars, overlays) is STATIC:
+      eggplant background + white text/icons, regardless of the reading
+      theme (light/sepia/dark) and regardless of app day/night. Only the
+      EPUB content area (WebView) changes with the reading theme.
+    -->
+    <style name="Theme.EpubReader.Reader" parent="Theme.EpubReader">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowBackground">@color/reader_chrome_bg</item>
+        <item name="android:statusBarColor">@color/black</item>
+        <item name="android:navigationBarColor">@color/black</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:enforceStatusBarContrast" tools:targetApi="q">false</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="q">false</item>
+        <item name="android:colorBackground">@color/reader_chrome_bg</item>
+        <item name="colorSurface">@color/reader_chrome_surface</item>
+        <item name="colorOnSurface">@color/reader_chrome_text</item>
+        <item name="android:textColorPrimary">@color/reader_chrome_text</item>
+        <item name="android:textColorSecondary">@color/reader_chrome_text_muted</item>
+        <!-- Settings sheet: static chrome (plum bg + white text + mint accents). -->
+        <item name="bottomSheetDialogTheme">@style/Theme.EpubReader.Reader.Sheet</item>
+    </style>
+
+    <!-- Settings sheet: dark chrome surface, white labels, mint controls.
+         Same always-black system bars as the reader, so opening the settings
+         bottom sheet never flips the status/nav bar to a non-black color. -->
+    <style name="Theme.EpubReader.Reader.Sheet" parent="Theme.MaterialComponents.DayNight.BottomSheetDialog">
+        <item name="android:statusBarColor">@color/black</item>
+        <item name="android:navigationBarColor">@color/black</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:enforceStatusBarContrast" tools:targetApi="q">false</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="q">false</item>
+        <item name="colorSurface">@color/reader_chrome_surface</item>
+        <item name="colorPrimary">@color/reader_chrome_accent</item>
+        <item name="colorOnPrimary">@color/palette_eggplant</item>
+        <item name="android:textColorPrimary">@color/reader_chrome_text</item>
+        <item name="android:textColorSecondary">@color/reader_chrome_text_muted</item>
+    </style>
+
+    <!-- Patch 17 (Issue #1): full-screen reader settings ACTIVITY. Same static
+         dark chrome as the reader (eggplant bg, white text, mint accent) so the
+         settings screen is visually continuous with the reader it launches from.
+         Replaces the old BottomSheet settings sheet. -->
+    <style name="Theme.EpubReader.Settings" parent="Theme.EpubReader.Reader">
+        <item name="android:windowBackground">@color/reader_chrome_bg</item>
+        <item name="android:colorBackground">@color/reader_chrome_bg</item>
+        <item name="colorSurface">@color/reader_chrome_surface</item>
+        <item name="colorOnSurface">@color/reader_chrome_text</item>
+        <item name="colorPrimary">@color/reader_chrome_accent</item>
+        <item name="colorOnPrimary">@color/palette_eggplant</item>
+        <item name="android:textColorPrimary">@color/reader_chrome_text</item>
+        <item name="android:textColorSecondary">@color/reader_chrome_text_muted</item>
+    </style>
+</resources>

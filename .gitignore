@@ -1,0 +1,24 @@
+# Gradle / build artifacts
+.gradle/
+build/
+app/build/
+*/build/
+*.iml
+.kotlin/
+
+# Local SDK path (machine-specific)
+local.properties
+
+# IntelliJ / Android Studio
+.idea/
+*.ipr
+*.iws
+captures/
+
+# OS
+.DS_Store
+
+# Keystore (never commit signing keys)
+*.jks
+*.keystore
+keystore.properties

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <!-- Semi-transparent eggplant pill so the persistent page indicator
+         (white text) stays readable over both light and dark content. -->
+    <solid android:color="@color/reader_chrome_scrim" />
+    <corners android:radius="10dp" />
+</shape>

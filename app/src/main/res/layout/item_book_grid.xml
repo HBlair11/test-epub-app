@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="@dimen/app_grid_edge_h"
+    android:layout_marginEnd="@dimen/app_grid_edge_h"
+    android:layout_marginBottom="14dp"
+    app:cardBackgroundColor="?attr/colorSurface"
+    app:cardCornerRadius="6dp"
+    app:cardElevation="1dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="6dp">
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <!-- Kindle-style tall cover: height = 1.5 * width (portrait) -->
+            <ImageView
+                android:id="@+id/cover"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:background="@drawable/cover_frame"
+                android:contentDescription="@string/book_author"
+                android:scaleType="centerCrop"
+                app:layout_constraintDimensionRatio="H,1:1.5"
+                app:layout_constraintTop_toTopOf="parent" />
+
+            <!-- Progress % badge, top-right corner of cover -->
+            <TextView
+                android:id="@+id/progressBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/badge_bg"
+                android:paddingStart="6dp"
+                android:paddingTop="2dp"
+                android:paddingEnd="6dp"
+                android:paddingBottom="2dp"
+                android:textColor="@color/dark_text"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                app:layout_constraintEnd_toEndOf="@id/cover"
+                app:layout_constraintTop_toTopOf="@id/cover" />
+
+            <!-- Thin progress bar along the bottom of the cover -->
+            <View
+                android:id="@+id/progressTrack"
+                android:layout_width="0dp"
+                android:layout_height="3dp"
+                android:background="@color/progress_track"
+                app:layout_constraintBottom_toBottomOf="@id/cover"
+                app:layout_constraintStart_toStartOf="@id/cover"
+                app:layout_constraintEnd_toEndOf="@id/cover" />
+
+            <View
+                android:id="@+id/progressFill"
+                android:layout_width="0dp"
+                android:layout_height="3dp"
+                android:background="@color/progress_fill"
+                app:layout_constraintBottom_toBottomOf="@id/cover"
+                app:layout_constraintStart_toStartOf="@id/cover"
+                app:layout_constraintEnd_toEndOf="@id/progressTrack" />
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+        <TextView
+            android:id="@+id/title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="7dp"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textColor="?android:textColorPrimary"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/author"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="?android:textColorSecondary"
+            android:textSize="11sp" />
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

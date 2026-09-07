@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      ============================================================
+      PATCH 18 (Addition #2): APP-WIDE SPACING SCALE — SINGLE SOURCE
+      OF TRUTH for margins and padding across the whole app (reader
+      chrome, overlays, reader settings, main-app top bar, nav drawer,
+      book cards, search/recently-added/book-details screens, list rows).
+
+      Rule: every layout references these names instead of hardcoding dp.
+      To change a spacing app-wide, edit the value here once.
+
+      NOT covered here (left as-is, intentionally):
+        • WebView reader CONTENT margins — those come from prefs.margin
+          (user setting) injected into the reader CSS, NOT layout padding.
+        • status-bar / nav-bar window insets (handled in code/themes).
+        • the WebView column-gap (2 * prefs.margin).
+      ============================================================
+    -->
+
+    <!-- Horizontal padding from the screen edge to content. Used by the
+         main-app top bar, list screens (search / recently added / book
+         details), reader chrome rows, and overlay title rows. -->
+    <dimen name="app_screen_edge_h">16dp</dimen>
+
+    <!-- Vertical padding for a chrome bar (top bar / bottom bar). -->
+    <dimen name="app_chrome_padding_v">6dp</dimen>
+    <!-- Horizontal padding inside a chrome bar (around its icon buttons).
+         Patch 19: 10dp so the 44dp icon button's centered 24dp glyph lands at
+         the 20dp visible keyline (10dp edge + 10dp inset), matching the reader
+         settings content keyline. Reader chrome only. -->
+    <dimen name="app_chrome_padding_h">10dp</dimen>
+
+    <!-- Icon glyph inset within a 44dp icon button = (44-24)/2 = 10dp.
+         Text rows / seeker / search box / list content that must align with the
+         icon GLYPH use this as horizontal padding within a 10dp chrome container,
+         landing at the 20dp visible keyline. -->
+    <dimen name="app_reader_icon_inset">10dp</dimen>
+
+    <!-- The book RecyclerView edge padding (grid + list). Slightly less than
+         app_screen_edge_h so book covers align to a wider content gutter
+         while the toolbar stays at the standard edge. -->
+    <dimen name="app_grid_edge_h">10dp</dimen>
+
+    <!-- Padding inside a list row / book card (horizontal). -->
+    <dimen name="app_row_padding_h">12dp</dimen>
+    <!-- Vertical padding inside a list row. -->
+    <dimen name="app_row_padding_v">8dp</dimen>
+
+    <!-- Vertical gap between stacked rows / blocks. -->
+    <dimen name="app_row_spacing">8dp</dimen>
+
+    <!-- Padding inside a card / surface (book details rows, overlay panels). -->
+    <dimen name="app_card_padding">16dp</dimen>
+
+    <!-- Icon button touch target size (reader top bar, overlays). -->
+    <dimen name="app_icon_button_size">44dp</dimen>
+    <!-- Seeker prev/next button touch target size. -->
+    <dimen name="app_seeker_button_size">40dp</dimen>
+
+    <!-- Small text-row horizontal padding (title/author next to a back button). -->
+    <dimen name="app_text_row_padding_h">6dp</dimen>
+
+    <!-- Horizontal padding for a full-width list ROW (drawer items, TOC rows,
+         search results, bookmarks, author/series rows, book-detail rows).
+         Patch 18 (Addition #2) standardizes these — several rows previously
+         used asymmetric start/end values (e.g. 20dp/8dp, 18dp/14dp); they now
+         all share this single value. -->
+    <dimen name="app_row_content_padding_h">20dp</dimen>
+</resources>

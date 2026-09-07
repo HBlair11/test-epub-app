@@ -1,0 +1,135 @@
+name: Release
+
+
+# Build a production-signed APK and publish a GitHub Release when a v* tag is pushed.
+# Release signing is intentionally separate from the permanent debug key.
+# Required GitHub repository secrets:
+#   EPUB_APP_RELEASE_KEYSTORE_BASE64
+#   EPUB_APP_RELEASE_KEYSTORE_PASSWORD
+#   EPUB_APP_RELEASE_KEY_ALIAS
+#   EPUB_APP_RELEASE_KEY_PASSWORD
+
+
+on:
+  push:
+    tags: [ 'v*' ]
+
+
+jobs:
+  release:
+    name: Build Release APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to create a GitHub Release
+
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platform-tools
+            platforms;android-35
+            build-tools;35.0.0
+
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # ----------------------------------------------------------
+      # Validation
+      # ----------------------------------------------------------
+
+      - name: Kotlin compile check
+        run: ./gradlew compileDebugKotlin --console=plain --no-daemon --stacktrace
+
+      - name: Resource check
+        run: ./gradlew mergeDebugResources --console=plain --no-daemon --stacktrace
+
+      # ----------------------------------------------------------
+      # Production release signing
+      # ----------------------------------------------------------
+
+      - name: Decode production release keystore
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.EPUB_APP_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          set -e
+          test -n "$KEYSTORE_BASE64"
+          echo "$KEYSTORE_BASE64" | base64 --decode > app/the-livre-magicae-release.jks
+          chmod 600 app/the-livre-magicae-release.jks
+
+      - name: Write production signing properties
+        shell: bash
+        env:
+          STORE_PASSWORD: ${{ secrets.EPUB_APP_RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.EPUB_APP_RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.EPUB_APP_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -e
+          test -n "$STORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
+          {
+            echo "storeFile=app/the-livre-magicae-release.jks"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > keystore.properties
+          chmod 600 keystore.properties
+
+      - name: Build release APK
+        run: ./gradlew assembleRelease --console=plain --no-daemon --stacktrace
+
+
+      - name: Verify production APK signing certificate
+        shell: bash
+        run: |
+          set -e
+          APK=app/build/outputs/apk/release/the-livre-magicae.apk
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --print-certs "$APK"
+
+      - name: Verify no INTERNET permission
+        run: |
+          APK=app/build/outputs/apk/release/the-livre-magicae.apk
+          AAPT2=${ANDROID_HOME}/build-tools/35.0.0/aapt2
+          "$AAPT2" dump permissions "$APK"
+          ! "$AAPT2" dump permissions "$APK" | grep -qi "android.permission.INTERNET"
+
+
+      - name: Rename APK with tag
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          cp app/build/outputs/apk/release/the-livre-magicae.apk the-livre-magicae-${TAG}.apk
+          ls -la the-livre-magicae-${TAG}.apk
+
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: the-livre-magicae-*.apk

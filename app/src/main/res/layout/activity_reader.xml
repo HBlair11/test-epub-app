@@ -1,0 +1,363 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- Measurement WebView (behind the main one so it never intercepts touches).
+         INVISIBLE (not GONE) so it still measures + lays out for page counting. -->
+    <WebView
+        android:id="@+id/measureWebView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="invisible" />
+
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/reader_bg_light" />
+
+    <!-- Snapshot overlay for seamless cross-chapter transitions: a bitmap of the
+         page being left is shown here, then faded out once the target chapter's
+         page is positioned + revealed (see capturePageSnapshot/dismissPageSnapshot).
+         Sits above the reading WebView, below chrome and overlays. -->
+    <ImageView
+        android:id="@+id/snapshotView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@string/reader_contents"
+        android:scaleType="fitStart"
+        android:visibility="gone" />
+
+    <!-- Persistent page indicator: faint "X / Y" above the nav bar,
+         visible only during normal reading (hidden when chrome/overlays open).
+         No background pill — blends into the page like Kindle/ReadEra.
+         Text color is the reader ink at reduced alpha (set in applyWindowTheme)
+         so it contrasts with the page but stays unobtrusive. -->
+    <TextView
+        android:id="@+id/tvPageIndicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="6dp"
+        android:alpha="0.55"
+        android:textColor="@color/white"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
+    <!-- Top bar (4 rows) -->
+    <LinearLayout
+        android:id="@+id/topBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?android:colorBackground"
+        android:elevation="6dp"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/app_chrome_padding_h"
+        android:paddingTop="@dimen/app_text_row_padding_h"
+        android:paddingEnd="@dimen/app_chrome_padding_h"
+        android:paddingBottom="@dimen/app_chrome_padding_v"
+        android:visibility="gone">
+
+        <!-- Row 1: controls — back (left) + toc/bookmark/search/settings (right). -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/btnBack"
+                style="@style/EpubReaderIconButton"
+                android:contentDescription="@string/confirm"
+                app:srcCompat="@drawable/ic_arrow_back" />
+
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <ImageButton
+                android:id="@+id/btnToc"
+                style="@style/EpubReaderIconButton"
+                android:contentDescription="@string/action_toc"
+                app:srcCompat="@drawable/ic_toc" />
+
+            <ImageButton
+                android:id="@+id/btnBookmarks"
+                style="@style/EpubReaderIconButton"
+                android:contentDescription="@string/action_bookmarks"
+                app:srcCompat="@drawable/ic_bookmarks_view" />
+
+            <ImageButton
+                android:id="@+id/btnSearch"
+                style="@style/EpubReaderIconButton"
+                android:contentDescription="@string/action_search"
+                app:srcCompat="@drawable/ic_search" />
+
+            <ImageButton
+                android:id="@+id/btnSettings"
+                style="@style/EpubReaderIconButton"
+                android:contentDescription="@string/action_settings"
+                app:srcCompat="@drawable/ic_settings" />
+        </LinearLayout>
+
+        <!-- Row 2: book title (bold, full width). -->
+        <TextView
+            android:id="@+id/tvBookTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingStart="@dimen/app_reader_icon_inset"
+            android:paddingEnd="@dimen/app_reader_icon_inset"
+            android:textColor="?android:textColorPrimary"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <!-- Row 3: author (+ series - book# if available), light, start-aligned. -->
+        <TextView
+            android:id="@+id/tvAuthorSeries"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingStart="@dimen/app_reader_icon_inset"
+            android:paddingEnd="@dimen/app_reader_icon_inset"
+            android:textColor="?android:textColorSecondary"
+            android:textSize="13sp" />
+
+        <!-- Row 4: current TOC section name + page X/Y within that section. -->
+        <TextView
+            android:id="@+id/tvSectionPages"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingStart="@dimen/app_reader_icon_inset"
+            android:paddingEnd="@dimen/app_reader_icon_inset"
+            android:textColor="?android:textColorSecondary"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <!-- Bottom bar: chapter nav + progress + bold whole-book page X/Y -->
+    <LinearLayout
+        android:id="@+id/bottomBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="?android:colorBackground"
+        android:elevation="6dp"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/app_chrome_padding_h"
+        android:paddingTop="@dimen/app_chrome_padding_v"
+        android:paddingEnd="@dimen/app_chrome_padding_h"
+        android:paddingBottom="@dimen/app_chrome_padding_v"
+        android:visibility="gone">
+
+        <!-- Patch 20: removed the prev/next chevron row. The timeline seeker
+             stands alone, as requested. The persistent page indicator
+             (tvPageIndicator, shown above the nav bar during reading) still
+             displays "page X / Y". -->
+
+        <!-- Patch 22: restored the page X / Y label inside the reader bottom
+             bar (it was dropped when the chevron row was removed). Sits at the
+             top of the bar, above the timeline seeker, at the same 20dp keyline
+             and subtle secondary tone. This also gives the seeker proper
+             vertical breathing room (was cramped against the bar's top edge). -->
+        <TextView
+            android:id="@+id/tvPageInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:paddingStart="@dimen/app_reader_icon_inset"
+            android:paddingEnd="@dimen/app_reader_icon_inset"
+            android:paddingBottom="@dimen/app_chrome_padding_v"
+            android:textColor="?android:textColorPrimary"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <SeekBar
+            android:id="@+id/seekChapter"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="@dimen/app_reader_icon_inset"
+            android:paddingEnd="@dimen/app_reader_icon_inset"
+            android:progressTint="@color/reader_chrome_accent"
+            android:thumbTint="@color/reader_chrome_accent" />
+
+        <!-- Percent + Add Bookmark row: same vertical breathing room as the
+             icon-button rows above (app_chrome_padding_v on top). Text sits at
+             the 20dp keyline via paddingStart/End = app_reader_icon_inset. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/app_chrome_padding_v"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tvPercent"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:paddingStart="@dimen/app_reader_icon_inset"
+                android:textColor="?android:textColorPrimary"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/tvAddBookmark"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:drawablePadding="6dp"
+                android:padding="4dp"
+                android:paddingEnd="@dimen/app_reader_icon_inset"
+                android:text="@string/add_bookmark"
+                android:textColor="@color/reader_chrome_text"
+                android:textSize="14sp"
+                app:drawableStartCompat="@drawable/ic_bookmark_add"
+                app:drawableTint="@color/reader_chrome_text" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Full-screen Contents + Bookmarks overlay -->
+    <FrameLayout
+        android:id="@+id/tocBookmarkOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="?android:colorBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="@dimen/app_chrome_padding_h"
+                android:paddingTop="@dimen/app_chrome_padding_v"
+                android:paddingEnd="@dimen/app_chrome_padding_h"
+                android:paddingBottom="@dimen/app_chrome_padding_v">
+
+                <ImageButton
+                    android:id="@+id/btnOverlayBack"
+                    style="@style/EpubReaderIconButton"
+                    android:contentDescription="@string/confirm"
+                    app:srcCompat="@drawable/ic_arrow_back" />
+
+                <TextView
+                    android:id="@+id/tvOverlayTitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:gravity="center"
+                    android:maxLines="1"
+                    android:paddingStart="@dimen/app_reader_icon_inset"
+                    android:paddingEnd="@dimen/app_reader_icon_inset"
+                    android:textColor="?android:textColorPrimary"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <!-- Balance the 44dp back button so the centered title is truly
+                     centered on screen (symmetric left/right weight). -->
+                <Space
+                    android:layout_width="@dimen/app_icon_button_size"
+                    android:layout_height="@dimen/app_icon_button_size" />
+            </LinearLayout>
+
+            <com.google.android.material.button.MaterialButtonToggleGroup
+                android:id="@+id/overlayTabGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="@dimen/app_row_content_padding_h"
+                android:paddingEnd="@dimen/app_row_content_padding_h"
+                android:paddingBottom="@dimen/app_chrome_padding_v"
+                app:singleSelection="true"
+                app:selectionRequired="true">
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnTabContents"
+                    style="@style/ReaderToggleBtn"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:text="@string/reader_tab_contents" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnTabBookmarks"
+                    style="@style/ReaderToggleBtn"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:text="@string/reader_tab_bookmarks" />
+            </com.google.android.material.button.MaterialButtonToggleGroup>
+
+            <FrameLayout
+                android:id="@+id/overlayContent"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- Full-screen Search overlay -->
+    <LinearLayout
+        android:id="@+id/searchOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="?android:colorBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <!-- Row 1: back arrow at the chrome keyline (glyph lands at 20dp),
+             toolbar-height. Mirror of the TOC/bookmark overlay header. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="?attr/actionBarSize"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/app_chrome_padding_h"
+            android:paddingTop="@dimen/app_chrome_padding_v"
+            android:paddingEnd="@dimen/app_chrome_padding_h"
+            android:paddingBottom="@dimen/app_chrome_padding_v">
+
+            <ImageButton
+                android:id="@+id/btnSearchBack"
+                style="@style/EpubReaderIconButton"
+                android:contentDescription="@string/confirm"
+                app:srcCompat="@drawable/ic_arrow_back" />
+        </LinearLayout>
+
+        <!-- Row 2: search box full-width at the 20dp content keyline so its
+             left/right edges align with the search results below (item rows at
+             20dp). Equal margin on both sides = symmetric on all edges. -->
+        <EditText
+            android:id="@+id/searchEdit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/app_row_content_padding_h"
+            android:layout_marginTop="@dimen/app_row_padding_v"
+            android:layout_marginEnd="@dimen/app_row_content_padding_h"
+            android:layout_marginBottom="@dimen/app_row_padding_v"
+            android:background="@drawable/reader_search_input_bg"
+            android:hint="@string/reader_search_hint"
+            android:imeOptions="actionSearch"
+            android:inputType="text"
+            android:padding="@dimen/app_row_padding_h"
+            android:textColor="@color/reader_chrome_text"
+            android:textColorHint="@color/reader_chrome_text_muted"
+            android:textSize="15sp" />
+
+        <FrameLayout
+            android:id="@+id/searchContent"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+    </LinearLayout>
+</FrameLayout>
