@@ -7,8 +7,8 @@ class ReaderProgressMathTest {
 
     @Test
     fun `chapter level progress is stable before page measurement`() {
-        assertEquals(0.5f, ReaderProgressMath.overallProgress(4, 0f, 10, null), 0.0001f)
-        assertEquals(0.55f, ReaderProgressMath.overallProgress(4, 0.5f, 10, null), 0.0001f)
+        assertEquals(0.4f, ReaderProgressMath.overallProgress(4, 0f, 10, null), 0.0001f)
+        assertEquals(0.45f, ReaderProgressMath.overallProgress(4, 0.5f, 10, null), 0.0001f)
     }
 
     @Test

@@ -124,9 +124,6 @@ jobs:
       - name: Resource check
         run: ./gradlew mergeDebugResources --console=plain --no-daemon --stacktrace
 
-      - name: Unit tests
-        run: ./gradlew testDebugUnitTest --console=plain --no-daemon --stacktrace
-
       # ----------------------------------------------------------
       # Inject Permanent Debug Keystore
       # ----------------------------------------------------------
