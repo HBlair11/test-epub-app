@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [BookEntity::class, BookmarkEntity::class, CollectionEntity::class, BookCollectionRef::class],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -43,10 +43,7 @@ abstract class AppDatabase : RoomDatabase() {
         private val MIGRATION_3_4 =
             object : Migration(3, 4) {
                 override fun migrate(database: SupportSQLiteDatabase) {
-                    // page_map_csv: cached synthetic "book page" map (ADE byte-mapping).
-                    // Font/layout-independent, computed once on import. Nullable because
-                    // pre-existing books have no cached map yet (computed lazily on
-                    // first open). See EpubPageMap.
+                    // page_map_csv: legacy ADE byte-map retained for backward compatibility.
                     database.execSQL("ALTER TABLE books ADD COLUMN page_map_csv TEXT")
                 }
             }
@@ -68,6 +65,18 @@ abstract class AppDatabase : RoomDatabase() {
                 }
             }
 
+
+        private val MIGRATION_6_7 =
+            object : Migration(6, 7) {
+                override fun migrate(database: SupportSQLiteDatabase) {
+                    // Screen-accurate page counts are tied to the reader viewport
+                    // and typography settings, so they are cached separately from
+                    // the old ADE byte-map.
+                    database.execSQL("ALTER TABLE books ADD COLUMN screen_page_map_csv TEXT")
+                    database.execSQL("ALTER TABLE books ADD COLUMN screen_page_layout_key TEXT")
+                }
+            }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room
@@ -75,7 +84,7 @@ abstract class AppDatabase : RoomDatabase() {
                         context.applicationContext,
                         AppDatabase::class.java,
                         "epub.db",
-                    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build()
                     .also { INSTANCE = it }
             }

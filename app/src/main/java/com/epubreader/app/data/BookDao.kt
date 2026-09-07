@@ -71,10 +71,12 @@ interface BookDao {
         lastOpened: Long
     )
 
-    /** Cache the synthetic book-page map (ADE byte-mapping) so the total page
-     *  count is instant on every reopen. Computed once on import. */
+    /** Legacy ADE page map retained for backward compatibility. */
     @Query("UPDATE books SET page_map_csv = :csv WHERE id = :id")
     suspend fun updatePageMap(id: Long, csv: String)
+
+    @Query("UPDATE books SET screen_page_map_csv = :csv, screen_page_layout_key = :layoutKey WHERE id = :id")
+    suspend fun updateScreenPageMap(id: Long, csv: String, layoutKey: String)
 
     @Query(
         """

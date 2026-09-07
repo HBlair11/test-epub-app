@@ -211,7 +211,6 @@
     <string name="import_unsupported_file">Only EPUB files can be imported.</string>
     <string name="import_failed">Could not import this file.</string>
 
-    <string name="reader_chapter_of_chapters">Chapter %1$d of %2$d</string>
     <string name="metadata_refresh_report_summary">%1$d EPUBs scanned</string>
     <string name="metadata_refresh_report_counts">✓ %1$d updated   = %2$d unchanged   ! %3$d need attention   × %4$d failed</string>
     <string name="metadata_refresh_detail_updated">Metadata updated.</string>

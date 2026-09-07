@@ -1,5 +1,7 @@
 package com.epubreader.app
 
+import com.epubreader.app.util.SystemBarController
+
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -232,6 +234,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        SystemBarController.apply(this)
         setSupportActionBar(binding.toolbar)
 
         setupDrawer()
@@ -1107,8 +1110,11 @@ class MainActivity : AppCompatActivity() {
 
         val treeUri = Uri.parse(uriString)
 
-        viewModel.setScanning(true)
-
+        // Metadata refresh is deliberately a silent background job. Unlike the
+        // user-facing folder scan, it must not activate the SwipeRefresh spinner
+        // or otherwise restrict navigation while it runs. The tracked Job keeps
+        // duplicate refreshes from starting, and the completion snackbar appears
+        // wherever the user is in the app when the work finishes.
         scanJob =
             lifecycleScope.launch(Dispatchers.IO) {
 
@@ -1165,10 +1171,7 @@ class MainActivity : AppCompatActivity() {
                     }
 
                 } finally {
-
-                    withContext(Dispatchers.Main) {
-                        viewModel.setScanning(false)
-                    }
+                    // No scanning-state UI is used for metadata refresh.
                 }
             }
     }

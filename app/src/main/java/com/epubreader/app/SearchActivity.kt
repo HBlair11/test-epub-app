@@ -1,5 +1,7 @@
 package com.epubreader.app
 
+import com.epubreader.app.util.SystemBarController
+
 import android.content.Intent
 import android.os.Bundle
 import android.text.Editable
@@ -37,6 +39,7 @@ class SearchActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivitySearchBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        SystemBarController.apply(this)
         setSupportActionBar(binding.searchToolbar)
         binding.searchToolbar.setNavigationOnClickListener { finish() }
 

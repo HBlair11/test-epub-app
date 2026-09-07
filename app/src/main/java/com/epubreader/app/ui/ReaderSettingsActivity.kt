@@ -1,5 +1,7 @@
 package com.epubreader.app.ui
 
+import com.epubreader.app.util.SystemBarController
+
 import android.os.Bundle
 import android.view.View
 import android.widget.ArrayAdapter
@@ -72,6 +74,7 @@ class ReaderSettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityReaderSettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        SystemBarController.apply(this)
 
         // Lift content clear of the navigation bar so the last toggle is never
         // flush with the phone nav buttons (mirrors the old sheet's inset logic).

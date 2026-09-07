@@ -51,4 +51,18 @@ class BookImportIdentityTest {
         val books = listOf(book(1, "a", filename = "Book.epub"), book(2, "b", filename = "Book.epub"))
         assertNull(BookImportIdentity.match(BookImportIdentity.Lookup.fromBooks(books), null, "new", null, "Book.epub"))
     }
+    @Test
+    fun `filename fallback skips conflicting identifier`() {
+        val books = listOf(book(1, "a", filename = "Book.epub", identifier = "id-a"))
+        assertNull(
+            BookImportIdentity.match(
+                BookImportIdentity.Lookup.fromBooks(books),
+                null,
+                "new",
+                "id-b",
+                "Book.epub",
+            )
+        )
+    }
+
 }

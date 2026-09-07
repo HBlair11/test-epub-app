@@ -1,5 +1,7 @@
 package com.epubreader.app
 
+import com.epubreader.app.util.SystemBarController
+
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -18,6 +20,7 @@ class MetadataRefreshActivity : AppCompatActivity() {
             ActivityMetadataRefreshBinding.inflate(layoutInflater)
 
         setContentView(binding.root)
+        SystemBarController.apply(this)
 
         setSupportActionBar(binding.toolbar)
 

@@ -22,13 +22,4 @@ object ReaderProgressMath {
         return ((index + ratio) / spineCount.toFloat()).coerceIn(0f, 1f)
     }
 
-    fun syntheticPageInSpine(scrollRatio: Float, pageCount: Int): Int {
-        val pages = pageCount.coerceAtLeast(1)
-        if (pages <= 1) return 0
-        return (scrollRatio.coerceIn(0f, 1f) * (pages - 1))
-            .roundToInt()
-            .coerceIn(0, pages - 1)
-    }
-
-    private fun Float.roundToInt(): Int = kotlin.math.round(this).toInt()
 }

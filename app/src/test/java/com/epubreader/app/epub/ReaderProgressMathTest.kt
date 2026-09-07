@@ -21,11 +21,4 @@ class ReaderProgressMathTest {
         )
     }
 
-    @Test
-    fun `synthetic page clamps ratio and page count`() {
-        assertEquals(0, ReaderProgressMath.syntheticPageInSpine(-1f, 1))
-        assertEquals(0, ReaderProgressMath.syntheticPageInSpine(0f, 5))
-        assertEquals(2, ReaderProgressMath.syntheticPageInSpine(0.5f, 5))
-        assertEquals(4, ReaderProgressMath.syntheticPageInSpine(2f, 5))
-    }
 }

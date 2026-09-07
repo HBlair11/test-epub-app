@@ -66,4 +66,13 @@ class ReaderPageMappingTest {
             assertEquals(absolute, ReaderPageMapping.absolutePage(prefix, spine, page))
         }
     }
+    @Test
+    fun `each absolute page resolves to its exact screen page`() {
+        val counts = intArrayOf(3, 5)
+        assertEquals(0 to 0, ReaderPageMapping.spineAndPageFor(counts, 0))
+        assertEquals(0 to 2, ReaderPageMapping.spineAndPageFor(counts, 2))
+        assertEquals(1 to 0, ReaderPageMapping.spineAndPageFor(counts, 3))
+        assertEquals(1 to 4, ReaderPageMapping.spineAndPageFor(counts, 7))
+    }
+
 }

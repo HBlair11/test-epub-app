@@ -498,11 +498,10 @@ class EpubImporter(
                 sourceFilename = sourceFilename ?: existing?.sourceFilename ?: working.name,
                 sourceLastModified = if (sourceLastModified > 0L) sourceLastModified else existing?.sourceLastModified
                     ?: 0L,
-                // page_map_csv (ADE byte-map) is no longer used by the reader as of
-                // Patch 9 — page counts come from a real offscreen layout pass again
-                // (Patch 7 behavior). The column is kept for schema stability; we
-                // only preserve any value a previous install may have cached.
+                // Preserve the legacy ADE map for schema/backward compatibility.
                 pageMapCsv = existing?.pageMapCsv,
+                screenPageMapCsv = existing?.takeIf { it.checksum == checksum }?.screenPageMapCsv,
+                screenPageLayoutKey = existing?.takeIf { it.checksum == checksum }?.screenPageLayoutKey,
             )
         val id =
             if (existing != null) {
@@ -597,6 +596,8 @@ class EpubImporter(
                 sourceLastModified = if (sourceLastModified > 0L) sourceLastModified else existing?.sourceLastModified
                     ?: 0L,
                 pageMapCsv = existing?.pageMapCsv,
+                screenPageMapCsv = existing?.takeIf { it.checksum == checksum }?.screenPageMapCsv,
+                screenPageLayoutKey = existing?.takeIf { it.checksum == checksum }?.screenPageLayoutKey,
             )
         return PreparedImport(entity, existing == null)
     }

@@ -40,6 +40,8 @@ class AppDatabaseSmokeTest {
                 isFavorite = true,
                 isCurrentlyReading = true,
                 progress = 0.42f,
+                screenPageMapCsv = "4,7,3",
+                screenPageLayoutKey = "test-layout",
             )
         )
 
@@ -48,5 +50,7 @@ class AppDatabaseSmokeTest {
         assertEquals(0.42f, loaded?.progress ?: 0f, 0.0001f)
         assertEquals(true, loaded?.isFavorite)
         assertEquals(true, loaded?.isCurrentlyReading)
+        assertEquals("4,7,3", loaded?.screenPageMapCsv)
+        assertEquals("test-layout", loaded?.screenPageLayoutKey)
     }
 }

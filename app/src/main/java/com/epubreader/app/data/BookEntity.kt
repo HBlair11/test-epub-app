@@ -43,10 +43,12 @@ data class BookEntity(
     /** Source file's last-modified epoch millis — used to skip re-parsing
      *  unchanged files on rescan (size + mtime + name match). */
     @ColumnInfo(name = "source_last_modified") val sourceLastModified: Long = 0L,
-    /** Cached synthetic "book page" map (ADE byte-mapping): comma-separated
-     *  per-spine page counts, e.g. "3,5,2,4". Font/layout-independent, so it is
-     *  computed once on import and never invalidated by reader settings changes.
-     *  Null for books imported before this column existed (computed lazily on
-     *  first open, then cached). */
+    /** Legacy ADE byte-map retained for schema/backward compatibility. The active
+     *  reader no longer uses this synthetic page model. */
     @ColumnInfo(name = "page_map_csv") val pageMapCsv: String? = null,
+    /** Screen-accurate page counts measured for the current reader layout. */
+    @ColumnInfo(name = "screen_page_map_csv") val screenPageMapCsv: String? = null,
+    /** Layout fingerprint for [screenPageMapCsv], so cached pages are reused only
+     *  when the reader viewport/settings match the measurement. */
+    @ColumnInfo(name = "screen_page_layout_key") val screenPageLayoutKey: String? = null,
 )

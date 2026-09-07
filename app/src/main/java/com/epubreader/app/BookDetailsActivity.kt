@@ -1,5 +1,7 @@
 package com.epubreader.app
 
+import com.epubreader.app.util.SystemBarController
+
 import android.content.Intent
 import android.os.Bundle
 import android.text.format.DateFormat
@@ -44,6 +46,7 @@ class BookDetailsActivity : AppCompatActivity() {
 
         binding = ActivityBookDetailsBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        SystemBarController.apply(this)
 
         importer = EpubImporter(applicationContext)
 
