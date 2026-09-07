@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -30,7 +32,7 @@ android {
         // Production release signing is opt-in and comes from the local
         // keystore.properties file. Never commit that file or the keystore.
         if (productionSigningProperties.exists()) {
-            val releaseProperties = java.util.Properties().apply {
+            val releaseProperties = Properties().apply {
                 productionSigningProperties.inputStream().use { load(it) }
             }
             create("productionRelease") {
