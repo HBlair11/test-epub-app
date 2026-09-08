@@ -72,6 +72,9 @@ class ReaderActivity : AppCompatActivity() {
     private var pendingFragment: String? = null
     private var chromeVisible: Boolean = false
     private var restoreRatio: Float? = null
+    /** Exact in-chapter page to restore after a cross-spine page seek. This uses
+     *  the same Caesura page index that the visible reader already uses. */
+    private var pendingTargetPageInChapter: Int? = null
 
     /** spineIndex -> section label, derived from the embedded nav TOC (not toc.xhtml). */
     private var tocSectionMap: Map<Int, String> = emptyMap()
@@ -91,6 +94,20 @@ class ReaderActivity : AppCompatActivity() {
     private var userSeeking = false
     private var pendingSeekProgress: Int? = null
     private var progressRequestToken = 0
+
+    /** Temporary reader navigation history. Only explicit navigation events are recorded;
+     * normal page turns and layout restores are intentionally not. */
+    private data class ReaderLocation(
+        val spineIndex: Int,
+        val pageInChapter: Int,
+        val ratio: Float,
+    )
+
+    private val backHistory = ArrayDeque<ReaderLocation>()
+    private val forwardHistory = ArrayDeque<ReaderLocation>()
+    private var restoringHistoryLocation = false
+    private var manualSeekTouch = false
+    private var manualSeekFinished = false
 
     private var pendingProgressValue = 0f
     private var pendingProgressSpine = 0
@@ -422,6 +439,7 @@ class ReaderActivity : AppCompatActivity() {
                 expectedMeasureUrl = null
                 updatePageIndicator()
                 enablePerPageSeeker()
+                updateHistoryUi()
             } else {
                 loadForMeasurement(measuringIndex)
             }
@@ -462,6 +480,7 @@ class ReaderActivity : AppCompatActivity() {
                 expectedMeasureUrl = null
                 updatePageIndicator()
                 enablePerPageSeeker()
+                updateHistoryUi()
             } else {
                 loadForMeasurement(measuringIndex)
             }
@@ -536,18 +555,18 @@ class ReaderActivity : AppCompatActivity() {
         binding.btnSearch.setOnClickListener { showSearchOverlay() }
         binding.btnSettings.setOnClickListener { showSettings() }
         binding.tvAddBookmark.setOnClickListener { addBookmark() }
+        binding.readerHistoryBack.setOnClickListener { goBackInReaderHistory() }
+        binding.readerHistoryForward.setOnClickListener { goForwardInReaderHistory() }
+        binding.readerHistoryClear.setOnClickListener { clearReaderHistory() }
+        updateHistoryUi()
 
         binding.seekChapter.setOnSeekBarChangeListener(
             object : SeekBar.OnSeekBarChangeListener {
 
-                override fun onStartTrackingTouch(
-                    sb: SeekBar?
-                ) {
+                override fun onStartTrackingTouch(sb: SeekBar?) {
                     userSeeking = true
-                    pendingSeekProgress =
-                        sb?.progress
-
-                    // Invalidate any progress request that is currently in flight.
+                    manualSeekFinished = false
+                    pendingSeekProgress = sb?.progress
                     progressRequestToken++
                 }
 
@@ -557,47 +576,59 @@ class ReaderActivity : AppCompatActivity() {
                     fromUser: Boolean,
                 ) {
                     if (!fromUser) return
-
-                    // Do NOT navigate while the finger is moving.
-                    //
-                    // The SeekBar itself already moves visually.
-                    // We only remember the latest requested position.
                     pendingSeekProgress = progress
                 }
 
-                override fun onStopTrackingTouch(
-                    sb: SeekBar?
-                ) {
-                    val target =
-                        pendingSeekProgress
-                            ?: sb?.progress
-
-                    pendingSeekProgress = null
-                    userSeeking = false
-
-                    if (target == null) {
-                        handler.postDelayed(
-                            { pollProgress() },
-                            100L
-                        )
+                override fun onStopTrackingTouch(sb: SeekBar?) {
+                    if (manualSeekFinished) {
+                        manualSeekFinished = false
                         return
                     }
-
-                    if (perPageSeekerActive) {
-                        seekToAbsolutePage(target)
-                    } else {
-                        goToSpine(target)
-                    }
-
-                    // Give the WebView a moment to complete the final navigation
-                    // before asking it for its authoritative position.
-                    handler.postDelayed(
-                        { pollProgress() },
-                        150L
-                    )
+                    finishSeek(sb?.progress ?: pendingSeekProgress)
                 }
             }
         )
+
+        // Let the platform SeekBar own the drag gesture. The only custom touch
+        // handling is on ACTION_UP: correct the final thumb position from the
+        // actual touch coordinate before the normal OnStopTrackingTouch callback
+        // resolves the seek. This preserves the existing tap behavior and avoids
+        // intercepting the drag stream or issuing repeated WebView navigations.
+        binding.seekChapter.setOnTouchListener { view, event ->
+            val sb = view as SeekBar
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    manualSeekTouch = true
+                    userSeeking = true
+                    manualSeekFinished = false
+                    progressRequestToken++
+                    false
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    if (manualSeekTouch) {
+                        val finalProgress = progressForSeekTouch(sb, event.x)
+                        if (finalProgress != sb.progress) {
+                            sb.progress = finalProgress
+                        }
+                        pendingSeekProgress = finalProgress
+                    }
+                    manualSeekTouch = false
+                    false
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    manualSeekTouch = false
+                    pendingSeekProgress = null
+                    userSeeking = false
+                    false
+                }
+
+                else -> false
+            }
+        }
+
+
 
         val detector =
             android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
@@ -640,6 +671,132 @@ class ReaderActivity : AppCompatActivity() {
         binding.webView.setOnTouchListener { _, event -> detector.onTouchEvent(event); false }
     }
 
+
+    private fun progressForSeekTouch(sb: SeekBar, x: Float): Int {
+        val usableWidth = (sb.width - sb.paddingLeft - sb.paddingRight).coerceAtLeast(1)
+        val localX = (x - sb.paddingLeft).coerceIn(0f, usableWidth.toFloat())
+        val fraction = localX / usableWidth.toFloat()
+        return (fraction * sb.max).roundToInt().coerceIn(0, sb.max)
+    }
+
+    private fun finishSeek(target: Int?) {
+        val resolved = target ?: sbProgressFallback()
+        pendingSeekProgress = null
+        userSeeking = false
+        if (resolved == null) {
+            handler.postDelayed({ pollProgress() }, 100L)
+            return
+        }
+
+        val current = captureReaderLocation()
+        if (!restoringHistoryLocation && current != null) {
+            val targetLocation = locationForAbsolutePage(resolved)
+            if (targetLocation == null || !sameLocation(current, targetLocation)) {
+                pushHistory(current)
+            }
+        }
+
+        if (perPageSeekerActive) {
+            seekToAbsolutePage(resolved)
+        } else {
+            goToSpine(resolved)
+        }
+
+        handler.postDelayed({ pollProgress() }, 150L)
+    }
+
+    private fun sbProgressFallback(): Int? =
+        binding.seekChapter.progress.takeIf { binding.seekChapter.max >= 0 }
+
+    private fun captureReaderLocation(): ReaderLocation? {
+        if (spineIndex < 0 || spineIndex >= (epub?.spine?.size ?: 0)) return null
+        return ReaderLocation(spineIndex, currentPageInChapter.coerceAtLeast(0), currentScrollRatio.coerceIn(0f, 1f))
+    }
+
+    private fun locationForAbsolutePage(absolute: Int): ReaderLocation? {
+        val counts = chapterPageCounts ?: return null
+        if (counts.isEmpty() || counts.any { it < 0 }) return null
+        val (spine, page) = ReaderPageMapping.spineAndPageFor(counts, absolute)
+        val count = counts[spine].coerceAtLeast(1)
+        val ratio = if (count > 1) page / (count - 1).toFloat() else 0f
+        return ReaderLocation(spine, page, ratio)
+    }
+
+    private fun sameLocation(a: ReaderLocation, b: ReaderLocation): Boolean =
+        a.spineIndex == b.spineIndex &&
+                kotlin.math.abs(a.ratio - b.ratio) < 0.01f &&
+                a.pageInChapter == b.pageInChapter
+
+    private fun pushHistory(location: ReaderLocation) {
+        val last = backHistory.lastOrNull()
+        if (last != null && sameLocation(last, location)) return
+        backHistory.addLast(location)
+        forwardHistory.clear()
+        updateHistoryUi()
+    }
+
+    private fun goBackInReaderHistory() {
+        if (backHistory.isEmpty()) return
+        val target = backHistory.removeLast()
+        val current = captureReaderLocation()
+        if (current != null) forwardHistory.addLast(current)
+        restoringHistoryLocation = true
+        updateHistoryUi()
+        navigateToReaderLocation(target)
+    }
+
+    private fun goForwardInReaderHistory() {
+        if (forwardHistory.isEmpty()) return
+        val target = forwardHistory.removeLast()
+        val current = captureReaderLocation()
+        if (current != null) backHistory.addLast(current)
+        restoringHistoryLocation = true
+        updateHistoryUi()
+        navigateToReaderLocation(target)
+    }
+
+    private fun clearReaderHistory() {
+        backHistory.clear()
+        forwardHistory.clear()
+        updateHistoryUi()
+    }
+
+    private fun navigateToReaderLocation(location: ReaderLocation) {
+        val count = chapterPageCounts?.getOrNull(location.spineIndex)?.coerceAtLeast(1) ?: 1
+        val ratio = if (count > 1) location.pageInChapter.coerceIn(0, count - 1) / (count - 1).toFloat() else location.ratio
+        restoreRatio = ratio.coerceIn(0f, 1f)
+        if (location.spineIndex == spineIndex) {
+            binding.webView.evaluateJavascript(
+                "if(window.Caesura){window.Caesura.gotoPage(${location.pageInChapter.coerceAtLeast(0)},false);}"
+            ) {
+                restoringHistoryLocation = false
+                handler.postDelayed({ pollProgress() }, 80L)
+                updateHistoryUi()
+            }
+        } else {
+            loadChapter(location.spineIndex)
+        }
+    }
+
+    private fun historyPageLabel(location: ReaderLocation): String {
+        val counts = chapterPageCounts
+        if (counts != null && counts.isNotEmpty() && counts.none { it < 0 }) {
+            val prefix = ReaderPageMapping.prefixSums(counts)
+            val page = (prefix.getOrNull(location.spineIndex) ?: 0) + location.pageInChapter + 1
+            return page.toString()
+        }
+        return (location.pageInChapter + 1).toString()
+    }
+
+    private fun updateHistoryUi() {
+        val hasBack = backHistory.isNotEmpty()
+        val hasForward = forwardHistory.isNotEmpty()
+        binding.readerHistory.visibility = if (hasBack || hasForward) View.VISIBLE else View.GONE
+        binding.readerHistoryBack.visibility = if (hasBack) View.VISIBLE else View.INVISIBLE
+        binding.readerHistoryForward.visibility = if (hasForward) View.VISIBLE else View.INVISIBLE
+        if (hasBack) binding.readerHistoryBack.text = getString(R.string.reader_history_back, historyPageLabel(backHistory.last()))
+        if (hasForward) binding.readerHistoryForward.text = getString(R.string.reader_history_forward, historyPageLabel(forwardHistory.last()))
+    }
     // Patch 16 (Issue #2): returns true if the confirmed tap landed on a link
     // inside the WebView. hitTestResult is queried immediately (the touch is
     // still in the DOWN -> UP window when onSingleTapConfirmed fires), and an
@@ -1303,6 +1460,11 @@ body * { background-color: transparent !important; }
         val frag = if ('#' in parts[1]) parts[1].substringAfter('#') else null
         val idx = book.spine.indexOfFirst { it.href == entryPath }
         if (idx >= 0) {
+            if (!restoringHistoryLocation) {
+                captureReaderLocation()?.let { current ->
+                    pushHistory(current)
+                }
+            }
             pendingFragment = frag
             if (idx != spineIndex) loadChapter(idx) else {
                 capturePageSnapshot(forward = false); applyPendingFragmentOrRestore()
@@ -1341,12 +1503,9 @@ body * { background-color: transparent !important; }
         binding.seekChapter.progress = abs.coerceIn(0, binding.seekChapter.max)
     }
 
-    /** Dragging the per-page seeker: resolve the synthetic absolute page to a
-     *  (spine, page) pair and navigate there. Within a spine the synthetic page
-     *  maps to an in-chapter ratio which positions the real screen page via the
-     *  Caesura JS (proportional, since one book page may span several screen
-     *  pages). Cross-chapter seeks load the target spine and restore to the
-     *  target page via the restore-ratio path (no first-page flash). */
+    /** Dragging the whole-book seeker: resolve the absolute rendered page to an
+     *  exact (spine, page) pair and use the same Caesura pagination API that the
+     *  existing tap/TOC navigation already uses. */
     private fun seekToAbsolutePage(absolute: Int) {
         val counts = chapterPageCounts ?: return
         if (counts.isEmpty() || counts.any { it < 0 }) return
@@ -1354,31 +1513,25 @@ body * { background-color: transparent !important; }
         val pagesInSpine = counts[targetSpine].coerceAtLeast(1)
         val ratio = if (pagesInSpine > 1) pageInSpine / (pagesInSpine - 1).toFloat() else 0f
         if (targetSpine == spineIndex) {
-            // Patch 9: crossfade the seeker jump too — capture the current page,
-            // position the target page instantly, then slide/clear the snapshot.
+            // Reuse the visible reader's real pagination. The target is already an
+            // exact Caesura page index, so do not convert it through a ratio.
             capturePageSnapshot(forward = absolute >= currentAbsoluteBookPage())
-            // Position the real screen page proportionally (synthetic page -> ratio).
             binding.webView.evaluateJavascript(
-                "if(window.Caesura){var pc=window.Caesura.pageCount();window.Caesura.gotoPage(Math.round(($ratio)*Math.max(0,pc-1)),false);}"
+                "if(window.Caesura){window.Caesura.gotoPage(${pageInSpine.coerceAtLeast(0)},false);}"
             ) {
-
-                currentScrollRatio =
-                    ratio.coerceIn(0f, 1f)
-
+                currentPageInChapter = pageInSpine.coerceIn(0, pagesInSpine - 1)
+                currentScrollRatio = ratio.coerceIn(0f, 1f)
                 updateOverallProgress()
                 updatePageIndicator()
                 updateSectionPages()
-
                 dismissPageSnapshot()
-
-                // Ask the WebView for its actual final position after the scroll
-                // has had a chance to settle.
-                handler.postDelayed(
-                    { pollProgress() },
-                    80L
-                )
+                handler.postDelayed({ pollProgress() }, 80L)
             }
         } else {
+            // Carry the exact rendered page across the chapter load. Using only a
+            // ratio here was the source of the old "chapter starts at page 1" drag
+            // behavior when the target chapter had a different pagination geometry.
+            pendingTargetPageInChapter = pageInSpine
             restoreRatio = ratio
             goToSpine(targetSpine)
         }
@@ -1481,6 +1634,8 @@ body * { background-color: transparent !important; }
     private fun applyPendingFragmentOrRestore() {
         val frag = pendingFragment
         pendingFragment = null
+        val targetPage = pendingTargetPageInChapter
+        pendingTargetPageInChapter = null
         if (frag != null) {
             val safe = frag.replace("'", "")
             binding.webView.evaluateJavascript(
@@ -1490,6 +1645,19 @@ body * { background-color: transparent !important; }
                 dismissPageSnapshot()
                 // Refresh indicator + seeker right away so they reflect the
                 // restored page instead of waiting for the next 1.5s poll.
+                restoringHistoryLocation = false
+                updateHistoryUi()
+                handler.post { pollProgress() }
+            }
+        } else if (targetPage != null) {
+            binding.webView.evaluateJavascript(
+                "if(window.Caesura){window.Caesura.gotoPage(${targetPage.coerceAtLeast(0)},false);}"
+            ) {
+                binding.webView.alpha = 1f
+                dismissPageSnapshot()
+                restoreRatio = null
+                restoringHistoryLocation = false
+                updateHistoryUi()
                 handler.post { pollProgress() }
             }
         } else {
@@ -1501,11 +1669,15 @@ body * { background-color: transparent !important; }
                 ) {
                     binding.webView.alpha = 1f
                     dismissPageSnapshot()
+                    restoringHistoryLocation = false
+                    updateHistoryUi()
                     handler.post { pollProgress() }
                 }
             } else {
                 binding.webView.alpha = 1f
                 dismissPageSnapshot()
+                restoringHistoryLocation = false
+                updateHistoryUi()
                 handler.post { pollProgress() }
             }
         }
@@ -1544,7 +1716,13 @@ body * { background-color: transparent !important; }
             val parts = result.trim('\"').split(",")
             if (parts.size != 3) return
             currentPageInChapter = parts[0].toIntOrNull() ?: 0
-            pagesInChapter = parts[1].toIntOrNull() ?: 1
+            pagesInChapter = parts[1].toIntOrNull()?.coerceAtLeast(1) ?: 1
+            // The visible WebView already knows the real rendered page count for
+            // the chapter immediately. Reuse that information instead of making
+            // the background measurement pass rediscover the current chapter.
+            chapterPageCounts?.let { counts ->
+                if (spineIndex in counts.indices) counts[spineIndex] = pagesInChapter
+            }
             val r = parts[2].toFloatOrNull() ?: return
             currentScrollRatio = r.coerceIn(0f, 1f)
             updateOverallProgress()
@@ -1624,25 +1802,15 @@ body * { background-color: transparent !important; }
         binding.tvPageInfo.text = text
     }
 
-    /** Current synthetic "book page" within the current spine, derived from the
-     *  in-chapter scroll ratio (0..1). Because the synthetic count is stable
-     *  across font/layout changes, multiple screen swipes can advance one book
-     *  page (and one swipe can advance several) — the ReadEra/Kindle behavior. */
-    private fun syntheticPageInSpine(): Int {
-        val counts = chapterPageCounts ?: return 0
-        if (spineIndex !in counts.indices) return 0
-        val inSpine = counts[spineIndex].coerceAtLeast(1)
-        if (inSpine <= 1) return 0
-        return (currentScrollRatio * (inSpine - 1)).roundToInt().coerceIn(0, inSpine - 1)
-    }
-
-    /** Absolute synthetic book page (1-based total position) for the current
-     *  spine + ratio. */
+    /** Current rendered page within the current spine, using the page count that
+     *  the visible Caesura WebView reports for the active chapter. */
     private fun currentAbsoluteBookPage(): Int {
         val counts = chapterPageCounts ?: return 0
-        if (counts.isEmpty()) return 0
+        if (counts.isEmpty() || spineIndex !in counts.indices) return 0
         val prefix = ReaderPageMapping.prefixSums(counts)
-        return (prefix.getOrNull(spineIndex) ?: 0) + syntheticPageInSpine()
+        val pageCount = counts[spineIndex].coerceAtLeast(1)
+        val page = currentPageInChapter.coerceIn(0, pageCount - 1)
+        return (prefix.getOrNull(spineIndex) ?: 0) + page
     }
 
     /**
@@ -1671,9 +1839,11 @@ body * { background-color: transparent !important; }
         } else {
             val range = sectionSpineRange()
             val total = range.sumOf { counts.getOrNull(it)?.coerceAtLeast(0) ?: 0 }.coerceAtLeast(1)
-            // Prior section pages (synthetic) + this spine's synthetic page.
+            // Prior section pages + the exact rendered page reported by the
+            // visible WebView for the current spine item.
             val prior = (range.first until spineIndex).sumOf { counts.getOrNull(it)?.coerceAtLeast(0) ?: 0 }
-            val cur = (prior + syntheticPageInSpine() + 1).coerceIn(1, total)
+            val current = currentPageInChapter.coerceIn(0, counts.getOrNull(spineIndex)?.coerceAtLeast(1)?.minus(1) ?: 0)
+            val cur = (prior + current + 1).coerceIn(1, total)
             "$label - $cur/$total"
         }
         binding.tvSectionPages.text = text
@@ -1858,6 +2028,9 @@ body * { background-color: transparent !important; }
 
     // ---------------------------------------------------------------- bookmarks
     private fun goToBookmark(b: BookmarkEntity) {
+        if (!restoringHistoryLocation) {
+            captureReaderLocation()?.let { pushHistory(it) }
+        }
         pendingFragment = null
         restoreRatio = b.scrollRatio
         if (b.spineIndex != spineIndex) loadChapter(b.spineIndex) else {
