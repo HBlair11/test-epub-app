@@ -150,9 +150,9 @@
         android:background="?android:colorBackground"
         android:elevation="6dp"
         android:orientation="vertical"
-        android:paddingStart="@dimen/app_chrome_padding_h"
-        android:paddingTop="@dimen/app_chrome_padding_v"
-        android:paddingEnd="@dimen/app_chrome_padding_h"
+        android:paddingStart="0dp"
+        android:paddingTop="0dp"
+        android:paddingEnd="0dp"
         android:paddingBottom="@dimen/app_chrome_padding_v"
         android:visibility="gone">
 
@@ -161,20 +161,28 @@
              (tvPageIndicator, shown above the nav bar during reading) still
              displays "page X / Y". -->
 
-    <!-- Reader history: separate full-width visual section attached to the bottom chrome. -->
-    <LinearLayout
+    <!-- Reader history: full-width visual section attached directly to the top of the bottom chrome.
+         The background belongs to this outer container; the inner content below follows the
+         app-wide 20dp content keyline. -->
+    <FrameLayout
         android:id="@+id/readerHistory"
         android:layout_width="match_parent"
-        android:layout_height="40dp"
+        android:layout_height="48dp"
+        android:layout_marginStart="0dp"
+        android:layout_marginEnd="0dp"
         android:layout_marginTop="0dp"
         android:layout_marginBottom="8dp"
-        android:background="?attr/colorSurface"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="@dimen/app_row_content_padding_h"
-        android:paddingEnd="@dimen/app_row_content_padding_h"
-        android:visibility="gone"
-        android:elevation="0dp">
+        android:background="?android:colorBackground"
+        android:elevation="0dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/app_row_content_padding_h"
+            android:paddingEnd="@dimen/app_row_content_padding_h">
 
         <TextView
             android:id="@+id/readerHistoryBack"
@@ -196,8 +204,8 @@
             android:layout_height="match_parent"
             android:background="@android:color/transparent"
             android:gravity="center"
-            android:paddingStart="18dp"
-            android:paddingEnd="18dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
             android:text="@string/reader_history_clear"
             android:textColor="@color/reader_history_text"
             android:textSize="12sp"
@@ -217,8 +225,8 @@
             android:textSize="12sp"
             android:clickable="true"
             android:focusable="true" />
-
-    </LinearLayout>
+        </LinearLayout>
+    </FrameLayout>
 
 
         <!-- Patch 22: restored the page X / Y label inside the reader bottom
@@ -230,9 +238,10 @@
             android:id="@+id/tvPageInfo"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/app_chrome_padding_v"
             android:gravity="center"
-            android:paddingStart="@dimen/app_reader_icon_inset"
-            android:paddingEnd="@dimen/app_reader_icon_inset"
+            android:paddingStart="@dimen/app_row_content_padding_h"
+            android:paddingEnd="@dimen/app_row_content_padding_h"
             android:paddingBottom="@dimen/app_chrome_padding_v"
             android:textColor="?android:textColorPrimary"
             android:textSize="14sp"
@@ -242,8 +251,8 @@
             android:id="@+id/seekChapter"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:paddingStart="@dimen/app_reader_icon_inset"
-            android:paddingEnd="@dimen/app_reader_icon_inset"
+            android:paddingStart="@dimen/app_row_content_padding_h"
+            android:paddingEnd="@dimen/app_row_content_padding_h"
             android:progressTint="@color/reader_chrome_accent"
             android:thumbTint="@color/reader_chrome_accent" />
 
@@ -261,7 +270,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:paddingStart="@dimen/app_reader_icon_inset"
+                android:paddingStart="@dimen/app_row_content_padding_h"
                 android:textColor="?android:textColorPrimary"
                 android:textSize="14sp" />
 
@@ -271,7 +280,7 @@
                 android:layout_height="wrap_content"
                 android:drawablePadding="6dp"
                 android:padding="4dp"
-                android:paddingEnd="@dimen/app_reader_icon_inset"
+                android:paddingEnd="@dimen/app_row_content_padding_h"
                 android:text="@string/add_bookmark"
                 android:textColor="@color/reader_chrome_text"
                 android:textSize="14sp"
