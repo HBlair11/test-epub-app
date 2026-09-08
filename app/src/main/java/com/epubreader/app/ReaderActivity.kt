@@ -19,6 +19,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import kotlin.math.roundToInt
 import android.widget.SeekBar
 import android.widget.ImageView
 import android.widget.TextView
@@ -39,7 +40,6 @@ import com.epubreader.app.epub.EpubParser
 import com.epubreader.app.epub.EpubResourceResolver
 import com.epubreader.app.epub.EpubSearchEngine
 import com.epubreader.app.epub.ReaderPageMapping
-import com.epubreader.app.epub.ReaderProgressMath
 import com.epubreader.app.ui.BookmarkAdapter
 import com.epubreader.app.ui.ReaderSettingsActivity
 import com.epubreader.app.ui.ReaderTheme
@@ -72,7 +72,6 @@ class ReaderActivity : AppCompatActivity() {
     private var pendingFragment: String? = null
     private var chromeVisible: Boolean = false
     private var restoreRatio: Float? = null
-    private var pendingTargetPageInChapter: Int? = null
 
     /** spineIndex -> section label, derived from the embedded nav TOC (not toc.xhtml). */
     private var tocSectionMap: Map<Int, String> = emptyMap()
@@ -80,12 +79,13 @@ class ReaderActivity : AppCompatActivity() {
     /** ordered (spineIndex,label) sections for nearest-previous fallback. */
     private var tocSections: List<Pair<Int, String>> = emptyList()
 
-    /** Real screen-page counts measured by the same layout engine used for reading
-     *  (-1 = not measured yet). */
+    /** Per-chapter page counts measured by the measurement WebView (-1 = not measured yet). */
     private var chapterPageCounts: IntArray? = null
 
-    /** True when the whole-book real screen-page map is available, so the bottom
-     *  timeline can seek directly to individual pages. */
+    /** Once every chapter's page count is measured, the bottom timeline switches
+     *  from chapter-level (max = spine.size-1) to per-page (max = total pages-1),
+     *  so dragging the seeker lands on the exact page instead of the chapter's
+     *  first page. */
     private var perPageSeekerActive: Boolean = false
 
     private var userSeeking = false
@@ -109,22 +109,12 @@ class ReaderActivity : AppCompatActivity() {
 
     private var measuringIndex: Int = -1
     private var measuringLoaded: Int = -1
-    private var measurementOrder: IntArray = intArrayOf()
-    private var measurementOrderPosition: Int = 0
 
     @Volatile
     private var measureCancelled: Boolean = false
 
     private var measureGeneration: Int = 0
     private var activeMeasureGeneration: Int = 0
-
-    companion object {
-        const val EXTRA_BOOK_ID = "book_id"
-        const val PAGE_LAYOUT_VERSION = 3
-
-        /** Patch 17 (Addition #2): slide duration for the page-turn snapshot. */
-        const val PAGE_TURN_DURATION_MS = 340L
-    }
     private var expectedMeasureUrl: String? = null
 
     private var readerGeneration: Int = 0
@@ -161,7 +151,15 @@ class ReaderActivity : AppCompatActivity() {
                 }
             }
 
-            advanceMeasurement()
+            measuringIndex = index + 1
+
+            if (measuringIndex >= book.spine.size) {
+                measuring = false
+                expectedMeasureUrl = null
+                updatePageIndicator()
+            } else {
+                loadForMeasurement(measuringIndex)
+            }
         }
     }
 
@@ -182,15 +180,11 @@ class ReaderActivity : AppCompatActivity() {
         SystemBarController.apply(this)
         applyWindowTheme()
 
-        // Keep reader content below the phone system bars. The system-bar helper
-        // paints the exposed inset areas black; this inset keeps the WebView and
-        // reader chrome from being drawn underneath them.
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             insets
         }
-
 
         bookId = intent.getLongExtra(EXTRA_BOOK_ID, -1L)
         if (bookId < 0) {
@@ -420,7 +414,17 @@ class ReaderActivity : AppCompatActivity() {
                 }
             }
 
-            advanceMeasurement()
+            measuringIndex = index + 1
+
+            val book = epub
+            if (book == null || measuringIndex >= book.spine.size) {
+                measuring = false
+                expectedMeasureUrl = null
+                updatePageIndicator()
+                enablePerPageSeeker()
+            } else {
+                loadForMeasurement(measuringIndex)
+            }
         }
     }
 
@@ -433,20 +437,6 @@ class ReaderActivity : AppCompatActivity() {
 
         return url.contains("measure=$generation") &&
                 url.contains("idx=$index")
-    }
-
-    private fun advanceMeasurement() {
-        val book = epub ?: return
-        measurementOrderPosition += 1
-        if (measurementOrderPosition >= measurementOrder.size) {
-            measuring = false
-            expectedMeasureUrl = null
-            persistScreenPageCounts()
-            updatePageIndicator()
-            enablePerPageSeeker()
-            return
-        }
-        loadForMeasurement(measurementOrder[measurementOrderPosition])
     }
 
     private fun loadForMeasurement(index: Int) {
@@ -465,7 +455,16 @@ class ReaderActivity : AppCompatActivity() {
         val item = book.spine[index]
         val html = buildChapterHtml(item.href) ?: run {
             chapterPageCounts?.set(index, 1)
-            advanceMeasurement()
+            measuringIndex = index + 1
+
+            if (measuringIndex >= book.spine.size) {
+                measuring = false
+                expectedMeasureUrl = null
+                updatePageIndicator()
+                enablePerPageSeeker()
+            } else {
+                loadForMeasurement(measuringIndex)
+            }
             return
         }
 
@@ -505,29 +504,12 @@ class ReaderActivity : AppCompatActivity() {
 
         measureCancelled = false
         measuring = true
+        measuringIndex = 0
         measuringLoaded = -1
         expectedMeasureUrl = null
 
-        // Prioritize the chapter the reader is currently viewing, then chapters
-        // immediately around it. The remaining chapters are measured quietly
-        // afterward while the reader remains fully usable.
-        val order = ArrayList<Int>(book.spine.size)
-        fun add(index: Int) {
-            if (index in book.spine.indices && index !in order) order += index
-        }
-        add(spineIndex)
-        var distance = 1
-        while (order.size < book.spine.size) {
-            add(spineIndex - distance)
-            add(spineIndex + distance)
-            distance += 1
-        }
-        measurementOrder = order.toIntArray()
-        measurementOrderPosition = 0
-        measuringIndex = measurementOrder.firstOrNull() ?: -1
-
         binding.measureWebView.post {
-            if (measuringIndex >= 0) loadForMeasurement(measuringIndex)
+            loadForMeasurement(0)
         }
     }
 
@@ -539,8 +521,6 @@ class ReaderActivity : AppCompatActivity() {
         measuring = false
         measuringIndex = -1
         measuringLoaded = -1
-        measurementOrder = intArrayOf()
-        measurementOrderPosition = 0
         expectedMeasureUrl = null
 
         handler.removeCallbacks(measureWatchdog)
@@ -762,33 +742,28 @@ class ReaderActivity : AppCompatActivity() {
             spineIndex = entity.spineIndex.coerceIn(0, parsed.spine.lastIndex)
             restoreRatio = entity.scrollRatio.takeIf { it > 0f }
 
-            // Screen-accurate page counts are measured from the same paginated
-            // WebView layout used by the reader. If this exact reader layout was
-            // measured previously, restore the cached per-spine counts immediately
-            // and make the whole-book page seeker available without waiting.
-            // Otherwise the indicator shows the familiar ellipsis while a background
-            // measurement pass calculates the real pages.
+            // Patch 7 behavior: page counts come from a REAL offscreen layout pass
+            // (the measureWebView), not the ADE byte-map. The total therefore
+            // reflects the current font / size / margins / line-height and changes
+            // when you change reader settings — one screen page == one book page,
+            // like Calibre / Readium. Counts start at -1 ("not measured yet") and
+            // are filled in chapter-by-chapter in the background; the bottom
+            // seeker switches to per-page once every chapter has been measured.
+            // (Patch 8's EpubPageMap / page_map_csv instant-stable totals are no
+            // longer used for the reader; the DB column is left in place so
+            // existing installs don't need a schema downgrade.)
+            chapterPageCounts = IntArray(parsed.spine.size) { -1 }
+
             withContext(Dispatchers.Main) {
                 bindBookHeader(parsed)
-                val layoutKey = currentPageLayoutKey()
-                val cached = parseScreenPageCounts(entity.screenPageMapCsv, entity.screenPageLayoutKey, layoutKey, parsed.spine.size)
-                chapterPageCounts = cached ?: IntArray(parsed.spine.size) { -1 }
-                perPageSeekerActive = cached != null
-                binding.seekChapter.max = if (perPageSeekerActive) {
-                    (ReaderPageMapping.totalPages(chapterPageCounts!!) - 1).coerceAtLeast(0)
-                } else {
-                    (parsed.spine.size - 1).coerceAtLeast(0)
-                }
-                binding.seekChapter.progress = if (perPageSeekerActive) {
-                    currentAbsoluteBookPage().coerceIn(0, binding.seekChapter.max)
-                } else {
-                    spineIndex
-                }
+                perPageSeekerActive = false
+                binding.seekChapter.max = (parsed.spine.size - 1).coerceAtLeast(0)
+                binding.seekChapter.progress = spineIndex
                 loadChapter(spineIndex, resetRatio = false)
                 binding.tvPageIndicator.visibility = View.VISIBLE
-                if (cached == null) {
-                    startMeasurement()
-                }
+                // Begin the background measurement pass; enablePerPageSeeker()
+                // is called from readMeasuredCount() once all chapters are done.
+                startMeasurement()
                 updatePageIndicator()
                 updateSectionPages()
             }
@@ -1343,9 +1318,9 @@ body * { background-color: transparent !important; }
         }
     }
 
-    /** Enable direct whole-book page seeking once the complete real screen-page
-     *  map is available. During measurement the seeker remains non-destructive and
-     *  the page indicator shows an ellipsis rather than a misleading chapter count. */
+    /** Switch the bottom timeline from chapter-level to per-page once every
+     *  chapter has been measured. Until then the seeker stays chapter-level so a
+     *  drag can never land on a chapter's first page by accident. */
     private fun enablePerPageSeeker() {
         val counts = chapterPageCounts ?: return
         if (counts.isEmpty() || counts.any { it < 0 }) return  // not ready yet
@@ -1360,14 +1335,18 @@ body * { background-color: transparent !important; }
         if (!perPageSeekerActive) return
         val counts = chapterPageCounts ?: return
         if (counts.isEmpty() || counts.any { it < 0 }) return
-        // Seeker position is the exact absolute screen-page index (prefix +
-        // actual page index reported by the paginated WebView).
+        // Seeker position = absolute synthetic book page (prefix + ratio-derived
+        // page within the current spine), so it tracks reading position smoothly.
         val abs = currentAbsoluteBookPage()
         binding.seekChapter.progress = abs.coerceIn(0, binding.seekChapter.max)
     }
 
-    /** Dragging the per-page seeker: resolve the absolute screen-page index to
-     *  a (spine, page) pair, then navigate to that exact WebView page. */
+    /** Dragging the per-page seeker: resolve the synthetic absolute page to a
+     *  (spine, page) pair and navigate there. Within a spine the synthetic page
+     *  maps to an in-chapter ratio which positions the real screen page via the
+     *  Caesura JS (proportional, since one book page may span several screen
+     *  pages). Cross-chapter seeks load the target spine and restore to the
+     *  target page via the restore-ratio path (no first-page flash). */
     private fun seekToAbsolutePage(absolute: Int) {
         val counts = chapterPageCounts ?: return
         if (counts.isEmpty() || counts.any { it < 0 }) return
@@ -1378,9 +1357,9 @@ body * { background-color: transparent !important; }
             // Patch 9: crossfade the seeker jump too — capture the current page,
             // position the target page instantly, then slide/clear the snapshot.
             capturePageSnapshot(forward = absolute >= currentAbsoluteBookPage())
-            // Position the exact real screen page in the current chapter.
+            // Position the real screen page proportionally (synthetic page -> ratio).
             binding.webView.evaluateJavascript(
-                "if(window.Caesura){window.Caesura.gotoPage($pageInSpine,false);}"
+                "if(window.Caesura){var pc=window.Caesura.pageCount();window.Caesura.gotoPage(Math.round(($ratio)*Math.max(0,pc-1)),false);}"
             ) {
 
                 currentScrollRatio =
@@ -1400,7 +1379,6 @@ body * { background-color: transparent !important; }
                 )
             }
         } else {
-            pendingTargetPageInChapter = pageInSpine
             restoreRatio = ratio
             goToSpine(targetSpine)
         }
@@ -1503,8 +1481,6 @@ body * { background-color: transparent !important; }
     private fun applyPendingFragmentOrRestore() {
         val frag = pendingFragment
         pendingFragment = null
-        val targetPage = pendingTargetPageInChapter
-        pendingTargetPageInChapter = null
         if (frag != null) {
             val safe = frag.replace("'", "")
             binding.webView.evaluateJavascript(
@@ -1514,16 +1490,6 @@ body * { background-color: transparent !important; }
                 dismissPageSnapshot()
                 // Refresh indicator + seeker right away so they reflect the
                 // restored page instead of waiting for the next 1.5s poll.
-                handler.post { pollProgress() }
-            }
-        } else if (targetPage != null) {
-            val safePage = targetPage.coerceAtLeast(0)
-            restoreRatio = null
-            binding.webView.evaluateJavascript(
-                "if(window.Caesura){window.Caesura.gotoPage($safePage,false);}"
-            ) {
-                binding.webView.alpha = 1f
-                dismissPageSnapshot()
                 handler.post { pollProgress() }
             }
         } else {
@@ -1592,16 +1558,18 @@ body * { background-color: transparent !important; }
     private fun updateOverallProgress() {
         val book = epub ?: return
         if (book.spine.isEmpty()) return
-        // Progress uses the measured screen-page map when available. During a
-        // first measurement it falls back to the chapter/scroll position.
-        // The persisted reading locator remains spine + scroll ratio.
+        // Keep the original reader progress/page model. Only Room persistence is
+        // debounced so WebView polling does not write on every callback.
         val counts = chapterPageCounts
-        val progress = ReaderProgressMath.overallProgress(
-            spineIndex = spineIndex,
-            scrollRatio = currentScrollRatio,
-            spineCount = book.spine.size,
-            pageCounts = counts,
-        )
+        val progress = if (counts != null && counts.isNotEmpty() && counts.none { it < 0 }) {
+            val total = ReaderPageMapping.totalPages(counts)
+            val prefix = ReaderPageMapping.prefixSums(counts)
+            val inSpine = counts.getOrNull(spineIndex)?.coerceAtLeast(1) ?: 1
+            val absolute = (prefix.getOrNull(spineIndex) ?: 0) + currentScrollRatio * inSpine
+            if (total <= 0) 0f else (absolute / total.toFloat()).coerceIn(0f, 1f)
+        } else {
+            ((spineIndex + currentScrollRatio) / book.spine.size).toFloat().coerceIn(0f, 1f)
+        }
         binding.tvPercent.text = "${(progress * 100).toInt()}%"
         pendingProgressValue = progress
         pendingProgressSpine = spineIndex
@@ -1635,39 +1603,6 @@ body * { background-color: transparent !important; }
         }
     }
 
-    /** Fingerprint of every setting/dimension that affects the real screen page count. */
-    private fun currentPageLayoutKey(): String {
-        val width = binding.webView.width.coerceAtLeast(resources.displayMetrics.widthPixels)
-        val height = binding.webView.height.coerceAtLeast(resources.displayMetrics.heightPixels)
-        return listOf(
-            PAGE_LAYOUT_VERSION, width, height, resources.displayMetrics.densityDpi,
-            prefs.font, prefs.fontSize, prefs.lineHeight, prefs.margin,
-            prefs.pageBottomMargin, prefs.hyphenation, prefs.align,
-        ).joinToString("|")
-    }
-
-    private fun parseScreenPageCounts(
-        csv: String?,
-        cachedLayoutKey: String?,
-        currentLayoutKey: String,
-        spineSize: Int,
-    ): IntArray? {
-        if (csv.isNullOrBlank() || cachedLayoutKey != currentLayoutKey) return null
-        val values = csv.split(',').mapNotNull { it.toIntOrNull() }
-        if (values.size != spineSize || values.any { it < 1 }) return null
-        return values.toIntArray()
-    }
-
-    private fun persistScreenPageCounts() {
-        val counts = chapterPageCounts ?: return
-        if (counts.isEmpty() || counts.any { it < 1 }) return
-        val csv = counts.joinToString(",")
-        val layoutKey = currentPageLayoutKey()
-        lifecycleScope.launch(Dispatchers.IO) {
-            db.bookDao().updateScreenPageMap(bookId, csv, layoutKey)
-        }
-    }
-
     /** Whole-book current page / total page indicator (persistent + bottom-bar bold). */
     private fun updatePageIndicator() {
         val counts = chapterPageCounts
@@ -1689,19 +1624,25 @@ body * { background-color: transparent !important; }
         binding.tvPageInfo.text = text
     }
 
-    /** Current real screen page within the current spine, as reported by the
-     * same paginated WebView that displays the book. This is deliberately based
-     * on the actual page index rather than a synthetic ratio, so the timeline
-     * lands on individual screen pages instead of approximate chapter positions. */
-    private fun currentPageInSpine(): Int =
-        currentPageInChapter.coerceIn(0, (pagesInChapter - 1).coerceAtLeast(0))
+    /** Current synthetic "book page" within the current spine, derived from the
+     *  in-chapter scroll ratio (0..1). Because the synthetic count is stable
+     *  across font/layout changes, multiple screen swipes can advance one book
+     *  page (and one swipe can advance several) — the ReadEra/Kindle behavior. */
+    private fun syntheticPageInSpine(): Int {
+        val counts = chapterPageCounts ?: return 0
+        if (spineIndex !in counts.indices) return 0
+        val inSpine = counts[spineIndex].coerceAtLeast(1)
+        if (inSpine <= 1) return 0
+        return (currentScrollRatio * (inSpine - 1)).roundToInt().coerceIn(0, inSpine - 1)
+    }
 
-    /** Absolute real screen-page index (0-based) in the measured book. */
+    /** Absolute synthetic book page (1-based total position) for the current
+     *  spine + ratio. */
     private fun currentAbsoluteBookPage(): Int {
         val counts = chapterPageCounts ?: return 0
-        if (counts.isEmpty() || spineIndex !in counts.indices) return 0
+        if (counts.isEmpty()) return 0
         val prefix = ReaderPageMapping.prefixSums(counts)
-        return (prefix.getOrNull(spineIndex) ?: 0) + currentPageInSpine()
+        return (prefix.getOrNull(spineIndex) ?: 0) + syntheticPageInSpine()
     }
 
     /**
@@ -1730,9 +1671,9 @@ body * { background-color: transparent !important; }
         } else {
             val range = sectionSpineRange()
             val total = range.sumOf { counts.getOrNull(it)?.coerceAtLeast(0) ?: 0 }.coerceAtLeast(1)
-            // Prior measured screen pages + the current real screen page.
+            // Prior section pages (synthetic) + this spine's synthetic page.
             val prior = (range.first until spineIndex).sumOf { counts.getOrNull(it)?.coerceAtLeast(0) ?: 0 }
-            val cur = (prior + currentPageInSpine() + 1).coerceIn(1, total)
+            val cur = (prior + syntheticPageInSpine() + 1).coerceIn(1, total)
             "$label - $cur/$total"
         }
         binding.tvSectionPages.text = text
@@ -2037,9 +1978,13 @@ body * { background-color: transparent !important; }
     private fun applySettingsAndReload() {
         applyWindowTheme()
 
-        // Reader settings change the real screen layout, so invalidate the current
-        // measured page map, reload the chapter, and re-measure in the background.
-        // The next open with the same layout can reuse the cached screen-page map.
+        // Patch 7 behavior: reader settings (font family / size / line height /
+        // margins / alignment) change the layout, so the per-chapter page counts
+        // must be RE-MEASURED — the total can change when you bump the font size,
+        // exactly like Calibre / Readium. Cancel any in-flight measurement, reset
+        // every chapter to "not measured yet," drop the per-page seeker back to
+        // chapter-level, reload the current chapter, and restart the offscreen
+        // measurement pass for the new layout.
         cancelMeasurement()
         val spineSize = epub?.spine?.size ?: 0
         chapterPageCounts = IntArray(spineSize) { -1 }
@@ -2060,7 +2005,6 @@ body * { background-color: transparent !important; }
         super.onPause()
         handler.removeCallbacks(progressPoller)
         handler.removeCallbacks(alphaFallback)
-        handler.removeCallbacks(persistProgressRunnable)
         updateOverallProgress()
         handler.removeCallbacks(persistProgressRunnable)
         persistProgressNow()
@@ -2096,5 +2040,13 @@ body * { background-color: transparent !important; }
         super.onDestroy()
     }
 
+    companion object {
+        const val EXTRA_BOOK_ID = "book_id"
 
+        /** Patch 17 (Addition #2): slide duration for the page-turn snapshot.
+         *  Longer than the old 220ms crossfade so the slide reads as a page turn
+         *  instead of a flicker. Tune this one number to speed up/slow down the
+         *  animation app-wide. */
+        const val PAGE_TURN_DURATION_MS = 340L
+    }
 }

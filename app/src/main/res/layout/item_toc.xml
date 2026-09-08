@@ -2,15 +2,17 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:layout_marginStart="@dimen/app_row_content_padding_h"
+    android:layout_marginEnd="@dimen/app_row_content_padding_h"
     android:background="@drawable/toc_item_background"
     android:clickable="true"
     android:focusable="true"
     android:gravity="center_vertical"
     android:minHeight="44dp"
     android:orientation="horizontal"
-    android:paddingStart="@dimen/app_row_content_padding_h"
+    android:paddingStart="0dp"
     android:paddingTop="10dp"
-    android:paddingEnd="@dimen/app_row_content_padding_h"
+    android:paddingEnd="0dp"
     android:paddingBottom="10dp">
 
     <View

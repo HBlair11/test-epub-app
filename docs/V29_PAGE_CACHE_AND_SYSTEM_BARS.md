@@ -1,27 +1,31 @@
-# The Livre Magicae v29 — screen-page caching, system bars, and background refresh
+# The Livre Magicae v29 — reader behavior, system bars, and background metadata refresh
 
-## Screen-accurate pages
+## Reader page numbers and seeker
 
-The reader now uses the actual paginated WebView page index for the whole-book page indicator and timeline. It no longer presents chapter numbers as a substitute for pages.
+v29 keeps the original reader page-number and seeker behavior from the pre-v28 reader implementation. The reader uses its existing offscreen WebView measurement pass to calculate per-chapter page counts in the background. While measurement is incomplete, the reader shows `…`; when measurement finishes it shows the familiar whole-book page display.
 
-On first open, or after a layout-affecting reader setting changes, the reader shows `…` while an offscreen measurement WebView calculates the real page count. The current chapter is measured first, followed by nearby chapters, then the remaining chapters. When the full map is complete, it is cached in Room.
+The seeker remains chapter-based until the original per-page map is fully measured. Once measurement completes, its existing per-page mapping behavior is used. This deliberately avoids the v29 screen-page cache/exact-page seeker experiment, which caused regressions in real-device behavior.
 
-The cache is keyed by the EPUB content checksum plus a reader-layout fingerprint containing viewport dimensions, density, font, font size, line height, margins, alignment, hyphenation, top/bottom margin, and a pagination algorithm version. A matching cache makes the exact `current page / total pages` and per-page seeker available immediately on the next open.
+Reader settings still invalidate the measured page counts and trigger a new background measurement because font, size, line height, margins, alignment, and related layout settings can change pagination.
 
-Changing a layout-affecting setting invalidates the active map and triggers a new background measurement. The existing reading position (spine + scroll ratio) is preserved.
+The v29 Room schema retains the nullable screen-page cache columns added in the earlier v29 build so an already-installed v29 database can migrate safely. They are not used by the active reader page/seeker implementation.
+
+## Reading-progress persistence
+
+The reader keeps the existing reading-position model but debounces Room progress writes. WebView polling updates the UI immediately, while database writes are delayed until the position changes materially or the reader is leaving the foreground.
 
 ## Metadata refresh
 
-Metadata Refresh runs as a tracked background job without activating the library SwipeRefresh spinner. Users can leave the Folders screen and continue using the app. Completion is reported with the existing snackbar/report flow.
+Refresh Metadata runs as a tracked background job just like the folder scan. It does not keep a spinner visible or restrict navigation. A short 250 ms scanning-state pulse provides the same immediate visual feedback as Scan Now, after which the spinner disappears while the job continues. Completion is reported by snackbar, with the existing Show action opening the report.
+
+## Metadata refresh report screen
+
+The report screen applies system-bar insets to its content so the toolbar/title/back button and the final RecyclerView rows remain visible instead of being clipped under edge-to-edge system-bar areas.
 
 ## System bars
 
-All activities use the same black system-bar policy. A small system-bar overlay handles Android 15 edge-to-edge behavior while leaving the existing screen layouts and reader themes unchanged. Reader themes still affect only the EPUB content area.
+`SystemBarController` remains the single app-wide source of truth for black status/navigation bars. It is applied to the main library, Book Details, Search, Reader, Reader Settings, and Metadata Refresh screens. Reader-specific content/theme colors do not change the phone system-bar policy.
 
-## Room
+## TOC highlight alignment
 
-The database is version 7. Migration 6 -> 7 adds nullable screen-page cache fields. Existing reading/library state is preserved.
-
-## Exact timeline behavior
-
-The timeline now maps an absolute position directly to the measured screen-page index. A drag to page 299 resolves to the 299th measured screen page, including across chapter boundaries. Cross-chapter seeks carry the exact target page into the newly loaded WebView instead of using only a proportional scroll ratio.
+The current TOC entry highlight is inset to the same 20dp app content keyline used by the reader's other settings lists. The existing current-entry highlighting and automatic scrolling behavior are preserved.

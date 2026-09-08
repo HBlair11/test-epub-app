@@ -22,6 +22,13 @@ class MetadataRefreshActivity : AppCompatActivity() {
         setContentView(binding.root)
         SystemBarController.apply(this)
 
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, insets ->
+            val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
+        }
+        androidx.core.view.ViewCompat.requestApplyInsets(binding.root)
+
         setSupportActionBar(binding.toolbar)
 
         binding.toolbar.setNavigationOnClickListener {

@@ -1110,6 +1110,14 @@ class MainActivity : AppCompatActivity() {
 
         val treeUri = Uri.parse(uriString)
 
+        // Match Scan Now's immediate visual feedback, but only for a brief
+        // moment. The metadata refresh itself remains a background job and does
+        // not keep the spinner visible or restrict navigation.
+        viewModel.setScanning(true)
+        backResetHandler.postDelayed({
+            viewModel.setScanning(false)
+        }, 250L)
+
         // Metadata refresh is deliberately a silent background job. Unlike the
         // user-facing folder scan, it must not activate the SwipeRefresh spinner
         // or otherwise restrict navigation while it runs. The tracked Job keeps
