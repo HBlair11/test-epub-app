@@ -958,7 +958,6 @@ class ReaderActivity : AppCompatActivity() {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
         updatePageIndicator()
-        binding.bottomBar.post { positionHistoryOverlay() }
     }
 
     // ---------------------------------------------------------------- load book
