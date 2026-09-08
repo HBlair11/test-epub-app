@@ -161,17 +161,18 @@
              (tvPageIndicator, shown above the nav bar during reading) still
              displays "page X / Y". -->
 
-    <!-- Reader history: reserved inside the bottom chrome so it never covers EPUB text. -->
+    <!-- Reader history: separate full-width visual section attached to the bottom chrome. -->
     <LinearLayout
         android:id="@+id/readerHistory"
         android:layout_width="match_parent"
-        android:layout_height="36dp"
-        android:layout_marginStart="@dimen/app_reader_icon_inset"
-        android:layout_marginEnd="@dimen/app_reader_icon_inset"
+        android:layout_height="40dp"
+        android:layout_marginTop="0dp"
+        android:layout_marginBottom="8dp"
+        android:background="?attr/colorSurface"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
+        android:paddingStart="@dimen/app_row_content_padding_h"
+        android:paddingEnd="@dimen/app_row_content_padding_h"
         android:visibility="gone"
         android:elevation="0dp">
 
@@ -182,7 +183,8 @@
             android:layout_weight="1"
             android:background="@android:color/transparent"
             android:gravity="center_vertical|start"
-            android:paddingStart="4dp"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
             android:textColor="@color/reader_history_text"
             android:textSize="12sp"
             android:clickable="true"
@@ -194,8 +196,8 @@
             android:layout_height="match_parent"
             android:background="@android:color/transparent"
             android:gravity="center"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
             android:text="@string/reader_history_clear"
             android:textColor="@color/reader_history_text"
             android:textSize="12sp"
@@ -209,11 +211,13 @@
             android:layout_weight="1"
             android:background="@android:color/transparent"
             android:gravity="center_vertical|end"
-            android:paddingEnd="4dp"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
             android:textColor="@color/reader_history_text"
             android:textSize="12sp"
             android:clickable="true"
             android:focusable="true" />
+
     </LinearLayout>
 
 
