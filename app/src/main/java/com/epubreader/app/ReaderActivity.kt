@@ -111,6 +111,7 @@ class ReaderActivity : AppCompatActivity() {
     /** Exact page requested by the user. A stale WebView poll must not overwrite this
      *  location while the visible WebView is applying gotoPage(). */
     private var pendingExactSeekLocation: ReaderLocation? = null
+    private var exactSeekUiLocation: ReaderLocation? = null
 
     private var pendingProgressValue = 0f
     private var pendingProgressSpine = 0
@@ -761,6 +762,13 @@ class ReaderActivity : AppCompatActivity() {
 
         if (perPageSeekerActive) {
             pendingExactSeekLocation = locationForAbsolutePage(resolved)
+            exactSeekUiLocation = pendingExactSeekLocation
+            exactSeekUiLocation?.let { target ->
+                currentPageInChapter = target.pageInChapter
+                currentScrollRatio = target.ratio
+                updatePageIndicator()
+                updateOverallProgress()
+            }
             seekToAbsolutePage(resolved)
         } else {
             pendingExactSeekLocation = null
@@ -860,19 +868,13 @@ class ReaderActivity : AppCompatActivity() {
     private fun updateHistoryUi() {
         val hasBack = backHistory.isNotEmpty()
         val hasForward = forwardHistory.isNotEmpty()
-        binding.readerHistory.visibility = if (hasBack || hasForward) View.VISIBLE else View.GONE
+        binding.readerHistory.setBackgroundColor(readerColors().first)
+        val showHistory = (hasBack || hasForward) && chromeVisible && !overlayVisible()
+        binding.readerHistory.visibility = if (showHistory) View.VISIBLE else View.GONE
         binding.readerHistoryBack.visibility = if (hasBack) View.VISIBLE else View.INVISIBLE
         binding.readerHistoryForward.visibility = if (hasForward) View.VISIBLE else View.INVISIBLE
         if (hasBack) binding.readerHistoryBack.text = getString(R.string.reader_history_back, historyPageLabel(backHistory.last()))
         if (hasForward) binding.readerHistoryForward.text = getString(R.string.reader_history_forward, historyPageLabel(forwardHistory.last()))
-        binding.bottomBar.post { positionHistoryOverlay() }
-    }
-
-    /** Keep the transparent history row immediately above the opaque chrome bar.
-     *  Because it is a sibling overlay, the EPUB page remains visible behind it. */
-    private fun positionHistoryOverlay() {
-        if (binding.readerHistory.visibility != View.VISIBLE || binding.bottomBar.visibility != View.VISIBLE) return
-        binding.readerHistory.translationY = -(binding.bottomBar.height + 4).toFloat()
     }
     // Patch 16 (Issue #2): returns true if the confirmed tap landed on a link
     // inside the WebView. hitTestResult is queried immediately (the touch is
@@ -943,6 +945,7 @@ class ReaderActivity : AppCompatActivity() {
         chromeVisible = !chromeVisible
         binding.topBar.visibility = if (chromeVisible) View.VISIBLE else View.GONE
         binding.bottomBar.visibility = if (chromeVisible) View.VISIBLE else View.GONE
+        updateHistoryUi()
         binding.tvPageIndicator.visibility =
             if (!chromeVisible && !overlayVisible()) View.VISIBLE else View.GONE
         if (chromeVisible) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -1816,6 +1819,7 @@ body * { background-color: transparent !important; }
             pendingExactSeekLocation?.let { expected ->
                 if (expected.spineIndex == spineIndex && reportedPage == expected.pageInChapter) {
                     pendingExactSeekLocation = null
+                    exactSeekUiLocation = null
                 } else {
                     return
                 }
@@ -1847,10 +1851,12 @@ body * { background-color: transparent !important; }
         val counts = chapterPageCounts
         val progress = if (counts != null && counts.isNotEmpty() && counts.none { it < 0 }) {
             val total = ReaderPageMapping.totalPages(counts)
-            val prefix = ReaderPageMapping.prefixSums(counts)
-            val inSpine = counts.getOrNull(spineIndex)?.coerceAtLeast(1) ?: 1
-            val absolute = (prefix.getOrNull(spineIndex) ?: 0) + currentScrollRatio * inSpine
-            if (total <= 0) 0f else (absolute / total.toFloat()).coerceIn(0f, 1f)
+            val absolute = exactSeekUiLocation?.let { target ->
+                val prefix = ReaderPageMapping.prefixSums(counts)
+                (prefix.getOrNull(target.spineIndex) ?: 0) + target.pageInChapter
+            } ?: currentAbsoluteBookPage()
+            if (total <= 1) 1f else
+                (absolute.coerceIn(0, total - 1) / (total - 1).toFloat()).coerceIn(0f, 1f)
         } else {
             ((spineIndex + currentScrollRatio) / book.spine.size).toFloat().coerceIn(0f, 1f)
         }
@@ -1899,7 +1905,14 @@ body * { background-color: transparent !important; }
             return
         }
         val total = ReaderPageMapping.totalPages(counts)
-        val currentBookPage = (currentAbsoluteBookPage() + 1).coerceIn(1, total.coerceAtLeast(1))
+        val displayAbsolute = exactSeekUiLocation?.let { target ->
+            if (target.spineIndex in counts.indices) {
+                val prefix = ReaderPageMapping.prefixSums(counts)
+                (prefix.getOrNull(target.spineIndex) ?: 0) +
+                    target.pageInChapter.coerceIn(0, counts[target.spineIndex].coerceAtLeast(1) - 1)
+            } else null
+        } ?: currentAbsoluteBookPage()
+        val currentBookPage = (displayAbsolute + 1).coerceIn(1, total.coerceAtLeast(1))
         setPageText(getString(R.string.reader_page_of_pages, currentBookPage, total))
     }
 
@@ -2026,6 +2039,7 @@ body * { background-color: transparent !important; }
         binding.bottomBar.visibility = View.GONE
         binding.tvPageIndicator.visibility = View.GONE
         binding.tocBookmarkOverlay.visibility = View.VISIBLE
+        updateHistoryUi()
     }
 
     private fun refreshBookmarkList() {
@@ -2093,6 +2107,7 @@ body * { background-color: transparent !important; }
         binding.bottomBar.visibility = View.GONE
         binding.tvPageIndicator.visibility = View.GONE
         binding.searchOverlay.visibility = View.VISIBLE
+        updateHistoryUi()
         searchEdit?.setText("")
         // Show the on-screen keyboard + place the cursor, mirroring how the
         // main app's SearchActivity opens search (the user does not have to
@@ -2197,6 +2212,7 @@ body * { background-color: transparent !important; }
         binding.searchOverlay.visibility = View.GONE
         bookmarksTabActive = false
         binding.tvPageIndicator.visibility = View.VISIBLE
+        updateHistoryUi()
         binding.webView.requestFocus()
     }
 

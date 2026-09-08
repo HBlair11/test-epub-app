@@ -83,4 +83,5 @@
 
 
     <!-- Patch 18 (Addition #1): fast-scroll thumb (muted slate, 55% opacity) -->
+    <color name="reader_history_surface">#00000000</color>
 </resources>
