@@ -161,57 +161,6 @@
              (tvPageIndicator, shown above the nav bar during reading) still
              displays "page X / Y". -->
 
-        <!-- Temporary navigation history. Hidden until an explicit navigation event
-             (seeker, TOC, search, bookmark, or EPUB link) records a location. -->
-        <LinearLayout
-            android:id="@+id/readerHistory"
-            android:layout_width="match_parent"
-            android:layout_height="32dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:visibility="gone">
-
-            <TextView
-                android:id="@+id/readerHistoryBack"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:background="@android:color/transparent"
-                android:gravity="center_vertical|start"
-                android:paddingStart="@dimen/app_reader_icon_inset"
-                android:textColor="?android:textColorSecondary"
-                android:textSize="12sp"
-                android:clickable="true"
-                android:focusable="true" />
-
-            <TextView
-                android:id="@+id/readerHistoryClear"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:background="@android:color/transparent"
-                android:gravity="center"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:text="@string/reader_history_clear"
-                android:textColor="?android:textColorSecondary"
-                android:textSize="12sp"
-                android:clickable="true"
-                android:focusable="true" />
-
-            <TextView
-                android:id="@+id/readerHistoryForward"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:background="@android:color/transparent"
-                android:gravity="center_vertical|end"
-                android:paddingEnd="@dimen/app_reader_icon_inset"
-                android:textColor="?android:textColorSecondary"
-                android:textSize="12sp"
-                android:clickable="true"
-                android:focusable="true" />
-        </LinearLayout>
-
         <!-- Patch 22: restored the page X / Y label inside the reader bottom
              bar (it was dropped when the chevron row was removed). Sits at the
              top of the bar, above the timeline seeker, at the same 20dp keyline
@@ -355,6 +304,64 @@
     </FrameLayout>
 
     <!-- Full-screen Search overlay -->
+    <!-- Temporary navigation history. This is a true transparent overlay over the
+         EPUB page rather than a child of the opaque chrome bar, so the reader theme
+         remains visible underneath it (white / sepia / black / etc.). -->
+    <LinearLayout
+        android:id="@+id/readerHistory"
+        android:layout_width="match_parent"
+        android:layout_height="32dp"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="@dimen/app_reader_icon_inset"
+        android:layout_marginEnd="@dimen/app_reader_icon_inset"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:visibility="gone"
+        android:elevation="7dp">
+
+        <TextView
+            android:id="@+id/readerHistoryBack"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="@android:color/transparent"
+            android:gravity="center_vertical|start"
+            android:paddingStart="4dp"
+            android:textColor="@color/reader_history_text"
+            android:textSize="12sp"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <TextView
+            android:id="@+id/readerHistoryClear"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:background="@android:color/transparent"
+            android:gravity="center"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:text="@string/reader_history_clear"
+            android:textColor="@color/reader_history_text"
+            android:textSize="12sp"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <TextView
+            android:id="@+id/readerHistoryForward"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="@android:color/transparent"
+            android:gravity="center_vertical|end"
+            android:paddingEnd="4dp"
+            android:textColor="@color/reader_history_text"
+            android:textSize="12sp"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
+
     <LinearLayout
         android:id="@+id/searchOverlay"
         android:layout_width="match_parent"

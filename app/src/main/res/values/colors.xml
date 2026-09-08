@@ -46,6 +46,7 @@
     <color name="reader_chrome_surface">@color/palette_plum</color>
     <color name="reader_chrome_text">@color/white</color>
     <color name="reader_chrome_text_muted">#B3FFFFFF</color>      <!-- 70% white -->
+    <color name="reader_history_text">#8A8A8A</color>          <!-- fixed muted gray for the transparent history overlay -->
     <color name="reader_chrome_accent">@color/palette_mint</color>
     <color name="reader_chrome_track">#5A5070</color>
     <color name="reader_chrome_scrim">#803C2A4D</color>  <!-- 50% eggplant pill for floating indicators -->

@@ -108,6 +108,9 @@ class ReaderActivity : AppCompatActivity() {
     private var restoringHistoryLocation = false
     private var manualSeekTouch = false
     private var manualSeekFinished = false
+    /** Exact page requested by the user. A stale WebView poll must not overwrite this
+     *  location while the visible WebView is applying gotoPage(). */
+    private var pendingExactSeekLocation: ReaderLocation? = null
 
     private var pendingProgressValue = 0f
     private var pendingProgressSpine = 0
@@ -440,6 +443,7 @@ class ReaderActivity : AppCompatActivity() {
                 updatePageIndicator()
                 enablePerPageSeeker()
                 updateHistoryUi()
+                persistScreenPageCounts()
             } else {
                 loadForMeasurement(measuringIndex)
             }
@@ -481,6 +485,7 @@ class ReaderActivity : AppCompatActivity() {
                 updatePageIndicator()
                 enablePerPageSeeker()
                 updateHistoryUi()
+                persistScreenPageCounts()
             } else {
                 loadForMeasurement(measuringIndex)
             }
@@ -505,6 +510,64 @@ class ReaderActivity : AppCompatActivity() {
         )
 
         handler.postDelayed(measureWatchdog, 4000L)
+    }
+
+    /** Stable fingerprint for the exact reader layout used by screen-page counts.
+     *  Width/height cover orientation/window changes; reader settings cover every
+     *  value that can alter pagination. The EPUB checksum is already the book-level
+     *  identity in Room, so it does not need to be duplicated here. */
+    private fun screenPageLayoutKey(): String? {
+        val width = binding.webView.width
+        val height = binding.webView.height
+        if (width <= 0 || height <= 0) return null
+        return listOf(
+            width,
+            height,
+            resources.displayMetrics.density,
+            prefs.font,
+            prefs.fontSize,
+            prefs.lineHeight,
+            prefs.margin,
+            prefs.align,
+            prefs.hyphenation,
+            prefs.pageBottomMargin,
+            topGuardPx(),
+            bottomGuardPx(),
+        ).joinToString("|")
+    }
+
+    private fun parseScreenPageMap(csv: String?, expectedSize: Int): IntArray? {
+        if (csv.isNullOrBlank()) return null
+        val values = csv.split(',').mapNotNull { it.trim().toIntOrNull() }
+        if (values.size != expectedSize || values.any { it < 1 }) return null
+        return values.toIntArray()
+    }
+
+    private fun loadCachedScreenPageCounts(entity: BookEntity): Boolean {
+        val key = screenPageLayoutKey() ?: return false
+        if (entity.screenPageLayoutKey != key) return false
+        val cached = parseScreenPageMap(entity.screenPageMapCsv, epub?.spine?.size ?: 0) ?: return false
+        chapterPageCounts = cached
+        perPageSeekerActive = cached.size > 1 && ReaderPageMapping.totalPages(cached) > 1
+        if (perPageSeekerActive) {
+            binding.seekChapter.max = ReaderPageMapping.totalPages(cached) - 1
+            syncSeekBarFromCurrentPage()
+            updatePageIndicator()
+            updateSectionPages()
+            updateHistoryUi()
+        }
+        return true
+    }
+
+    private fun persistScreenPageCounts() {
+        if (bookId < 0L) return
+        val key = screenPageLayoutKey() ?: return
+        val counts = chapterPageCounts ?: return
+        if (counts.isEmpty() || counts.any { it < 1 }) return
+        val csv = counts.joinToString(",")
+        lifecycleScope.launch(Dispatchers.IO) {
+            db.bookDao().updateScreenPageMap(bookId, csv, key)
+        }
     }
 
     /** Kick off background measurement of every chapter's page count. */
@@ -697,11 +760,17 @@ class ReaderActivity : AppCompatActivity() {
         }
 
         if (perPageSeekerActive) {
+            pendingExactSeekLocation = locationForAbsolutePage(resolved)
             seekToAbsolutePage(resolved)
         } else {
+            pendingExactSeekLocation = null
             goToSpine(resolved)
         }
 
+        // A poll can already be queued from immediately before the seek. The
+        // exact seek result is authoritative until the WebView reports that same
+        // page back to us.
+        progressRequestToken++
         handler.postDelayed({ pollProgress() }, 150L)
     }
 
@@ -796,6 +865,14 @@ class ReaderActivity : AppCompatActivity() {
         binding.readerHistoryForward.visibility = if (hasForward) View.VISIBLE else View.INVISIBLE
         if (hasBack) binding.readerHistoryBack.text = getString(R.string.reader_history_back, historyPageLabel(backHistory.last()))
         if (hasForward) binding.readerHistoryForward.text = getString(R.string.reader_history_forward, historyPageLabel(forwardHistory.last()))
+        binding.bottomBar.post { positionHistoryOverlay() }
+    }
+
+    /** Keep the transparent history row immediately above the opaque chrome bar.
+     *  Because it is a sibling overlay, the EPUB page remains visible behind it. */
+    private fun positionHistoryOverlay() {
+        if (binding.readerHistory.visibility != View.VISIBLE || binding.bottomBar.visibility != View.VISIBLE) return
+        binding.readerHistory.translationY = -(binding.bottomBar.height + 4).toFloat()
     }
     // Patch 16 (Issue #2): returns true if the confirmed tap landed on a link
     // inside the WebView. hitTestResult is queried immediately (the touch is
@@ -878,6 +955,7 @@ class ReaderActivity : AppCompatActivity() {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
         updatePageIndicator()
+        binding.bottomBar.post { positionHistoryOverlay() }
     }
 
     // ---------------------------------------------------------------- load book
@@ -918,9 +996,21 @@ class ReaderActivity : AppCompatActivity() {
                 binding.seekChapter.progress = spineIndex
                 loadChapter(spineIndex, resetRatio = false)
                 binding.tvPageIndicator.visibility = View.VISIBLE
-                // Begin the background measurement pass; enablePerPageSeeker()
-                // is called from readMeasuredCount() once all chapters are done.
-                startMeasurement()
+
+                // Exact rendered page totals are inherently layout-dependent: the
+                // visible WebView knows the current chapter immediately, but the
+                // total book page count requires every spine item to be paginated.
+                // Reuse the persisted screen-page map when the layout fingerprint
+                // matches; this makes app reopen / book reopen instantaneous. A new
+                // book or a new layout still needs the one-time background pass.
+                binding.webView.post {
+                    val cached = loadCachedScreenPageCounts(entity)
+                    if (!cached) {
+                        startMeasurement()
+                    }
+                    updatePageIndicator()
+                    updateSectionPages()
+                }
                 updatePageIndicator()
                 updateSectionPages()
             }
@@ -1715,8 +1805,24 @@ body * { background-color: transparent !important; }
         try {
             val parts = result.trim('\"').split(",")
             if (parts.size != 3) return
-            currentPageInChapter = parts[0].toIntOrNull() ?: 0
-            pagesInChapter = parts[1].toIntOrNull()?.coerceAtLeast(1) ?: 1
+            val reportedPage = parts[0].toIntOrNull() ?: 0
+            val reportedCount = parts[1].toIntOrNull()?.coerceAtLeast(1) ?: 1
+
+            // Do not let a poll that was queued before a seeker tap/drag briefly
+            // paint the old page number over the exact page the user just chose.
+            // We clear the guard only when the visible WebView reports the same
+            // page back, which makes the correction deterministic instead of
+            // relying on a timing delay.
+            pendingExactSeekLocation?.let { expected ->
+                if (expected.spineIndex == spineIndex && reportedPage == expected.pageInChapter) {
+                    pendingExactSeekLocation = null
+                } else {
+                    return
+                }
+            }
+
+            currentPageInChapter = reportedPage
+            pagesInChapter = reportedCount
             // The visible WebView already knows the real rendered page count for
             // the chapter immediately. Reuse that information instead of making
             // the background measurement pass rediscover the current chapter.
@@ -2168,7 +2274,15 @@ body * { background-color: transparent !important; }
         }
         restoreRatio = currentScrollRatio
         loadChapter(spineIndex, resetRatio = false)
-        startMeasurement()
+        binding.webView.post {
+            val entity = bookEntity
+            val cached = entity != null && loadCachedScreenPageCounts(entity)
+            if (!cached) {
+                startMeasurement()
+            }
+            updatePageIndicator()
+            updateSectionPages()
+        }
         updatePageIndicator()
         updateSectionPages()
     }
