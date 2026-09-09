@@ -7,14 +7,14 @@
     android:orientation="horizontal"
     android:background="?attr/selectableItemBackground"
     android:paddingStart="@dimen/app_row_content_padding_h"
-    android:paddingTop="16dp"
+    android:paddingTop="14dp"
     android:paddingEnd="@dimen/app_row_content_padding_h"
-    android:paddingBottom="16dp">
+    android:paddingBottom="14dp">
 
     <ImageView
         android:id="@+id/drawerIcon"
-        android:layout_width="28dp"
-        android:layout_height="28dp"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
         android:contentDescription="@null"
         app:tint="?android:textColorSecondary" />
 
@@ -23,8 +23,8 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:layout_marginStart="16dp"
-        android:textSize="20sp"
+        android:layout_marginStart="18dp"
+        android:textSize="15sp"
         android:textColor="?android:textColorPrimary" />
 
     <TextView

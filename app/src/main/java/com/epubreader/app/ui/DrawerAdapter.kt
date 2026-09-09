@@ -21,7 +21,7 @@ data class DrawerItem(
 
 class DrawerAdapter(
     private val onClick: (DrawerItem) -> Unit
-) : ListAdapter<DrawerItem, DrawerAdapter.VH>(DIFF) {
+) : ListAdapter<DrawerItem, RecyclerView.ViewHolder>(DIFF) {
 
     private var selectedView: ShelfView? = null
 
