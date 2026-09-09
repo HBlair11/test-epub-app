@@ -13,8 +13,8 @@
 
     <ImageView
         android:id="@+id/drawerIcon"
-        android:layout_width="28dp"
-        android:layout_height="28dp"
+        android:layout_width="22dp"
+        android:layout_height="22dp"
         android:contentDescription="@null"
         app:tint="?android:textColorSecondary" />
 
