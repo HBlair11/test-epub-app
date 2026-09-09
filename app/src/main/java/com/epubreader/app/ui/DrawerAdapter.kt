@@ -15,7 +15,8 @@ data class DrawerItem(
     val iconRes: Int,
     val count: Int? = null,
     val view: com.epubreader.app.ui.ShelfView? = null,
-    val isPlaceholder: Boolean = false
+    val isPlaceholder: Boolean = false,
+    val isDivider: Boolean = false,
 )
 
 class DrawerAdapter(
@@ -43,20 +44,46 @@ class DrawerAdapter(
         val count: TextView = itemView.findViewById(R.id.drawerCount)
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-        val v = LayoutInflater.from(parent.context).inflate(R.layout.item_drawer, parent, false)
+    inner class DividerVH(itemView: View) : RecyclerView.ViewHolder(itemView)
+
+    override fun getItemViewType(position: Int): Int =
+        if (getItem(position).isDivider) TYPE_DIVIDER else TYPE_ITEM
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        if (viewType == TYPE_DIVIDER) {
+            val v = LayoutInflater.from(parent.context)
+                .inflate(R.layout.item_drawer_divider, parent, false)
+            return DividerVH(v)
+        }
+
+        val v = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_drawer, parent, false)
+
         return VH(v).also { vh ->
-            vh.itemView.setOnClickListener { onClick(getItem(vh.bindingAdapterPosition)) }
+            vh.itemView.setOnClickListener {
+                val position = vh.bindingAdapterPosition
+                if (position != RecyclerView.NO_POSITION) {
+                    onClick(getItem(position))
+                }
+            }
         }
     }
 
-    override fun onBindViewHolder(holder: VH, position: Int) {
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        if (holder !is VH) return
+
         val item = getItem(position)
         holder.label.text = item.label
         holder.icon.setImageResource(item.iconRes)
+
         val active = item.view != null && item.view == selectedView
         holder.itemView.isSelected = active
-        holder.label.setTypeface(null, if (active) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        holder.label.setTypeface(
+            null,
+            if (active) android.graphics.Typeface.BOLD
+            else android.graphics.Typeface.NORMAL
+        )
+
         if (item.count != null && item.count > 0) {
             holder.count.visibility = View.VISIBLE
             holder.count.text = item.count.toString()
@@ -66,8 +93,13 @@ class DrawerAdapter(
     }
 
     companion object {
+        private const val TYPE_ITEM = 0
+        private const val TYPE_DIVIDER = 1
+
         val DIFF = object : DiffUtil.ItemCallback<DrawerItem>() {
-            override fun areItemsTheSame(o: DrawerItem, n: DrawerItem) = o.label == n.label
+            override fun areItemsTheSame(o: DrawerItem, n: DrawerItem) =
+                o.isDivider == n.isDivider && o.label == n.label
+
             override fun areContentsTheSame(o: DrawerItem, n: DrawerItem) = o == n
         }
     }

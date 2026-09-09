@@ -199,6 +199,8 @@ class BookshelfViewModel(
         when (view) {
             is ShelfView.Reading -> PrefsManager.SortOption.RECENTLY_READ to false
             is ShelfView.RecentlyAdded -> PrefsManager.SortOption.RECENTLY_ADDED to false
+            is ShelfView.AuthorDetail -> PrefsManager.SortOption.TITLE to true
+            is ShelfView.SeriesDetail -> PrefsManager.SortOption.SERIES to true
             else -> PrefsManager.SortOption.TITLE to true
         }
 

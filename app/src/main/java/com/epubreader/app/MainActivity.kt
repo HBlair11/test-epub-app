@@ -366,6 +366,11 @@ class MainActivity : AppCompatActivity() {
                 isPlaceholder = true,
                 view = ShelfView.Collections
             ),
+            DrawerItem(
+                label = "",
+                iconRes = 0,
+                isDivider = true,
+            ),
             DrawerItem(getString(R.string.nav_folders), R.drawable.ic_folder, view = ShelfView.Folders),
             DrawerItem(
                 getString(R.string.nav_settings),
@@ -1116,7 +1121,7 @@ class MainActivity : AppCompatActivity() {
         viewModel.setScanning(true)
         backResetHandler.postDelayed({
             viewModel.setScanning(false)
-        }, 250L)
+        }, 1200L)
 
         // Metadata refresh is deliberately a silent background job. Unlike the
         // user-facing folder scan, it must not activate the SwipeRefresh spinner
