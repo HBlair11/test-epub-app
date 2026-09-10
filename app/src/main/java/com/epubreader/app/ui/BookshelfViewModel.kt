@@ -24,6 +24,7 @@ sealed class DisplayItem {
 }
 
 sealed class ShelfView {
+    object Home : ShelfView()
     object Reading : ShelfView()
     object Library : ShelfView()
     object Favorites : ShelfView()
@@ -66,19 +67,15 @@ class BookshelfViewModel(
     private val _scanMessage = MutableStateFlow<String?>(null)
     val scanMessage: StateFlow<String?> = _scanMessage.asStateFlow()
 
-    private fun initialView(): ShelfView {
-        val key = prefs.lastView
-        return when (key) {
-            KEY_READING -> ShelfView.Reading
-            KEY_FAVORITES -> ShelfView.Favorites
-            KEY_AUTHORS -> ShelfView.AuthorsList
-            KEY_SERIES -> ShelfView.SeriesList
-            // Finished / To Be Read were removed from the drawer; fall back to
-            // Library so a stale persisted view never lands on a hidden section.
-            KEY_FINISHED, KEY_TBR -> ShelfView.Library
-            else -> ShelfView.Library
-        }
-    }
+    /**
+     * A brand-new MainActivity session always starts at Home. The existing
+     * ViewModel still survives ordinary configuration changes, so navigation
+     * within an already-running task is preserved. If Android recreates the
+     * activity after the task was removed from Recents (or after a cold launch),
+     * the reader gets the calm Home entry point instead of reopening an old
+     * management screen.
+     */
+    private fun initialView(): ShelfView = ShelfView.Home
 
     private data class Trigger(val view: ShelfView, val sort: String, val asc: Boolean)
 
@@ -101,11 +98,19 @@ class BookshelfViewModel(
 
     val lastOpened: LiveData<BookEntity?> = repo.observeLastOpened().asLiveData()
 
+    /** Curated, offline Home data derived from the existing books flow. */
+    val homeContent: LiveData<HomeContent> = repo.observeBooks()
+        .map { books -> buildHomeContent(books) }
+        .asLiveData()
+
     val content: LiveData<List<DisplayItem>> = _trigger.switchMap { t ->
         flowFor(t.view, t.sort, t.asc).asLiveData()
     }
 
     private fun flowFor(view: ShelfView, sort: String, asc: Boolean) = when (view) {
+        is ShelfView.Home ->
+            kotlinx.coroutines.flow.flowOf(emptyList<DisplayItem>())
+
         is ShelfView.Reading ->
             repo.observeCurrentlyReading().map { applySort(it, sort, asc).map { DisplayItem.Book(it) } }
 
@@ -199,6 +204,7 @@ class BookshelfViewModel(
      *  at the top. Sort is session-only and never persisted. */
     private fun defaultSortFor(view: ShelfView): Pair<String, Boolean> =
         when (view) {
+            is ShelfView.Home -> PrefsManager.SortOption.RECENTLY_READ to false
             is ShelfView.Reading -> PrefsManager.SortOption.RECENTLY_READ to false
             is ShelfView.RecentlyAdded -> PrefsManager.SortOption.RECENTLY_ADDED to false
             is ShelfView.AuthorDetail -> PrefsManager.SortOption.TITLE to true
@@ -207,6 +213,7 @@ class BookshelfViewModel(
         }
 
     private fun sortKeyFor(view: ShelfView): String = when (view) {
+        is ShelfView.Home -> KEY_HOME
         is ShelfView.AuthorDetail -> "author:${view.name}"
         is ShelfView.SeriesDetail -> "series:${view.name}"
         else -> view.key()
@@ -232,6 +239,56 @@ class BookshelfViewModel(
 
     fun setScanMessage(msg: String?) {
         _scanMessage.value = msg
+    }
+
+    private fun buildHomeContent(books: List<BookEntity>): HomeContent {
+        val newest = books.sortedWith(
+            compareByDescending<BookEntity> { it.addedDate }.thenBy { it.sortTitle }
+        )
+        val favorites = books
+            .filter { it.isFavorite }
+            .sortedWith(compareByDescending<BookEntity> { it.lastOpenedDate ?: 0L }.thenBy { it.sortTitle })
+
+        val authorGroups = books
+            .asSequence()
+            .filter { it.author.isNotBlank() }
+            .groupBy { it.author.trim() }
+            .map { (name, group) ->
+                HomeGroup(
+                    name = name,
+                    count = group.size,
+                    books = group.sortedWith(compareBy<BookEntity> { it.sortTitle }.thenBy { it.seriesIndex ?: Double.MAX_VALUE }).take(4),
+                )
+            }
+            .filter { it.count >= 2 }
+            .sortedWith(compareByDescending<HomeGroup> { it.count }.thenBy { it.name.lowercase() })
+            .take(3)
+
+        val seriesGroups = books
+            .asSequence()
+            .filter { !it.series.isNullOrBlank() }
+            .groupBy { it.series!!.trim() }
+            .map { (name, group) ->
+                HomeGroup(
+                    name = name,
+                    count = group.size,
+                    books = group.sortedWith(
+                        compareBy<BookEntity> { it.seriesIndex ?: Double.MAX_VALUE }.thenBy { it.sortTitle }
+                    ).take(4),
+                )
+            }
+            .filter { it.count >= 2 }
+            .sortedWith(compareByDescending<HomeGroup> { it.count }.thenBy { it.name.lowercase() })
+            .take(3)
+
+        return HomeContent(
+            continueReading = books.maxByOrNull { it.lastOpenedDate ?: Long.MIN_VALUE },
+            recentlyAdded = newest.take(6),
+            favorites = favorites.take(6),
+            topAuthors = authorGroups,
+            topSeries = seriesGroups,
+            hasBooks = books.isNotEmpty(),
+        )
     }
 
     private fun applySort(list: List<BookEntity>, sort: String, asc: Boolean): List<BookEntity> {
@@ -260,6 +317,7 @@ class BookshelfViewModel(
     }
 
     private fun ShelfView.key(): String = when (this) {
+        is ShelfView.Home -> KEY_HOME
         is ShelfView.Reading -> KEY_READING
         is ShelfView.Library -> KEY_LIBRARY
         is ShelfView.Favorites -> KEY_FAVORITES
@@ -277,6 +335,7 @@ class BookshelfViewModel(
     }
 
     companion object {
+        const val KEY_HOME = "home"
         const val KEY_READING = "reading"
         const val KEY_LIBRARY = "library"
         const val KEY_FAVORITES = "favorites"
@@ -285,5 +344,8 @@ class BookshelfViewModel(
         const val KEY_RECENTLY_ADDED = "recently_added"
         const val KEY_AUTHORS = "authors"
         const val KEY_SERIES = "series"
+        const val KEY_COLLECTIONS = "collections"
+        const val KEY_FOLDERS = "folders"
+        const val KEY_SETTINGS = "settings"
     }
 }

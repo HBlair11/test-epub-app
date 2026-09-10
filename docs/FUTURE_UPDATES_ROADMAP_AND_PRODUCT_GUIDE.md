@@ -913,3 +913,28 @@ Use this question to judge future features:
 > **Does this make reading easier, calmer, more personal, or more trustworthy without compromising the offline/private foundation?**
 
 If yes, it belongs on the roadmap. If no, it is probably feature noise.
+
+## Current execution decision — v32 Dedicated Home
+
+The original v31 "Continue Reading on Library" direction is superseded by the stronger dedicated Home model. Home is now treated as the calm reading launchpad, while Library remains the complete collection and management surface.
+
+### Home priority
+
+1. Continue Reading — most recently opened book, one-tap return.
+2. Recently Added — latest local imports.
+3. Favorites — a small curated shelf.
+4. Top Authors — authors with the most books in the local library, with only the strongest few shelves shown.
+5. Top Series — series with the most books in the local library, again limited to a few useful shelves.
+
+Home intentionally omits sorting, grid/list management, bulk actions, and dense filtering so it remains calm and quick to understand.
+
+### Lifecycle policy
+
+- Returning to an existing task should preserve its active screen whenever Android keeps or recreates the task state.
+- A new/cold application session should enter Home.
+- Removing the task from Recents marks the next launcher-created session for Home.
+
+### Future refinement
+
+When reading-history/statistics infrastructure exists, "Top Authors" and "Top Series" can evolve from library-count ranking to a more personal engagement ranking, but the UI should remain simple.
+

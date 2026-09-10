@@ -38,6 +38,8 @@ import com.epubreader.app.ui.BookshelfViewModel
 import com.epubreader.app.ui.DisplayItem
 import com.epubreader.app.ui.DrawerAdapter
 import com.epubreader.app.ui.DrawerItem
+import com.epubreader.app.ui.HomeBookAdapter
+import com.epubreader.app.ui.HomeContent
 import com.epubreader.app.ui.RowAdapter
 import com.epubreader.app.ui.ShelfView
 import com.google.android.material.snackbar.Snackbar
@@ -46,6 +48,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+
+private const val STATE_SHELF = "state_shelf"
+private const val STATE_DETAIL_NAME = "state_detail_name"
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
@@ -70,7 +75,6 @@ class MainActivity : AppCompatActivity() {
     private var bookAdapter: BookAdapter? = null
     private var rowAdapter: RowAdapter? = null
     private var currentBooks: List<BookEntity> = emptyList()
-    private var continueBook: BookEntity? = null
     private var touchHelper: ItemTouchHelper? = null
     private var scrollToTopOnNextContent = false
 
@@ -127,6 +131,8 @@ class MainActivity : AppCompatActivity() {
     // so this flag forces a scroll-to-top in onResume as a guaranteed fallback
     // when returning from the reader to Currently Reading specifically.
     private var pendingReadingTopReset = false
+
+    private val homeAdapters = mutableMapOf<Int, HomeBookAdapter>()
 
     // A list of shelf views that should be restored on return from a sub-activity.
     // Reading is deliberately NOT in this set.
@@ -239,11 +245,15 @@ class MainActivity : AppCompatActivity() {
         SystemBarController.apply(this)
         setSupportActionBar(binding.toolbar)
 
+        restoreViewFromSavedState(savedInstanceState)
         setupDrawer()
         setupRecycler()
         setupObservers()
         binding.fabScan.setOnClickListener { onFabClicked() }
-        updateFab(viewModel.view.value ?: ShelfView.Library)
+        binding.homeContent.homeEmptyAction.setOnClickListener {
+            openMultiFileLauncher.launch(BookFileTypes.acceptedMimeTypes)
+        }
+        updateFab(viewModel.view.value ?: ShelfView.Home)
 
         // Patch 18 (Addition #3): if launched by the system "Open with" for an
         // .epub, import it and jump straight into the reader.
@@ -303,6 +313,66 @@ class MainActivity : AppCompatActivity() {
         if (::drawerToggle.isInitialized) drawerToggle.onConfigurationChanged(newConfig)
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        val current = viewModel.view.value ?: ShelfView.Home
+        if (current !is ShelfView.RecentlyAdded) {
+            outState.putString(STATE_SHELF, current.keyForSavedState())
+            when (current) {
+                is ShelfView.AuthorDetail -> outState.putString(STATE_DETAIL_NAME, current.name)
+                is ShelfView.SeriesDetail -> outState.putString(STATE_DETAIL_NAME, current.name)
+                else -> Unit
+            }
+        }
+    }
+
+    private fun restoreViewFromSavedState(savedInstanceState: Bundle?) {
+        val key = savedInstanceState?.getString(STATE_SHELF) ?: return
+        val detailName = savedInstanceState.getString(STATE_DETAIL_NAME)
+        val restored = when (key) {
+            BookshelfViewModel.KEY_HOME -> ShelfView.Home
+            BookshelfViewModel.KEY_READING -> ShelfView.Reading
+            BookshelfViewModel.KEY_LIBRARY -> ShelfView.Library
+            BookshelfViewModel.KEY_FAVORITES -> ShelfView.Favorites
+            BookshelfViewModel.KEY_AUTHORS -> ShelfView.AuthorsList
+            BookshelfViewModel.KEY_SERIES -> ShelfView.SeriesList
+            BookshelfViewModel.KEY_FINISHED -> ShelfView.Finished
+            BookshelfViewModel.KEY_TBR -> ShelfView.ToBeRead
+            BookshelfViewModel.KEY_COLLECTIONS -> ShelfView.Collections
+            BookshelfViewModel.KEY_FOLDERS -> ShelfView.Folders
+            BookshelfViewModel.KEY_SETTINGS -> ShelfView.Settings
+            "author_detail" -> detailName?.let { ShelfView.AuthorDetail(it) }
+            "series_detail" -> detailName?.let { ShelfView.SeriesDetail(it) }
+            else -> null
+        }
+        restored?.let { viewModel.setView(it) }
+    }
+
+    private fun ShelfView.keyForSavedState(): String = when (this) {
+        is ShelfView.Home -> BookshelfViewModel.KEY_HOME
+        is ShelfView.Reading -> BookshelfViewModel.KEY_READING
+        is ShelfView.Library -> BookshelfViewModel.KEY_LIBRARY
+        is ShelfView.Favorites -> BookshelfViewModel.KEY_FAVORITES
+        is ShelfView.AuthorsList -> BookshelfViewModel.KEY_AUTHORS
+        is ShelfView.SeriesList -> BookshelfViewModel.KEY_SERIES
+        is ShelfView.Finished -> BookshelfViewModel.KEY_FINISHED
+        is ShelfView.ToBeRead -> BookshelfViewModel.KEY_TBR
+        is ShelfView.Collections -> BookshelfViewModel.KEY_COLLECTIONS
+        is ShelfView.Folders -> BookshelfViewModel.KEY_FOLDERS
+        is ShelfView.Settings -> BookshelfViewModel.KEY_SETTINGS
+        is ShelfView.AuthorDetail -> "author_detail"
+        is ShelfView.SeriesDetail -> "series_detail"
+        else -> BookshelfViewModel.KEY_HOME
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // A task deliberately removed from Recents is a cold session. Keep the
+        // next launcher-created session on Home; an already-running task still
+        // preserves its current screen exactly as before.
+        prefs.lastView = BookshelfViewModel.KEY_HOME
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         // Patch 18 (Addition #3): re-handle a VIEW intent delivered to the
@@ -357,6 +427,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun drawerItems(): List<DrawerItem> =
         listOf(
+            DrawerItem(getString(R.string.nav_home), R.drawable.ic_home, view = ShelfView.Home),
             DrawerItem(getString(R.string.nav_currently_reading), R.drawable.ic_book, view = ShelfView.Reading),
             DrawerItem(getString(R.string.nav_library), R.drawable.ic_library, view = ShelfView.Library),
             DrawerItem(getString(R.string.nav_favorites), R.drawable.ic_favorite, view = ShelfView.Favorites),
@@ -389,8 +460,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun titleFor(view: ShelfView?): String =
         when (view) {
+            is ShelfView.Home -> getString(R.string.nav_home)
             is ShelfView.Reading -> getString(R.string.nav_currently_reading)
-            is ShelfView.Library -> getString(R.string.app_name)
+            is ShelfView.Library -> getString(R.string.nav_library)
             is ShelfView.Favorites -> getString(R.string.nav_favorites)
             is ShelfView.Finished -> getString(R.string.nav_finished)
             is ShelfView.ToBeRead -> getString(R.string.nav_tbr)
@@ -422,27 +494,104 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun bindContinueCard(book: BookEntity?) {
-        val show = book != null && viewModel.view.value is ShelfView.Library
-        binding.continueCard.visibility = if (show) View.VISIBLE else View.GONE
-        if (book == null) return
-        binding.continueTitle.text = book.title
-        binding.continueProgress.text = if (book.progress >= 0.995f) {
-            getString(R.string.progress_completed)
-        } else {
-            "${(book.progress * 100).toInt()}% read"
+    private fun setupHomeShelves() {
+        val specs = listOf(
+            R.id.homeRecentlyAdded to binding.homeContent.homeRecentlyAdded,
+            R.id.homeFavorites to binding.homeContent.homeFavorites,
+            R.id.homeAuthorBooks1 to binding.homeContent.homeAuthorBooks1,
+            R.id.homeAuthorBooks2 to binding.homeContent.homeAuthorBooks2,
+            R.id.homeAuthorBooks3 to binding.homeContent.homeAuthorBooks3,
+            R.id.homeSeriesBooks1 to binding.homeContent.homeSeriesBooks1,
+            R.id.homeSeriesBooks2 to binding.homeContent.homeSeriesBooks2,
+            R.id.homeSeriesBooks3 to binding.homeContent.homeSeriesBooks3,
+        )
+        specs.forEach { (key, recycler) ->
+            val adapter = HomeBookAdapter(::openBook, ::showBookOptions)
+            recycler.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+            recycler.adapter = adapter
+            homeAdapters[key] = adapter
         }
-        Glide.with(this).load(book.coverPath?.let(::File)).into(binding.continueCover)
-        binding.continueButton.setOnClickListener { openBook(book) }
+    }
+
+    private fun renderHome(content: HomeContent) {
+        if (viewModel.view.value !is ShelfView.Home) return
+
+        binding.homeContent.homeEmpty.visibility = if (content.hasBooks) View.GONE else View.VISIBLE
+        binding.homeContent.homeRecentlyAddedSection.visibility = if (content.recentlyAdded.isEmpty()) View.GONE else View.VISIBLE
+        binding.homeContent.homeContinueCard.visibility = if (content.continueReading != null) View.VISIBLE else View.GONE
+
+        content.continueReading?.let { book ->
+            binding.homeContent.homeContinueTitle.text = book.title
+            binding.homeContent.homeContinueAuthor.text = book.author.ifBlank { getString(R.string.unknown_author) }
+            binding.homeContent.homeContinueProgress.text = if (book.progress >= 0.995f) {
+                getString(R.string.progress_completed)
+            } else {
+                getString(R.string.home_progress_percent, (book.progress * 100).toInt())
+            }
+            loadHomeCover(book, binding.homeContent.homeContinueCover)
+            binding.homeContent.homeContinueButton.setOnClickListener { openBook(book) }
+            binding.homeContent.homeContinueCard.setOnClickListener { openBook(book) }
+        }
+
+        submitHomeShelf(R.id.homeRecentlyAdded, content.recentlyAdded)
+        binding.homeContent.homeFavoritesSection.visibility = if (content.favorites.isEmpty()) View.GONE else View.VISIBLE
+        submitHomeShelf(R.id.homeFavorites, content.favorites)
+        bindHomeGroups(
+            listOf(
+                Triple(binding.homeContent.homeAuthorGroup1, binding.homeContent.homeAuthorTitle1, binding.homeContent.homeAuthorBooks1),
+                Triple(binding.homeContent.homeAuthorGroup2, binding.homeContent.homeAuthorTitle2, binding.homeContent.homeAuthorBooks2),
+                Triple(binding.homeContent.homeAuthorGroup3, binding.homeContent.homeAuthorTitle3, binding.homeContent.homeAuthorBooks3),
+            ),
+            content.topAuthors,
+        )
+        binding.homeContent.homeAuthorsSection.visibility = if (content.topAuthors.isEmpty()) View.GONE else View.VISIBLE
+        bindHomeGroups(
+            listOf(
+                Triple(binding.homeContent.homeSeriesGroup1, binding.homeContent.homeSeriesTitle1, binding.homeContent.homeSeriesBooks1),
+                Triple(binding.homeContent.homeSeriesGroup2, binding.homeContent.homeSeriesTitle2, binding.homeContent.homeSeriesBooks2),
+                Triple(binding.homeContent.homeSeriesGroup3, binding.homeContent.homeSeriesTitle3, binding.homeContent.homeSeriesBooks3),
+            ),
+            content.topSeries,
+        )
+        binding.homeContent.homeSeriesSection.visibility = if (content.topSeries.isEmpty()) View.GONE else View.VISIBLE
+    }
+
+    private fun bindHomeGroups(
+        slots: List<Triple<View, android.widget.TextView, RecyclerView>>,
+        groups: List<com.epubreader.app.ui.HomeGroup>,
+    ) {
+        slots.forEachIndexed { index, (container, title, recycler) ->
+            val group = groups.getOrNull(index)
+            container.visibility = if (group == null) View.GONE else View.VISIBLE
+            if (group != null) {
+                title.text = getString(R.string.home_group_title, group.name, group.count)
+                homeAdapters[recycler.id]?.submitList(group.books)
+            }
+        }
+    }
+
+    private fun submitHomeShelf(id: Int, books: List<BookEntity>) {
+        homeAdapters[id]?.submitList(books)
+    }
+
+    private fun loadHomeCover(book: BookEntity, view: android.widget.ImageView) {
+        if (book.coverPath != null) {
+            Glide.with(view).load(File(book.coverPath)).centerCrop().placeholder(R.drawable.cover_frame).into(view)
+        } else {
+            Glide.with(view).clear(view)
+            view.setImageResource(R.drawable.cover_frame)
+        }
     }
 
     // ---------------------------------------------------------------- recycler
     private fun setupRecycler() {
         binding.refresh.setOnRefreshListener { rescanSelectedFolder() }
+        setupHomeShelves()
     }
 
     private fun isBookView(view: ShelfView) =
-        view !is ShelfView.AuthorsList &&
+        view !is ShelfView.Home &&
+                view !is ShelfView.AuthorsList &&
                 view !is ShelfView.SeriesList &&
                 view !is ShelfView.Collections &&
                 view !is ShelfView.Folders &&
@@ -510,7 +659,11 @@ class MainActivity : AppCompatActivity() {
         drawerToggle.syncState()
         binding.toolbar.title = titleFor(view)
         drawerAdapter.setSelected(view)
-        bindContinueCard(continueBook)
+        binding.homeContent.root.visibility = if (view is ShelfView.Home) View.VISIBLE else View.GONE
+        if (view is ShelfView.Home) {
+            binding.recycler.visibility = View.GONE
+            binding.emptyState.visibility = View.GONE
+        }
         updateFab(view)
         binding.refresh.isEnabled = true // Patch 12: keep the refresh layout always
         // enabled so the scanning spinner stays visible on EVERY view — previously
@@ -560,13 +713,13 @@ class MainActivity : AppCompatActivity() {
         viewModel.viewModeGrid.observe(this) { reconfigureAdapter() }
         viewModel.gridColumns.observe(this) { reconfigureAdapter() }
 
-        viewModel.lastOpened.observe(this) { book ->
-            continueBook = book
-            bindContinueCard(book)
+        viewModel.homeContent.observe(this) { content ->
+            renderHome(content)
         }
 
         viewModel.content.observe(this) { items ->
             val view = viewModel.view.value ?: ShelfView.Library
+            if (view is ShelfView.Home) return@observe
 
             if (view is ShelfView.Settings) {
                 binding.emptyAction.visibility = View.GONE

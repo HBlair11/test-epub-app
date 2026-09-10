@@ -3,6 +3,15 @@
     <string name="app_name">The Livre Magicae</string>
 
     <string name="continue_reading">Continue reading</string>
+    <string name="home_continue_label">Continue Reading</string>
+    <string name="home_recently_added">Recently Added</string>
+    <string name="home_favorites">Favorites</string>
+    <string name="home_top_authors">Top Authors</string>
+    <string name="home_top_series">Top Series</string>
+    <string name="home_group_title">%1$s · %2$d books</string>
+    <string name="home_progress_percent">%1$d%% read</string>
+    <string name="home_empty_title">Your library is empty</string>
+    <string name="home_empty_hint">Add a few EPUBs and Home will become your reading starting point.</string>
     <string name="action_scan_folder">Scan folder</string>
     <string name="action_import_file">Import file</string>
     <string name="action_search">Search</string>
@@ -47,6 +56,7 @@
     <string name="tab_series">Series</string>
 
     <!-- Drawer -->
+    <string name="nav_home">Home</string>
     <string name="nav_currently_reading">Currently Reading</string>
     <string name="nav_library">Library</string>
     <string name="nav_favorites">Favorites</string>
