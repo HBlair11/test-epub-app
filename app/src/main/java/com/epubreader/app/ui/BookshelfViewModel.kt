@@ -99,6 +99,11 @@ class BookshelfViewModel(
 
     val lastOpened: LiveData<BookEntity?> = repo.observeLastOpened().asLiveData()
 
+    /** Immediately records a book opening so Home/Continue Reading updates without waiting for reader progress persistence. */
+    fun markOpened(bookId: Long) {
+        viewModelScope.launch { repo.markOpened(bookId) }
+    }
+
     /** Curated, offline Home data. Recently Added is supplied by a dedicated Room query
      * so the Home shelf cannot accidentally inherit a different in-memory sort. */
     val homeContent: LiveData<HomeContent> = combine(
