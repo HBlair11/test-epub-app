@@ -99,6 +99,8 @@ class BookshelfViewModel(
         )
     }
 
+    val lastOpened: LiveData<BookEntity?> = repo.observeLastOpened().asLiveData()
+
     val content: LiveData<List<DisplayItem>> = _trigger.switchMap { t ->
         flowFor(t.view, t.sort, t.asc).asLiveData()
     }

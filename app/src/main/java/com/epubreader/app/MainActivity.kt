@@ -25,6 +25,7 @@ import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.epubreader.app.data.BookEntity
+import com.bumptech.glide.Glide
 import com.epubreader.app.data.BookRepository
 import com.epubreader.app.data.PrefsManager
 import com.epubreader.app.databinding.ActivityMainBinding
@@ -69,6 +70,7 @@ class MainActivity : AppCompatActivity() {
     private var bookAdapter: BookAdapter? = null
     private var rowAdapter: RowAdapter? = null
     private var currentBooks: List<BookEntity> = emptyList()
+    private var continueBook: BookEntity? = null
     private var touchHelper: ItemTouchHelper? = null
     private var scrollToTopOnNextContent = false
 
@@ -420,6 +422,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun bindContinueCard(book: BookEntity?) {
+        val show = book != null && viewModel.view.value is ShelfView.Library
+        binding.continueCard.visibility = if (show) View.VISIBLE else View.GONE
+        if (book == null) return
+        binding.continueTitle.text = book.title
+        binding.continueProgress.text = if (book.progress >= 0.995f) {
+            getString(R.string.progress_completed)
+        } else {
+            "${(book.progress * 100).toInt()}% read"
+        }
+        Glide.with(this).load(book.coverPath?.let(::File)).into(binding.continueCover)
+        binding.continueButton.setOnClickListener { openBook(book) }
+    }
+
     // ---------------------------------------------------------------- recycler
     private fun setupRecycler() {
         binding.refresh.setOnRefreshListener { rescanSelectedFolder() }
@@ -494,6 +510,7 @@ class MainActivity : AppCompatActivity() {
         drawerToggle.syncState()
         binding.toolbar.title = titleFor(view)
         drawerAdapter.setSelected(view)
+        bindContinueCard(continueBook)
         updateFab(view)
         binding.refresh.isEnabled = true // Patch 12: keep the refresh layout always
         // enabled so the scanning spinner stays visible on EVERY view — previously
@@ -543,15 +560,22 @@ class MainActivity : AppCompatActivity() {
         viewModel.viewModeGrid.observe(this) { reconfigureAdapter() }
         viewModel.gridColumns.observe(this) { reconfigureAdapter() }
 
+        viewModel.lastOpened.observe(this) { book ->
+            continueBook = book
+            bindContinueCard(book)
+        }
+
         viewModel.content.observe(this) { items ->
             val view = viewModel.view.value ?: ShelfView.Library
 
             if (view is ShelfView.Settings) {
+                binding.emptyAction.visibility = View.GONE
                 showSettingsView()
                 return@observe
             }
 
             if (isFoldersView(view)) {
+                binding.emptyAction.visibility = View.GONE
                 showFoldersView()
                 return@observe
             }
@@ -566,6 +590,7 @@ class MainActivity : AppCompatActivity() {
                 binding.emptyText.text = getString(R.string.empty_placeholder)
                 binding.emptyHint.text = getString(R.string.coming_soon)
                 binding.emptyHint.visibility = View.VISIBLE
+                binding.emptyAction.visibility = View.GONE
                 return@observe
             }
 
@@ -588,9 +613,14 @@ class MainActivity : AppCompatActivity() {
                     }
                 binding.emptyHint.text = if (view is ShelfView.Library) getString(R.string.empty_library_hint) else ""
                 binding.emptyHint.visibility = if (view is ShelfView.Library) View.VISIBLE else View.GONE
+                binding.emptyAction.visibility = if (view is ShelfView.Library) View.VISIBLE else View.GONE
+                binding.emptyAction.setOnClickListener {
+                    openMultiFileLauncher.launch(BookFileTypes.acceptedMimeTypes)
+                }
             } else {
                 binding.emptyState.visibility = View.GONE
                 binding.recycler.visibility = View.VISIBLE
+                binding.emptyAction.visibility = View.GONE
             }
 
             val first = items.firstOrNull()

@@ -84,6 +84,8 @@ class EpubImporter(
         val publisher: String?,
         val description: String?,
         val identifier: String?,
+        val publishYear: Int?,
+        val subjectTags: String?,
         val sourceUri: String?,
         val sourceFilename: String?,
         val sortTitle: String,
@@ -378,11 +380,32 @@ class EpubImporter(
                 )
                 val contentDiffers = existing.checksum != sourceChecksum
 
-                // Always record the stable source identity while refreshing. This
-                // upgrades legacy rows even when their metadata is already unchanged.
+                if (existing.metadataEdited) {
+                    // User-edited metadata is authoritative. A parser refresh may
+                    // observe new source metadata, but it must never overwrite the
+                    // user's curated values. Source identity is still updated below.
+                    db.bookDao().updateSourceIdentity(
+                        existing.id,
+                        source.uri.toString(),
+                        source.name,
+                        source.size,
+                        source.lastModified,
+                    )
+                    results += MetadataRefreshItem(
+                        MetadataRefreshStatus.SKIPPED,
+                        existing.id,
+                        source.name,
+                        existing.author,
+                        context.getString(com.epubreader.app.R.string.metadata_refresh_detail_user_edited),
+                    )
+                    continue
+                }
+
                 updates += MetadataUpdate(
                     existing.id, title, author, series, seriesIndex, language, publisher,
-                    description, identifier, source.uri.toString(), source.name, title, author
+                    description, identifier, parsePublishYear(parsed.metadata.publishDate),
+                    parsed.metadata.subjects.joinToString(", ").ifBlank { null },
+                    source.uri.toString(), source.name, title, author
                 )
 
                 val detail = when {
@@ -409,7 +432,7 @@ class EpubImporter(
         if (updates.isNotEmpty()) {
             db.withTransaction {
                 for (update in updates) {
-                    db.bookDao().updateMetadataOnly(
+                    db.bookDao().updateMetadataFromParser(
                         id = update.id,
                         title = update.title,
                         author = update.author,
@@ -419,6 +442,8 @@ class EpubImporter(
                         publisher = update.publisher,
                         description = update.description,
                         identifier = update.identifier,
+                        publishYear = update.publishYear,
+                        subjectTags = update.subjectTags,
                         sourceUri = update.sourceUri,
                         sourceFilename = update.sourceFilename,
                         sortTitle = update.sortTitle,
@@ -463,7 +488,14 @@ class EpubImporter(
 
         val coverFile = File(coverDir, "$checksum.png")
         if (!coverFile.exists()) {
-            CoverExtractor.extract(working, parsed, coverFile)
+            val extracted = CoverExtractor.extract(working, parsed, coverFile)
+            if (extracted == null) {
+                CoverGenerator.generate(
+                    parsed.metadata.title.ifBlank { working.nameWithoutExtension },
+                    parsed.metadata.authorString,
+                    coverFile,
+                )
+            }
         }
 
         val existingByUri = sourceUri?.let { db.bookDao().getBySourceUri(it) }
@@ -472,17 +504,23 @@ class EpubImporter(
         val entity =
             BookEntity(
                 id = existing?.id ?: 0,
-                title = parsed.metadata.title.ifBlank { working.nameWithoutExtension },
-                author = parsed.metadata.authorString,
+                title = existing?.takeIf { it.metadataEdited }?.title
+                    ?: parsed.metadata.title.ifBlank { working.nameWithoutExtension },
+                author = existing?.takeIf { it.metadataEdited }?.author
+                    ?: parsed.metadata.authorString,
                 path = working.absolutePath,
-                coverPath = if (coverFile.exists()) coverFile.absolutePath else null,
+                coverPath = existing?.takeIf { it.metadataEdited }?.coverPath
+                    ?: if (coverFile.exists()) coverFile.absolutePath else null,
                 progress = existing?.progress ?: 0f,
-                series = parsed.metadata.series,
-                seriesIndex = parsed.metadata.seriesIndex,
-                language = parsed.metadata.language,
-                publisher = parsed.metadata.publisher,
-                description = parsed.metadata.description,
-                identifier = parsed.metadata.identifiers.firstOrNull(),
+                series = existing?.takeIf { it.metadataEdited }?.series ?: parsed.metadata.series,
+                seriesIndex = existing?.takeIf { it.metadataEdited }?.seriesIndex ?: parsed.metadata.seriesIndex,
+                language = existing?.takeIf { it.metadataEdited }?.language ?: parsed.metadata.language,
+                publisher = existing?.takeIf { it.metadataEdited }?.publisher ?: parsed.metadata.publisher,
+                description = existing?.takeIf { it.metadataEdited }?.description ?: parsed.metadata.description,
+                identifier = existing?.takeIf { it.metadataEdited }?.identifier ?: parsed.metadata.identifiers.firstOrNull(),
+                publishYear = existing?.takeIf { it.metadataEdited }?.publishYear ?: parsePublishYear(parsed.metadata.publishDate),
+                subjectTags = existing?.takeIf { it.metadataEdited }?.subjectTags ?: parsed.metadata.subjects.joinToString(", ").ifBlank { null },
+                metadataEdited = existing?.metadataEdited ?: false,
                 addedDate = existing?.addedDate ?: System.currentTimeMillis(),
                 modifiedDate = System.currentTimeMillis(),
                 lastOpenedDate = existing?.lastOpenedDate,
@@ -490,8 +528,10 @@ class EpubImporter(
                 spineIndex = existing?.spineIndex ?: 0,
                 scrollRatio = existing?.scrollRatio ?: 0f,
                 checksum = checksum,
-                sortTitle = parsed.metadata.title.ifBlank { working.nameWithoutExtension },
-                sortAuthor = parsed.metadata.authorString,
+                sortTitle = existing?.takeIf { it.metadataEdited }?.sortTitle
+                    ?: parsed.metadata.title.ifBlank { working.nameWithoutExtension },
+                sortAuthor = existing?.takeIf { it.metadataEdited }?.sortAuthor
+                    ?: parsed.metadata.authorString,
                 isFavorite = existing?.isFavorite ?: false,
                 isCurrentlyReading = existing?.isCurrentlyReading ?: false,
                 sourceUri = sourceUri ?: existing?.sourceUri,
@@ -561,7 +601,14 @@ class EpubImporter(
             } ?: return null
         val coverFile = File(coverDir, "$checksum.png")
         if (!coverFile.exists()) {
-            CoverExtractor.extract(working, parsed, coverFile)
+            val extracted = CoverExtractor.extract(working, parsed, coverFile)
+            if (extracted == null) {
+                CoverGenerator.generate(
+                    parsed.metadata.title.ifBlank { working.nameWithoutExtension },
+                    parsed.metadata.authorString,
+                    coverFile,
+                )
+            }
         }
         val existingByUri = sourceUri?.let { db.bookDao().getBySourceUri(it) }
         val existingByChecksum = db.bookDao().getByChecksum(checksum)
@@ -569,17 +616,23 @@ class EpubImporter(
         val entity =
             BookEntity(
                 id = existing?.id ?: 0,
-                title = parsed.metadata.title.ifBlank { working.nameWithoutExtension },
-                author = parsed.metadata.authorString,
+                title = existing?.takeIf { it.metadataEdited }?.title
+                    ?: parsed.metadata.title.ifBlank { working.nameWithoutExtension },
+                author = existing?.takeIf { it.metadataEdited }?.author
+                    ?: parsed.metadata.authorString,
                 path = working.absolutePath,
-                coverPath = if (coverFile.exists()) coverFile.absolutePath else null,
+                coverPath = existing?.takeIf { it.metadataEdited }?.coverPath
+                    ?: if (coverFile.exists()) coverFile.absolutePath else null,
                 progress = existing?.progress ?: 0f,
-                series = parsed.metadata.series,
-                seriesIndex = parsed.metadata.seriesIndex,
-                language = parsed.metadata.language,
-                publisher = parsed.metadata.publisher,
-                description = parsed.metadata.description,
-                identifier = parsed.metadata.identifiers.firstOrNull(),
+                series = existing?.takeIf { it.metadataEdited }?.series ?: parsed.metadata.series,
+                seriesIndex = existing?.takeIf { it.metadataEdited }?.seriesIndex ?: parsed.metadata.seriesIndex,
+                language = existing?.takeIf { it.metadataEdited }?.language ?: parsed.metadata.language,
+                publisher = existing?.takeIf { it.metadataEdited }?.publisher ?: parsed.metadata.publisher,
+                description = existing?.takeIf { it.metadataEdited }?.description ?: parsed.metadata.description,
+                identifier = existing?.takeIf { it.metadataEdited }?.identifier ?: parsed.metadata.identifiers.firstOrNull(),
+                publishYear = existing?.takeIf { it.metadataEdited }?.publishYear ?: parsePublishYear(parsed.metadata.publishDate),
+                subjectTags = existing?.takeIf { it.metadataEdited }?.subjectTags ?: parsed.metadata.subjects.joinToString(", ").ifBlank { null },
+                metadataEdited = existing?.metadataEdited ?: false,
                 addedDate = existing?.addedDate ?: System.currentTimeMillis(),
                 modifiedDate = System.currentTimeMillis(),
                 lastOpenedDate = existing?.lastOpenedDate,
@@ -587,8 +640,10 @@ class EpubImporter(
                 spineIndex = existing?.spineIndex ?: 0,
                 scrollRatio = existing?.scrollRatio ?: 0f,
                 checksum = checksum,
-                sortTitle = parsed.metadata.title.ifBlank { working.nameWithoutExtension },
-                sortAuthor = parsed.metadata.authorString,
+                sortTitle = existing?.takeIf { it.metadataEdited }?.sortTitle
+                    ?: parsed.metadata.title.ifBlank { working.nameWithoutExtension },
+                sortAuthor = existing?.takeIf { it.metadataEdited }?.sortAuthor
+                    ?: parsed.metadata.authorString,
                 isFavorite = existing?.isFavorite ?: false,
                 isCurrentlyReading = existing?.isCurrentlyReading ?: false,
                 sourceUri = sourceUri ?: existing?.sourceUri,
@@ -628,6 +683,12 @@ class EpubImporter(
             }
         }
         return newIds
+    }
+
+    private fun parsePublishYear(value: String?): Int? {
+        val raw = value?.trim().orEmpty()
+        if (raw.isBlank()) return null
+        return Regex("(1[5-9]\\d{2}|20\\d{2}|21\\d{2})").find(raw)?.value?.toIntOrNull()
     }
 
     private fun checksum(file: File): String {

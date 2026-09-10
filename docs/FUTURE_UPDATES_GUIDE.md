@@ -254,3 +254,9 @@ export PATH="$JAVA_HOME/bin:$PATH"
 ./gradlew assembleDebug testDebugUnitTest --no-daemon --console=plain
 ```
 Then follow the release checklist above.
+
+---
+
+## Master product roadmap
+
+See `docs/FUTURE_UPDATES_ROADMAP_AND_PRODUCT_GUIDE.md` for the complete product evaluation, 71-point improvement list, search roadmap, Reading Nook concept, engineering rules, and release sequencing.

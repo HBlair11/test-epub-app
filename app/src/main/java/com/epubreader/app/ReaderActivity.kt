@@ -13,6 +13,9 @@ import android.os.Looper
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
+import android.view.ActionMode
+import android.view.Menu
+import android.view.MenuItem
 import android.view.WindowManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -34,6 +37,8 @@ import com.epubreader.app.data.AppDatabase
 import com.epubreader.app.data.BookEntity
 import com.epubreader.app.data.BookmarkEntity
 import com.epubreader.app.data.PrefsManager
+import com.epubreader.app.epub.ReaderSelectionBridge
+import com.epubreader.app.epub.ReaderSelectionLocator
 import com.epubreader.app.databinding.ActivityReaderBinding
 import com.epubreader.app.epub.EpubBook
 import com.epubreader.app.epub.EpubParser
@@ -53,8 +58,13 @@ import java.io.File
 
 class ReaderActivity : AppCompatActivity() {
 
+    private companion object {
+        const val SELECTION_CAPTURE_ID = 0x4C56
+    }
+
     private lateinit var binding: ActivityReaderBinding
     private lateinit var prefs: PrefsManager
+    private var lastSelection: ReaderSelectionLocator? = null
 
     // Patch 11 "Screen On" controller — keeps the screen awake for 10 minutes
     // beyond the system timeout while the reader is in the foreground.
@@ -334,7 +344,48 @@ class ReaderActivity : AppCompatActivity() {
             }
         }
         binding.webView.webChromeClient = WebChromeClient()
-        binding.webView.setOnLongClickListener { true }
+        binding.webView.addJavascriptInterface(
+            ReaderSelectionBridge { selection ->
+                lastSelection = selection
+                runOnUiThread {
+                    Snackbar.make(binding.root, R.string.selection_captured, Snackbar.LENGTH_SHORT).show()
+                }
+            },
+            "LivreSelection"
+        )
+        binding.webView.setOnLongClickListener { false }
+        binding.webView.customSelectionActionModeCallback = object : ActionMode.Callback {
+            override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+                if (menu.findItem(android.R.id.selectAll) == null) {
+                    // WebView owns the native selection actions; we add a single
+                    // lightweight foundation action without taking over its menu.
+                    menu.add(0, SELECTION_CAPTURE_ID, 100, getString(R.string.selection_capture))
+                }
+                captureCurrentSelection()
+                return true
+            }
+            override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+                captureCurrentSelection()
+                return false
+            }
+            override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean =
+                if (item.itemId == SELECTION_CAPTURE_ID) {
+                    captureCurrentSelection()
+                    mode.finish()
+                    true
+                } else false
+            override fun onDestroyActionMode(mode: ActionMode) = Unit
+        }
+    }
+
+    private fun captureCurrentSelection() {
+        val href = epub?.spine?.getOrNull(spineIndex)?.href.orEmpty()
+        if (href.isBlank()) return
+        val escapedHref = org.json.JSONObject.quote(href)
+        binding.webView.evaluateJavascript(
+            "(function(){var s=window.getSelection&&window.getSelection();if(!s||s.rangeCount===0||!s.toString().trim())return;var r=s.getRangeAt(0);function p(n){var a=[];while(n&&n.nodeType===1){var i=0,q=n.previousSibling;while(q){if(q.nodeType===n.nodeType&&q.nodeName===n.nodeName)i++;q=q.previousSibling;}a.unshift(n.nodeName.toLowerCase()+':'+i);n=n.parentNode;}return a.join('/');}var b=document.body.innerText||'',t=s.toString().trim(),i=Math.max(0,b.indexOf(t));LivreSelection.onSelectionPayload(t," + escapedHref + ",p(r.startContainer),r.startOffset,p(r.endContainer),r.endOffset,b.slice(Math.max(0,i-40),i),b.slice(i+t.length,i+t.length+40));})();",
+            null
+        )
     }
 
     @SuppressLint("SetJavaScriptEnabled")

@@ -89,6 +89,9 @@ interface BookDao {
             publisher = :publisher,
             description = :description,
             identifier = :identifier,
+            publish_year = :publishYear,
+            subject_tags = :subjectTags,
+            metadata_edited = 1,
             source_uri = :sourceUri,
             source_filename = :sourceFilename,
             sort_title = :sortTitle,
@@ -106,6 +109,47 @@ interface BookDao {
         publisher: String?,
         description: String?,
         identifier: String?,
+        publishYear: Int?,
+        subjectTags: String?,
+        sourceUri: String?,
+        sourceFilename: String?,
+        sortTitle: String,
+        sortAuthor: String,
+    )
+
+
+    @Query(
+        """
+        UPDATE books SET
+            title = :title,
+            author = :author,
+            series = :series,
+            series_index = :seriesIndex,
+            language = :language,
+            publisher = :publisher,
+            description = :description,
+            identifier = :identifier,
+            publish_year = :publishYear,
+            subject_tags = :subjectTags,
+            source_uri = :sourceUri,
+            source_filename = :sourceFilename,
+            sort_title = :sortTitle,
+            sort_author = :sortAuthor
+        WHERE id = :id
+        """
+    )
+    suspend fun updateMetadataFromParser(
+        id: Long,
+        title: String,
+        author: String,
+        series: String?,
+        seriesIndex: Double?,
+        language: String?,
+        publisher: String?,
+        description: String?,
+        identifier: String?,
+        publishYear: Int?,
+        subjectTags: String?,
         sourceUri: String?,
         sourceFilename: String?,
         sortTitle: String,
@@ -135,6 +179,9 @@ interface BookDao {
 
     @Query("UPDATE books SET is_favorite = :fav WHERE id = :id")
     suspend fun setFavorite(id: Long, fav: Boolean)
+
+    @Query("SELECT * FROM books WHERE last_opened_date IS NOT NULL ORDER BY last_opened_date DESC LIMIT 1")
+    fun observeLastOpened(): Flow<BookEntity?>
 
     @Query("SELECT * FROM books WHERE is_favorite = 1 ORDER BY title COLLATE NOCASE")
     fun observeFavorites(): Flow<List<BookEntity>>

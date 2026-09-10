@@ -370,6 +370,13 @@ class EpubParser {
                                             .ifBlank { null }
                                 }
 
+                                "subject" -> {
+                                    val subject = xpp.nextText().trim()
+                                    if (subject.isNotBlank()) {
+                                        metadata.subjects.add(subject)
+                                    }
+                                }
+
                                 "date" -> {
                                     if (metadata.publishDate == null) {
                                         metadata.publishDate =

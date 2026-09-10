@@ -2,6 +2,7 @@
 <resources>
     <string name="app_name">The Livre Magicae</string>
 
+    <string name="continue_reading">Continue reading</string>
     <string name="action_scan_folder">Scan folder</string>
     <string name="action_import_file">Import file</string>
     <string name="action_search">Search</string>
@@ -143,6 +144,16 @@
     <string name="book_last_read_and_bookmark">Date last read and current bookmark</string>
     <string name="book_progress">Progress</string>
     <string name="unknown_author">Unknown author</string>
+    <string name="book_title">Title</string>
+    <string name="untitled">Untitled</string>
+    <string name="book_series_index">Series number</string>
+    <string name="book_publish_year">Publish year</string>
+    <string name="book_subjects">Subjects</string>
+    <string name="option_edit_details">Edit details</string>
+    <string name="edit_book_details">Edit book details</string>
+    <string name="edit_book_cover">Change cover</string>
+    <string name="edit_book_cover_placeholder">Use generated cover</string>
+    <string name="details_saved">Book details saved</string>
 
     <string name="reader_hint_tap">Tap center for menu · tap sides to turn pages</string>
     <string name="reader_chapter">Chapter</string>
@@ -167,6 +178,8 @@
     <string name="reader_history_forward">%1$s &gt;</string>
     <string name="reader_history_clear">CLEAR</string>
     <string name="reader_search_hint">Search this book</string>
+    <string name="selection_capture">Use selection</string>
+    <string name="selection_captured">Selection captured for future reader tools</string>
     <string name="reader_search_empty">Enter a word or phrase to find matches across the book.</string>
     <string name="reader_margin">Margin</string>
     <string name="reader_alignment">Alignment</string>
@@ -221,6 +234,7 @@
     <string name="metadata_refresh_detail_unchanged">Metadata is already up to date.</string>
     <string name="metadata_refresh_detail_unchanged_content_differs">Metadata is unchanged, but EPUB content differs; use Scan Now to replace the cached book.</string>
     <string name="metadata_refresh_detail_no_safe_match">No safe existing-book match was found; skipped without changing the library.</string>
+    <string name="metadata_refresh_detail_user_edited">Skipped because this book contains user-edited metadata.</string>
     <string name="metadata_refresh_detail_read_failed">Could not read the EPUB source file.</string>
     <string name="metadata_refresh_detail_parse_failed">Could not parse EPUB metadata.</string>
     <string name="metadata_refresh_detail_failed">Refresh failed for this EPUB.</string>

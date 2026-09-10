@@ -29,6 +29,7 @@ data class EpubMetadata(
     var publisher: String? = null,
     var description: String? = null,
     val identifiers: MutableList<String> = mutableListOf(),
+    val subjects: MutableList<String> = mutableListOf(),
     var series: String? = null,
     var seriesIndex: Double? = null,
     var publishDate: String? = null
