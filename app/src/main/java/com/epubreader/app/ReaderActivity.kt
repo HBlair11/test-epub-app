@@ -37,6 +37,7 @@ import com.epubreader.app.data.AppDatabase
 import com.epubreader.app.data.BookEntity
 import com.epubreader.app.data.BookmarkEntity
 import com.epubreader.app.data.PrefsManager
+import com.epubreader.app.epub.EpubChapterDetector
 import com.epubreader.app.epub.ReaderSelectionBridge
 import com.epubreader.app.epub.ReaderSelectionLocator
 import com.epubreader.app.databinding.ActivityReaderBinding
@@ -80,6 +81,7 @@ class ReaderActivity : AppCompatActivity() {
     private var pendingFragment: String? = null
     private var chromeVisible: Boolean = false
     private var restoreRatio: Float? = null
+
     /** Exact in-chapter page to restore after a cross-spine page seek. This uses
      *  the same Caesura page index that the visible reader already uses. */
     private var pendingTargetPageInChapter: Int? = null
@@ -116,6 +118,7 @@ class ReaderActivity : AppCompatActivity() {
     private var restoringHistoryLocation = false
     private var manualSeekTouch = false
     private var manualSeekFinished = false
+
     /** Exact page requested by the user. A stale WebView poll must not overwrite this
      *  location while the visible WebView is applying gotoPage(). */
     private var pendingExactSeekLocation: ReaderLocation? = null
@@ -720,7 +723,6 @@ class ReaderActivity : AppCompatActivity() {
         }
 
 
-
         val detector =
             android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
                 override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
@@ -867,7 +869,8 @@ class ReaderActivity : AppCompatActivity() {
 
     private fun navigateToReaderLocation(location: ReaderLocation) {
         val count = chapterPageCounts?.getOrNull(location.spineIndex)?.coerceAtLeast(1) ?: 1
-        val ratio = if (count > 1) location.pageInChapter.coerceIn(0, count - 1) / (count - 1).toFloat() else location.ratio
+        val ratio =
+            if (count > 1) location.pageInChapter.coerceIn(0, count - 1) / (count - 1).toFloat() else location.ratio
         restoreRatio = ratio.coerceIn(0f, 1f)
         if (location.spineIndex == spineIndex) {
             binding.webView.evaluateJavascript(
@@ -900,9 +903,12 @@ class ReaderActivity : AppCompatActivity() {
         binding.readerHistory.visibility = if (showHistory) View.VISIBLE else View.GONE
         binding.readerHistoryBack.visibility = if (hasBack) View.VISIBLE else View.INVISIBLE
         binding.readerHistoryForward.visibility = if (hasForward) View.VISIBLE else View.INVISIBLE
-        if (hasBack) binding.readerHistoryBack.text = getString(R.string.reader_history_back, historyPageLabel(backHistory.last()))
-        if (hasForward) binding.readerHistoryForward.text = getString(R.string.reader_history_forward, historyPageLabel(forwardHistory.last()))
+        if (hasBack) binding.readerHistoryBack.text =
+            getString(R.string.reader_history_back, historyPageLabel(backHistory.last()))
+        if (hasForward) binding.readerHistoryForward.text =
+            getString(R.string.reader_history_forward, historyPageLabel(forwardHistory.last()))
     }
+
     // Patch 16 (Issue #2): returns true if the confirmed tap landed on a link
     // inside the WebView. hitTestResult is queried immediately (the touch is
     // still in the DOWN -> UP window when onSingleTapConfirmed fires), and an
@@ -1925,7 +1931,7 @@ body * { background-color: transparent !important; }
         lastProgressPersistAt = now
         lifecycleScope.launch(Dispatchers.IO) {
             val chapterIndex = EpubChapterDetector.ordinalForSpine(actualChapterSpines, spine)
-        db.bookDao().updateProgress(bookId, progress, spine, chapterIndex, ratio, now)
+            db.bookDao().updateProgress(bookId, progress, spine, chapterIndex, ratio, now)
         }
     }
 
@@ -1945,7 +1951,7 @@ body * { background-color: transparent !important; }
             if (target.spineIndex in counts.indices) {
                 val prefix = ReaderPageMapping.prefixSums(counts)
                 (prefix.getOrNull(target.spineIndex) ?: 0) +
-                    target.pageInChapter.coerceIn(0, counts[target.spineIndex].coerceAtLeast(1) - 1)
+                        target.pageInChapter.coerceIn(0, counts[target.spineIndex].coerceAtLeast(1) - 1)
             } else null
         } ?: currentAbsoluteBookPage()
         val currentBookPage = (displayAbsolute + 1).coerceIn(1, total.coerceAtLeast(1))
@@ -1997,7 +2003,8 @@ body * { background-color: transparent !important; }
             // Prior section pages + the exact rendered page reported by the
             // visible WebView for the current spine item.
             val prior = (range.first until spineIndex).sumOf { counts.getOrNull(it)?.coerceAtLeast(0) ?: 0 }
-            val current = currentPageInChapter.coerceIn(0, counts.getOrNull(spineIndex)?.coerceAtLeast(1)?.minus(1) ?: 0)
+            val current =
+                currentPageInChapter.coerceIn(0, counts.getOrNull(spineIndex)?.coerceAtLeast(1)?.minus(1) ?: 0)
             val cur = (prior + current + 1).coerceIn(1, total)
             "$label - $cur/$total"
         }
