@@ -99,9 +99,41 @@ class BookshelfViewModel(
     val lastOpened: LiveData<BookEntity?> = repo.observeLastOpened().asLiveData()
 
     /** Curated, offline Home data derived from the existing books flow. */
-    val homeContent: LiveData<HomeContent> = repo.observeBooks()
-        .map { books -> buildHomeContent(books) }
-        .asLiveData()
+    private val homeContentSource = repo.observeBooks().asLiveData()
+    private val _homeContent = MediatorLiveData<HomeContent>().apply {
+        addSource(homeContentSource) { books ->
+            value = buildHomeContent(books)
+        }
+    }
+    val homeContent: LiveData<HomeContent> = _homeContent
+
+    /**
+     * Optimistically move a newly opened book to Continue Reading before the
+     * reader activity is launched. Room remains the source of truth and will
+     * reconcile the card on the next books emission.
+     */
+    fun markBookOpenedImmediately(book: BookEntity) {
+        val openedAt = System.currentTimeMillis()
+        _homeContent.value?.let { current ->
+            _homeContent.value = current.copy(
+                continueReading = book.copy(
+                    isCurrentlyReading = true,
+                    lastOpenedDate = openedAt,
+                )
+            )
+        }
+        viewModelScope.launch {
+            repo.markOpened(book.id, openedAt)
+        }
+    }
+
+    /** Force a fresh Home projection when returning from another activity. */
+    fun refreshHome() {
+        viewModelScope.launch {
+            val books = repo.getAllBooks()
+            _homeContent.postValue(buildHomeContent(books))
+        }
+    }
 
     val content: LiveData<List<DisplayItem>> = _trigger.switchMap { t ->
         flowFor(t.view, t.sort, t.asc).asLiveData()

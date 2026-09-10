@@ -280,6 +280,19 @@ class ReaderActivity : AppCompatActivity() {
 
     private fun inkColor(): Int = Color.parseColor(readerColors().second)
 
+    /** Convert an ARGB color to a CSS hex value suitable for injected EPUB styles. */
+    private fun colorToHex(color: Int): String = String.format("#%08X", color)
+
+    /** Resolve a framework/theme color attribute for reader-native UI elements. */
+    private fun themeColor(attr: Int): Int {
+        val ta = obtainStyledAttributes(intArrayOf(attr))
+        try {
+            return ta.getColor(0, 0xFF000000.toInt())
+        } finally {
+            ta.recycle()
+        }
+    }
+
     private fun bottomGuardPx(): Int = if (prefs.pageBottomMargin) 56 else 0
 
     /** Patch 12: top reading margin — the vertical breathing room reserved ABOVE
@@ -1328,7 +1341,7 @@ class ReaderActivity : AppCompatActivity() {
         val fontCss = fontFamily?.let { "font-family:$it !important;" } ?: ""
         return """<style>
 html, body {
-  background:${ColorToHex(bg)} !important;
+  background:${colorToHex(bg)} !important;
   color:${ink} !important;
   margin:0 !important;
   overflow-x:hidden !important;
