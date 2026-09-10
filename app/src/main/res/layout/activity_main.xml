@@ -125,7 +125,8 @@
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:contentDescription="@string/app_name"
-                android:src="@drawable/ic_launcher_foreground_image_drawer" />
+                android:src="@drawable/ic_launcher_drawer"
+                android:scaleType="fitCenter" />
 
             <TextView
                 android:layout_width="wrap_content"
