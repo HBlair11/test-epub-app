@@ -77,6 +77,7 @@ class SearchActivity : AppCompatActivity() {
     }
 
     private fun openBook(book: BookEntity) {
+        lifecycleScope.launch { repo.markOpened(book.id) }
         startActivity(Intent(this, ReaderActivity::class.java).putExtra(ReaderActivity.EXTRA_BOOK_ID, book.id))
     }
 

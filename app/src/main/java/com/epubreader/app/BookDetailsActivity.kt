@@ -231,6 +231,9 @@ class BookDetailsActivity : AppCompatActivity() {
         binding.btnRead.setOnClickListener {
             shouldRefreshOnResume = true
 
+            lifecycleScope.launch(Dispatchers.IO) {
+                AppDatabase.get(applicationContext).bookDao().markOpened(book.id, System.currentTimeMillis())
+            }
             startActivity(
                 Intent(
                     this,

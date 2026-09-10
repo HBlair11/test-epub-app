@@ -16,7 +16,7 @@
 
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="156dp">
+            android:layout_height="160dp">
 
             <ImageView
                 android:id="@+id/cover"
@@ -63,11 +63,10 @@
         <TextView
             android:id="@+id/title"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="7dp"
+            android:layout_height="16dp"
+            android:layout_marginTop="8dp"
             android:ellipsize="end"
             android:maxLines="1"
-            android:minLines="1"
             android:textColor="?android:textColorPrimary"
             android:textSize="12sp"
             android:textStyle="bold" />
@@ -75,11 +74,10 @@
         <TextView
             android:id="@+id/author"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
+            android:layout_height="15dp"
+            android:layout_marginTop="2dp"
             android:ellipsize="end"
             android:maxLines="1"
-            android:minLines="1"
             android:textColor="?android:textColorSecondary"
             android:textSize="11sp" />
     </LinearLayout>

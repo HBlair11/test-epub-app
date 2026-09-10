@@ -533,9 +533,14 @@ class MainActivity : AppCompatActivity() {
             binding.homeContent.homeContinueSeries.text = seriesText
             binding.homeContent.homeContinueSeries.visibility = if (seriesText.isNullOrBlank()) View.GONE else View.VISIBLE
 
-            binding.homeContent.homeContinueLocation.text = book.currentLocation?.let { getString(R.string.home_continue_location, it) }
+            val location = book.currentLocation?.trim().orEmpty()
+            binding.homeContent.homeContinueLocation.text = if (location.isBlank()) {
+                ""
+            } else {
+                getString(R.string.home_continue_location, location)
+            }
             binding.homeContent.homeContinueLocation.visibility =
-                if (book.currentLocation.isNullOrBlank()) View.GONE else View.VISIBLE
+                if (location.isBlank()) View.GONE else View.VISIBLE
             binding.homeContent.homeContinueProgress.text = if (book.progress >= 0.995f) {
                 getString(R.string.progress_completed)
             } else {
@@ -1748,6 +1753,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openBook(book: BookEntity) {
+        viewModel.markOpened(book.id)
         // Patch 11: capture this view's scroll position before navigating away so
         // it can be restored exactly on return. Reading is excluded (always
         // refreshes from top on return, per Patch 10 behaviour for that view).

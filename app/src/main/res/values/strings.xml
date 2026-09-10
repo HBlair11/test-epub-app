@@ -6,19 +6,13 @@
     <string name="home_continue_label">Continue Reading</string>
     <string name="home_continue_heading">Continue Reading</string>
     <string name="home_continue_series">%1$s</string>
+    <string name="home_continue_location">Location - %1$s</string>
     <string name="home_recently_added">Recently Added</string>
     <string name="home_favorites">Favorites</string>
     <string name="home_top_authors">Top Authors</string>
     <string name="home_top_series">Top Series</string>
     <string name="home_group_title">%1$s · %2$d books</string>
     <string name="home_progress_percent">%1$d%% read</string>
-    <string name="home_continue_location">Location - %1$s</string>
-    <string name="dictionary_define">Define</string>
-    <string name="dictionary_no_entry">No local definition found for “%1$s”.</string>
-    <string name="dictionary_lookup_failed">The offline dictionary could not be opened.</string>
-    <string name="dictionary_not_single_word">Define works with a single word.</string>
-    <string name="dictionary_pos_unknown">Entry</string>
-    <string name="dictionary_attribution">Offline Dictionary: The Livre Magicae curated starter dictionary. Definitions are original app content; no online lookup is used.</string>
     <string name="home_empty_title">Your library is empty</string>
     <string name="home_empty_hint">Add a few EPUBs and Home will become your reading starting point.</string>
     <string name="action_scan_folder">Scan folder</string>
@@ -51,7 +45,7 @@
     <string name="settings_scanned_folder">Scanned folder</string>
     <string name="settings_reader_theme">Reader theme</string>
     <string name="settings_about">About</string>
-    <string name="settings_about_detail">The Livre Magicae · Epub Reader\nOriginal curated offline dictionary included; no online lookup is used.</string>
+    <string name="settings_about_detail">The Livre Magicae · Epub Reader</string>
 
     <string name="settings_keep_screen_on">Screen On</string>
     <string name="settings_keep_screen_on_summary">Keep the screen on for 10 minutes longer than your current system setting.</string>
@@ -199,6 +193,10 @@
     <string name="reader_search_hint">Search this book</string>
     <string name="selection_capture">Use selection</string>
     <string name="selection_captured">Selection captured for future reader tools</string>
+    <string name="selection_define">Define</string>
+    <string name="selection_single_word_required">Select one word to define.</string>
+    <string name="dictionary_not_found">No local definition found.</string>
+    <string name="dictionary_attribution">Offline dictionary • project-authored local dataset</string>
     <string name="reader_search_empty">Enter a word or phrase to find matches across the book.</string>
     <string name="reader_margin">Margin</string>
     <string name="reader_alignment">Alignment</string>

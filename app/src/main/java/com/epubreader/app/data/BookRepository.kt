@@ -14,9 +14,15 @@ class BookRepository(
 
     fun observeBooks(): Flow<List<BookEntity>> = bookDao.observeAll()
 
+    fun observeHomeRecentlyAdded(): Flow<List<BookEntity>> = bookDao.observeHomeRecentlyAdded()
+
     fun observeCurrentlyReading(): Flow<List<BookEntity>> = bookDao.observeCurrentlyReading()
 
     suspend fun setCurrentlyReading(id: Long) = bookDao.setCurrentlyReading(id)
+
+    suspend fun markOpened(id: Long) = bookDao.markOpened(id, System.currentTimeMillis())
+
+    suspend fun updateCurrentLocation(id: Long, location: String?) = bookDao.updateCurrentLocation(id, location)
 
     suspend fun clearCurrentlyReading(id: Long) = bookDao.clearCurrentlyReading(id)
 
@@ -27,10 +33,6 @@ class BookRepository(
     fun observeToBeRead(): Flow<List<BookEntity>> = bookDao.observeToBeRead()
 
     fun observeLastOpened(): Flow<BookEntity?> = bookDao.observeLastOpened()
-
-    fun observeRecentlyAddedHome(limit: Int): Flow<List<BookEntity>> = bookDao.observeRecentlyAddedHome(limit)
-
-    suspend fun markOpened(id: Long) = bookDao.markOpened(id, System.currentTimeMillis())
 
     // Patch 16 (Issue #3): books for the "Recently Added" temp screen.
     fun observeByIds(ids: List<Long>): Flow<List<BookEntity>> =

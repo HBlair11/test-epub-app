@@ -99,11 +99,12 @@ class BookshelfViewModel(
 
     val lastOpened: LiveData<BookEntity?> = repo.observeLastOpened().asLiveData()
 
-    /** Curated, offline Home data derived from the existing books flow. */
-    val homeContent: LiveData<HomeContent> = repo.observeBooks()
-        .combine(repo.observeRecentlyAddedHome(6)) { books, recentlyAdded ->
-            buildHomeContent(books).copy(recentlyAdded = recentlyAdded)
-        }
+    /** Curated, offline Home data. Recently Added is supplied by a dedicated Room query
+     * so the Home shelf cannot accidentally inherit a different in-memory sort. */
+    val homeContent: LiveData<HomeContent> = combine(
+        repo.observeBooks(),
+        repo.observeHomeRecentlyAdded(),
+    ) { books, recentlyAdded -> buildHomeContent(books, recentlyAdded) }
         .asLiveData()
 
     val content: LiveData<List<DisplayItem>> = _trigger.switchMap { t ->
@@ -244,7 +245,8 @@ class BookshelfViewModel(
         _scanMessage.value = msg
     }
 
-    private fun buildHomeContent(books: List<BookEntity>): HomeContent {
+    private fun buildHomeContent(books: List<BookEntity>, recentlyAdded: List<BookEntity>): HomeContent {
+        val newest = recentlyAdded
         val favorites = books
             .filter { it.isFavorite }
             .sortedWith(compareByDescending<BookEntity> { it.lastOpenedDate ?: 0L }.thenBy { it.sortTitle })
@@ -283,7 +285,7 @@ class BookshelfViewModel(
 
         return HomeContent(
             continueReading = books.maxByOrNull { it.lastOpenedDate ?: Long.MIN_VALUE },
-            recentlyAdded = emptyList(),
+            recentlyAdded = newest.take(6),
             favorites = favorites.take(6),
             topAuthors = authorGroups,
             topSeries = seriesGroups,

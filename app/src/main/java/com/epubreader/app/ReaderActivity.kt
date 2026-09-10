@@ -17,6 +17,8 @@ import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
 import android.view.WindowManager
+import android.util.TypedValue
+import android.widget.LinearLayout
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -37,7 +39,6 @@ import com.epubreader.app.data.AppDatabase
 import com.epubreader.app.data.BookEntity
 import com.epubreader.app.data.BookmarkEntity
 import com.epubreader.app.data.PrefsManager
-import com.epubreader.app.dictionary.OfflineDictionary
 import com.epubreader.app.epub.ReaderSelectionBridge
 import com.epubreader.app.epub.ReaderSelectionLocator
 import com.epubreader.app.databinding.ActivityReaderBinding
@@ -52,6 +53,7 @@ import com.epubreader.app.ui.ReaderTheme
 import com.epubreader.app.ui.SearchResultAdapter
 import com.epubreader.app.ui.TocAdapter
 import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -63,8 +65,8 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var binding: ActivityReaderBinding
     private lateinit var prefs: PrefsManager
     private var lastSelection: ReaderSelectionLocator? = null
-    private var pendingSelectionAction: ((ReaderSelectionLocator) -> Unit)? = null
-    private val offlineDictionary by lazy { OfflineDictionary(applicationContext) }
+    private var pendingSelectionCallback: ((ReaderSelectionLocator?) -> Unit)? = null
+    private var dictionaryLookup: com.epubreader.app.epub.DictionaryLookup? = null
 
     // Patch 11 "Screen On" controller — keeps the screen awake for 10 minutes
     // beyond the system timeout while the reader is in the foreground.
@@ -222,8 +224,6 @@ class ReaderActivity : AppCompatActivity() {
             finish(); return
         }
 
-        // Mark the book as opened immediately, so Home/Currently Reading observe
-        // the new most-recent book without waiting for the first progress poll.
         lifecycleScope.launch(Dispatchers.IO) {
             db.bookDao().markOpened(bookId, System.currentTimeMillis())
         }
@@ -349,12 +349,10 @@ class ReaderActivity : AppCompatActivity() {
         binding.webView.addJavascriptInterface(
             ReaderSelectionBridge { selection ->
                 lastSelection = selection
-                val action = pendingSelectionAction.also { pendingSelectionAction = null }
                 runOnUiThread {
-                    action?.invoke(selection)
-                    if (action == null) {
-                        Snackbar.make(binding.root, R.string.selection_captured, Snackbar.LENGTH_SHORT).show()
-                    }
+                    pendingSelectionCallback?.invoke(selection)
+                    pendingSelectionCallback = null
+                    Snackbar.make(binding.root, R.string.selection_captured, Snackbar.LENGTH_SHORT).show()
                 }
             },
             "LivreSelection"
@@ -362,47 +360,15 @@ class ReaderActivity : AppCompatActivity() {
         binding.webView.setOnLongClickListener { false }
     }
 
-    private fun captureCurrentSelection(onCaptured: ((ReaderSelectionLocator) -> Unit)? = null) {
+    private fun captureCurrentSelection(onCaptured: ((ReaderSelectionLocator?) -> Unit)? = null) {
+        pendingSelectionCallback = onCaptured
         val href = epub?.spine?.getOrNull(spineIndex)?.href.orEmpty()
         if (href.isBlank()) return
-        pendingSelectionAction = onCaptured
         val escapedHref = org.json.JSONObject.quote(href)
         binding.webView.evaluateJavascript(
-            "(function(){var s=window.getSelection&&window.getSelection();if(!s||s.rangeCount===0||!s.toString().trim()){LivreSelection.onSelectionPayload('','','',0,'',0,'','');return;}var r=s.getRangeAt(0);function p(n){var a=[];while(n&&n.nodeType===1){var i=0,q=n.previousSibling;while(q){if(q.nodeType===n.nodeType&&q.nodeName===n.nodeName)i++;q=q.previousSibling;}a.unshift(n.nodeName.toLowerCase()+':'+i);n=n.parentNode;}return a.join('/');}var b=document.body.innerText||'',t=s.toString().trim(),i=Math.max(0,b.indexOf(t));LivreSelection.onSelectionPayload(t," + escapedHref + ",p(r.startContainer),r.startOffset,p(r.endContainer),r.endOffset,b.slice(Math.max(0,i-40),i),b.slice(i+t.length,i+t.length+40));})();",
+            "(function(){var s=window.getSelection&&window.getSelection();if(!s||s.rangeCount===0||!s.toString().trim())return;var r=s.getRangeAt(0);function p(n){var a=[];while(n&&n.nodeType===1){var i=0,q=n.previousSibling;while(q){if(q.nodeType===n.nodeType&&q.nodeName===n.nodeName)i++;q=q.previousSibling;}a.unshift(n.nodeName.toLowerCase()+':'+i);n=n.parentNode;}return a.join('/');}var b=document.body.innerText||'',t=s.toString().trim(),i=Math.max(0,b.indexOf(t));LivreSelection.onSelectionPayload(t," + escapedHref + ",p(r.startContainer),r.startOffset,p(r.endContainer),r.endOffset,b.slice(Math.max(0,i-40),i),b.slice(i+t.length,i+t.length+40));})();",
             null
         )
-    }
-
-    private fun defineSelectedWord() {
-        captureCurrentSelection { selection ->
-            val word = selection.text.trim()
-            if (!Regex("^[\\p{L}][\\p{L}'-]*$").matches(word)) {
-                Snackbar.make(binding.root, R.string.dictionary_not_single_word, Snackbar.LENGTH_SHORT).show()
-                return@captureCurrentSelection
-            }
-            lifecycleScope.launch {
-                val entry = offlineDictionary.lookup(word)
-                if (entry == null) {
-                    Snackbar.make(
-                        binding.root,
-                        getString(R.string.dictionary_no_entry, word),
-                        Snackbar.LENGTH_LONG,
-                    ).show()
-                } else {
-                    showDictionarySheet(entry.word, entry.partOfSpeech, entry.definition)
-                }
-            }
-        }
-    }
-
-    private fun showDictionarySheet(word: String, partOfSpeech: String, definition: String) {
-        val sheet = com.google.android.material.bottomsheet.BottomSheetDialog(this)
-        val content = layoutInflater.inflate(R.layout.bottom_sheet_dictionary, null, false)
-        content.findViewById<TextView>(R.id.dictionaryWord).text = word
-        content.findViewById<TextView>(R.id.dictionaryPartOfSpeech).text = partOfSpeech
-        content.findViewById<TextView>(R.id.dictionaryDefinition).text = definition
-        sheet.setContentView(content)
-        sheet.show()
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -1042,9 +1008,8 @@ class ReaderActivity : AppCompatActivity() {
                 null
             } ?: return@launch
             epub = parsed
-            // Keep the chapter/section count available to the Home hero without
-            // reparsing the EPUB there. Existing books get backfilled the next
-            // time they are opened after the schema update.
+            // Keep the legacy spine count synchronized for reader compatibility.
+            // Home uses the embedded navigation TOC location instead of a chapter count.
             if (entity.spineCount != parsed.spine.size) {
                 db.bookDao().updateSpineCount(bookId, parsed.spine.size)
             }
@@ -1052,7 +1017,6 @@ class ReaderActivity : AppCompatActivity() {
             buildTocSectionMap(parsed)
             spineIndex = entity.spineIndex.coerceIn(0, parsed.spine.lastIndex)
             restoreRatio = entity.scrollRatio.takeIf { it > 0f }
-            db.bookDao().updateCurrentLocation(bookId, sectionLabel())
 
             // Patch 7 behavior: page counts come from a REAL offscreen layout pass
             // (the measureWebView), not the ADE byte-map. The total therefore
@@ -1116,14 +1080,17 @@ class ReaderActivity : AppCompatActivity() {
     private fun buildTocSectionMap(book: EpubBook) {
         val bySpine = LinkedHashMap<Int, String>()
         for (e in book.toc) {
-            val path = e.href.substringBefore('#').trimStart('/')
+            val path = normalizeTocHref(e.href)
             if (path.isBlank()) continue
-            val idx = book.spine.indexOfFirst { it.href == path }
-            if (idx >= 0 && !bySpine.containsKey(idx)) bySpine[idx] = e.label
+            val idx = book.spine.indexOfFirst { normalizeTocHref(it.href) == path }
+            if (idx >= 0 && !bySpine.containsKey(idx)) bySpine[idx] = e.label.trim()
         }
         tocSectionMap = bySpine
         tocSections = bySpine.toList().sortedBy { it.first }
     }
+
+    private fun normalizeTocHref(href: String): String =
+        href.substringBefore('#').substringBefore('?').trimStart('/').trimEnd('/')
 
     private fun currentTocPosition(): Int {
 
@@ -1226,6 +1193,16 @@ class ReaderActivity : AppCompatActivity() {
         }
     }
 
+    /** Persist only the embedded navigation TOC heading for the current reader location. */
+    private fun persistCurrentTocLocation() {
+        val location = tocSectionMap[spineIndex]
+            ?: tocSections.lastOrNull { it.first <= spineIndex }?.second
+            ?: return
+        lifecycleScope.launch(Dispatchers.IO) {
+            db.bookDao().updateCurrentLocation(bookId, location)
+        }
+    }
+
     /** Section label for the current spine item (embedded nav, nearest-previous fallback). */
     private fun sectionLabel(): String {
         val idx = spineIndex
@@ -1246,9 +1223,7 @@ class ReaderActivity : AppCompatActivity() {
         val crossing = index != spineIndex
         if (crossing) capturePageSnapshot(forward = index > spineIndex)  // keep the old page visible while the next loads
         spineIndex = index
-        lifecycleScope.launch(Dispatchers.IO) {
-            db.bookDao().updateCurrentLocation(bookId, sectionLabel())
-        }
+        persistCurrentTocLocation()
         // While per-page seeking is active the seeker's max is total pages, so
         // don't reset progress to a raw spine index here — syncSeekBarFromCurrentPage()
         // (called via the poller / reveal) keeps it on the right absolute page.
@@ -2417,13 +2392,14 @@ body * { background-color: transparent !important; }
         resolver?.close()
         binding.webView.destroy()
         binding.measureWebView.destroy()
+        dictionaryLookup?.close()
+        dictionaryLookup = null
         super.onDestroy()
     }
 
     companion object {
         const val EXTRA_BOOK_ID = "book_id"
         private const val SELECTION_CAPTURE_ID = 0x4C56
-        private const val DICTIONARY_DEFINE_ID = 0x4C57
 
         /** Patch 17 (Addition #2): slide duration for the page-turn snapshot.
          *  Longer than the old 220ms crossfade so the slide reads as a page turn
@@ -2435,7 +2411,6 @@ body * { background-color: transparent !important; }
     override fun onActionModeStarted(mode: ActionMode) {
         super.onActionModeStarted(mode)
         val menu = mode.menu
-
         if (menu.findItem(SELECTION_CAPTURE_ID) == null) {
             val item = menu.add(0, SELECTION_CAPTURE_ID, 100, getString(R.string.selection_capture))
             item.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
@@ -2445,17 +2420,67 @@ body * { background-color: transparent !important; }
                 true
             }
         }
-
-        if (menu.findItem(DICTIONARY_DEFINE_ID) == null) {
-            val item = menu.add(0, DICTIONARY_DEFINE_ID, 110, getString(R.string.dictionary_define))
+        val defineId = 0x4C59
+        if (menu.findItem(defineId) == null) {
+            val item = menu.add(0, defineId, 101, getString(R.string.selection_define))
             item.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
             item.setOnMenuItemClickListener {
-                defineSelectedWord()
+                captureCurrentSelection { selection -> showDefinition(selection?.text) }
                 mode.finish()
                 true
             }
         }
-
         captureCurrentSelection()
+    }
+
+    private fun showDefinition(raw: String?) {
+        val word = raw?.trim().orEmpty()
+        if (word.isBlank() || word.any { it.isWhitespace() }) {
+            Snackbar.make(binding.root, R.string.selection_single_word_required, Snackbar.LENGTH_SHORT).show()
+            return
+        }
+        lifecycleScope.launch(Dispatchers.IO) {
+            val lookup = dictionaryLookup ?: com.epubreader.app.epub.DictionaryLookup(applicationContext).also { dictionaryLookup = it }
+            val entries = lookup.lookup(word)
+            withContext(Dispatchers.Main) { showDefinitionSheet(word, entries) }
+        }
+    }
+
+    private fun showDefinitionSheet(word: String, entries: List<com.epubreader.app.epub.DictionaryLookup.Entry>) {
+        val dialog = BottomSheetDialog(this)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (20 * resources.displayMetrics.density).roundToInt()
+            setPadding(pad, pad, pad, pad)
+        }
+        root.addView(TextView(this).apply {
+            text = word
+            textSize = 20f
+            setTextColor(themeColor(android.R.attr.textColorPrimary))
+        })
+        if (entries.isEmpty()) {
+            root.addView(TextView(this).apply {
+                text = getString(R.string.dictionary_not_found)
+                textSize = 14f
+                setTextColor(themeColor(android.R.attr.textColorSecondary))
+            })
+        } else {
+            entries.forEach { entry ->
+                root.addView(TextView(this).apply {
+                    text = "${entry.partOfSpeech}  ${entry.definition}"
+                    textSize = 14f
+                    setTextColor(themeColor(android.R.attr.textColorPrimary))
+                    setPadding(0, (10 * resources.displayMetrics.density).roundToInt(), 0, 0)
+                })
+            }
+        }
+        dialog.setContentView(root)
+        dialog.show()
+    }
+
+    private fun themeColor(attr: Int): Int {
+        val value = TypedValue()
+        theme.resolveAttribute(attr, value, true)
+        return if (value.resourceId != 0) getColor(value.resourceId) else value.data
     }
 }

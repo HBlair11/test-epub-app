@@ -1,5 +1,6 @@
 package com.epubreader.app.data
 
+import androidx.lifecycle.LiveData
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
@@ -13,6 +14,11 @@ interface BookDao {
 
     @Query("SELECT * FROM books ORDER BY title")
     fun observeAll(): Flow<List<BookEntity>>
+
+    /** Home shelf: the latest library insertions, newest first. Room id is the stable
+     * insertion sequence and remains unchanged when an existing EPUB is rescanned. */
+    @Query("SELECT * FROM books ORDER BY id DESC LIMIT 6")
+    fun observeHomeRecentlyAdded(): Flow<List<BookEntity>>
 
     @Query("SELECT * FROM books WHERE id = :id")
     suspend fun getById(id: Long): BookEntity?
@@ -63,6 +69,9 @@ interface BookDao {
 
     @Query("UPDATE books SET spine_count = :spineCount WHERE id = :id")
     suspend fun updateSpineCount(id: Long, spineCount: Int)
+
+    @Query("UPDATE books SET last_opened_date = :lastOpened, is_currently_reading = 1 WHERE id = :id")
+    suspend fun markOpened(id: Long, lastOpened: Long)
 
     @Query("UPDATE books SET current_location = :location WHERE id = :id")
     suspend fun updateCurrentLocation(id: Long, location: String?)
@@ -178,12 +187,6 @@ interface BookDao {
 
     @Query("UPDATE books SET is_currently_reading = 1 WHERE id = :id")
     suspend fun setCurrentlyReading(id: Long)
-
-    @Query("UPDATE books SET is_currently_reading = 1, last_opened_date = :openedAt WHERE id = :id")
-    suspend fun markOpened(id: Long, openedAt: Long)
-
-    @Query("SELECT * FROM books ORDER BY added_date DESC, id DESC LIMIT :limit")
-    fun observeRecentlyAddedHome(limit: Int): Flow<List<BookEntity>>
 
     @Query("UPDATE books SET is_currently_reading = 0 WHERE id = :id")
     suspend fun clearCurrentlyReading(id: Long)
