@@ -13,6 +13,12 @@
     <string name="home_group_title">%1$s · %2$d books</string>
     <string name="home_progress_percent">%1$d%% read</string>
     <string name="home_continue_location">Location - %1$s</string>
+    <string name="dictionary_define">Define</string>
+    <string name="dictionary_no_entry">No local definition found for “%1$s”.</string>
+    <string name="dictionary_lookup_failed">The offline dictionary could not be opened.</string>
+    <string name="dictionary_not_single_word">Define works with a single word.</string>
+    <string name="dictionary_pos_unknown">Entry</string>
+    <string name="dictionary_attribution">Offline Dictionary: The Livre Magicae curated starter dictionary. Definitions are original app content; no online lookup is used.</string>
     <string name="home_empty_title">Your library is empty</string>
     <string name="home_empty_hint">Add a few EPUBs and Home will become your reading starting point.</string>
     <string name="action_scan_folder">Scan folder</string>
@@ -30,7 +36,6 @@
     <string name="action_next">Next</string>
 
     <string name="confirm">Confirm</string>
-    <string name="save">Save</string>
     <string name="delete">Delete</string>
     <string name="add_bookmark">Add bookmark</string>
     <string name="search_hint">Find a book…</string>
@@ -46,7 +51,7 @@
     <string name="settings_scanned_folder">Scanned folder</string>
     <string name="settings_reader_theme">Reader theme</string>
     <string name="settings_about">About</string>
-    <string name="settings_about_detail">The Livre Magicae · Epub Reader</string>
+    <string name="settings_about_detail">The Livre Magicae · Epub Reader\nOriginal curated offline dictionary included; no online lookup is used.</string>
 
     <string name="settings_keep_screen_on">Screen On</string>
     <string name="settings_keep_screen_on_summary">Keep the screen on for 10 minutes longer than your current system setting.</string>
@@ -194,18 +199,6 @@
     <string name="reader_search_hint">Search this book</string>
     <string name="selection_capture">Use selection</string>
     <string name="selection_captured">Selection captured for future reader tools</string>
-    <string name="selection_highlight">Highlight</string>
-    <string name="selection_note">Note</string>
-    <string name="selection_define">Define</string>
-    <string name="highlight_saved">Highlight saved</string>
-    <string name="reader_tab_highlights">Highlights</string>
-    <string name="reader_highlights_empty">No highlights yet. Select text while reading to add a highlight or note.</string>
-    <string name="note_hint">Write a note…</string>
-    <string name="dictionary_not_found">No offline definition found for this word.</string>
-    <string name="dictionary_attribution_short">Offline dictionary · project-authored seed · CC0 1.0</string>
-    <string name="dictionary_about">Offline dictionary: project-authored seed entries, dedicated to CC0 1.0 Universal.</string>
-    <string name="selection_single_word_required">Select a single word to define it.</string>
-
     <string name="reader_search_empty">Enter a word or phrase to find matches across the book.</string>
     <string name="reader_margin">Margin</string>
     <string name="reader_alignment">Alignment</string>

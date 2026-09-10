@@ -1,6 +1,5 @@
 package com.epubreader.app.data
 
-import androidx.lifecycle.LiveData
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
@@ -61,6 +60,12 @@ interface BookDao {
         fileSize: Long,
         sourceLastModified: Long,
     )
+
+    @Query("UPDATE books SET spine_count = :spineCount WHERE id = :id")
+    suspend fun updateSpineCount(id: Long, spineCount: Int)
+
+    @Query("UPDATE books SET current_location = :location WHERE id = :id")
+    suspend fun updateCurrentLocation(id: Long, location: String?)
 
     @Query("UPDATE books SET progress = :progress, spine_index = :spineIndex, scroll_ratio = :scrollRatio, last_opened_date = :lastOpened WHERE id = :id")
     suspend fun updateProgress(
@@ -174,13 +179,11 @@ interface BookDao {
     @Query("UPDATE books SET is_currently_reading = 1 WHERE id = :id")
     suspend fun setCurrentlyReading(id: Long)
 
-    /** Marks the book as opened immediately so Home/Currently Reading react
-     * before the reader's debounced progress persistence runs. */
     @Query("UPDATE books SET is_currently_reading = 1, last_opened_date = :openedAt WHERE id = :id")
     suspend fun markOpened(id: Long, openedAt: Long)
 
-    @Query("UPDATE books SET current_location = :location WHERE id = :id")
-    suspend fun updateCurrentLocation(id: Long, location: String?)
+    @Query("SELECT * FROM books ORDER BY added_date DESC, id DESC LIMIT :limit")
+    fun observeRecentlyAddedHome(limit: Int): Flow<List<BookEntity>>
 
     @Query("UPDATE books SET is_currently_reading = 0 WHERE id = :id")
     suspend fun clearCurrentlyReading(id: Long)

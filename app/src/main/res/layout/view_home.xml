@@ -142,11 +142,12 @@
                             android:id="@+id/homeContinueLocation"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
+                            android:layout_marginTop="10dp"
                             android:ellipsize="end"
                             android:maxLines="1"
                             android:textColor="?android:textColorSecondary"
-                            android:textSize="12sp" />
+                            android:textSize="12sp"
+                            android:visibility="gone" />
 
                         <TextView
                             android:id="@+id/homeContinueProgress"

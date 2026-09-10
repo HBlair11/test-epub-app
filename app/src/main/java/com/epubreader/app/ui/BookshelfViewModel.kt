@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 sealed class DisplayItem {
@@ -100,7 +101,9 @@ class BookshelfViewModel(
 
     /** Curated, offline Home data derived from the existing books flow. */
     val homeContent: LiveData<HomeContent> = repo.observeBooks()
-        .map { books -> buildHomeContent(books) }
+        .combine(repo.observeRecentlyAddedHome(6)) { books, recentlyAdded ->
+            buildHomeContent(books).copy(recentlyAdded = recentlyAdded)
+        }
         .asLiveData()
 
     val content: LiveData<List<DisplayItem>> = _trigger.switchMap { t ->
@@ -241,28 +244,7 @@ class BookshelfViewModel(
         _scanMessage.value = msg
     }
 
-    // The DB remains authoritative, but this pair prevents a fast Room emission
-    // containing the pre-open snapshot from briefly replacing the book the user
-    // just opened. It is cleared naturally when a later open supersedes it.
-    private var optimisticContinueBookId: Long? = null
-    private var optimisticContinueOpenedAt: Long = 0L
-
     private fun buildHomeContent(books: List<BookEntity>): HomeContent {
-        // Home Recently Added is based on actual library insertion order.
-        // Room auto-increments `id`, so the highest ids are the books most recently
-        // inserted into the library. This is intentionally independent of the
-        // user-facing Recently Added sort selector because Home should always show
-        // the six newest additions, newest first.
-        // Home Recently Added is a true newest-first projection of the book's
-        // original added timestamp. ID is only a deterministic tie-breaker.
-        // This is independent of the Library sort selector.
-        val newest = books
-            .sortedWith(
-                compareByDescending<BookEntity> { it.addedDate }
-                    .thenByDescending { it.id }
-                    .thenBy { it.sortTitle }
-            )
-            .take(6)
         val favorites = books
             .filter { it.isFavorite }
             .sortedWith(compareByDescending<BookEntity> { it.lastOpenedDate ?: 0L }.thenBy { it.sortTitle })
@@ -299,25 +281,9 @@ class BookshelfViewModel(
             .sortedWith(compareByDescending<HomeGroup> { it.count }.thenBy { it.name.lowercase() })
             .take(3)
 
-        val databaseContinue = books.maxByOrNull { it.lastOpenedDate ?: Long.MIN_VALUE }
-        val optimisticBook = optimisticContinueBookId?.let { id ->
-            books.firstOrNull { it.id == id }
-        }
-        val continueReading = if (
-            optimisticBook != null &&
-            optimisticContinueOpenedAt >= (databaseContinue?.lastOpenedDate ?: Long.MIN_VALUE)
-        ) {
-            optimisticBook.copy(
-                isCurrentlyReading = true,
-                lastOpenedDate = optimisticContinueOpenedAt,
-            )
-        } else {
-            databaseContinue
-        }
-
         return HomeContent(
-            continueReading = continueReading,
-            recentlyAdded = newest,
+            continueReading = books.maxByOrNull { it.lastOpenedDate ?: Long.MIN_VALUE },
+            recentlyAdded = emptyList(),
             favorites = favorites.take(6),
             topAuthors = authorGroups,
             topSeries = seriesGroups,

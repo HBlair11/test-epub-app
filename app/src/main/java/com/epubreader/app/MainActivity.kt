@@ -532,12 +532,10 @@ class MainActivity : AppCompatActivity() {
                 }
             binding.homeContent.homeContinueSeries.text = seriesText
             binding.homeContent.homeContinueSeries.visibility = if (seriesText.isNullOrBlank()) View.GONE else View.VISIBLE
-            val locationText = book.currentLocation
-                ?.trim()
-                ?.takeIf { it.isNotEmpty() }
-                ?.let { getString(R.string.home_continue_location, it) }
-            binding.homeContent.homeContinueLocation.text = locationText
-            binding.homeContent.homeContinueLocation.visibility = if (locationText.isNullOrBlank()) View.GONE else View.VISIBLE
+
+            binding.homeContent.homeContinueLocation.text = book.currentLocation?.let { getString(R.string.home_continue_location, it) }
+            binding.homeContent.homeContinueLocation.visibility =
+                if (book.currentLocation.isNullOrBlank()) View.GONE else View.VISIBLE
             binding.homeContent.homeContinueProgress.text = if (book.progress >= 0.995f) {
                 getString(R.string.progress_completed)
             } else {
@@ -1587,7 +1585,7 @@ class MainActivity : AppCompatActivity() {
             if (folder != null) folderDisplayName(folder) else getString(R.string.folder_none)
         )
         addSettingsRow(getString(R.string.settings_reader_theme), readerThemeLabel())
-        addSettingsRow(getString(R.string.settings_about), getString(R.string.settings_about_detail)) { showAboutDialog() }
+        addSettingsRow(getString(R.string.settings_about), getString(R.string.settings_about_detail))
         // Patch 11: app-level "Screen On" toggle. When on, keeps the screen awake
         // for 10 minutes longer than the system screen-off timeout while the app
         // is in the foreground (uses FLAG_KEEP_SCREEN_ON + a 10-minute countdown
@@ -1601,7 +1599,7 @@ class MainActivity : AppCompatActivity() {
     private fun readerThemeLabel(): String =
         getString(com.epubreader.app.ui.ReaderTheme.byId(prefs.theme).displayNameRes)
 
-    private fun addSettingsRow(label: String, value: String, onClick: (() -> Unit)? = null) {
+    private fun addSettingsRow(label: String, value: String) {
         val row = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(0, 12.dp(), 0, 0)
@@ -1618,17 +1616,8 @@ class MainActivity : AppCompatActivity() {
             textSize = 15f
             row.addView(this)
         }
-        onClick?.let { click -> row.setOnClickListener { click() } }
         binding.emptyState.addView(row)
         dynamicEmptyChildren.add(row)
-    }
-
-    private fun showAboutDialog() {
-        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.settings_about)
-            .setMessage(getString(R.string.settings_about_detail) + "\n\n" + getString(R.string.dictionary_about))
-            .setPositiveButton(android.R.string.ok, null)
-            .show()
     }
 
     // ------------------------------------------------------------- Screen On (Patch 11)

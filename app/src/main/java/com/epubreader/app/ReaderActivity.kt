@@ -36,8 +36,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.epubreader.app.data.AppDatabase
 import com.epubreader.app.data.BookEntity
 import com.epubreader.app.data.BookmarkEntity
-import com.epubreader.app.data.HighlightEntity
 import com.epubreader.app.data.PrefsManager
+import com.epubreader.app.dictionary.OfflineDictionary
 import com.epubreader.app.epub.ReaderSelectionBridge
 import com.epubreader.app.epub.ReaderSelectionLocator
 import com.epubreader.app.databinding.ActivityReaderBinding
@@ -47,9 +47,6 @@ import com.epubreader.app.epub.EpubResourceResolver
 import com.epubreader.app.epub.EpubSearchEngine
 import com.epubreader.app.epub.ReaderPageMapping
 import com.epubreader.app.ui.BookmarkAdapter
-import com.epubreader.app.ui.HighlightAdapter
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.epubreader.app.ui.ReaderSettingsActivity
 import com.epubreader.app.ui.ReaderTheme
 import com.epubreader.app.ui.SearchResultAdapter
@@ -59,9 +56,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.text.InputType
 
 class ReaderActivity : AppCompatActivity() {
 
@@ -69,6 +63,8 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var binding: ActivityReaderBinding
     private lateinit var prefs: PrefsManager
     private var lastSelection: ReaderSelectionLocator? = null
+    private var pendingSelectionAction: ((ReaderSelectionLocator) -> Unit)? = null
+    private val offlineDictionary by lazy { OfflineDictionary(applicationContext) }
 
     // Patch 11 "Screen On" controller — keeps the screen awake for 10 minutes
     // beyond the system timeout while the reader is in the foreground.
@@ -209,7 +205,6 @@ class ReaderActivity : AppCompatActivity() {
         prefs = PrefsManager(applicationContext)
         keepScreenOnController = com.epubreader.app.util.KeepScreenOnController(this, prefs)
         db = AppDatabase.get(applicationContext)
-        dictionaryLookup = com.epubreader.app.epub.DictionaryLookup(applicationContext)
         super.onCreate(savedInstanceState)
         binding = ActivityReaderBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -227,9 +222,8 @@ class ReaderActivity : AppCompatActivity() {
             finish(); return
         }
 
-        // Mark the book as opened immediately. Home observes the books Flow, so
-        // the Continue Reading card can switch to this book without waiting for
-        // the reader's debounced progress writer.
+        // Mark the book as opened immediately, so Home/Currently Reading observe
+        // the new most-recent book without waiting for the first progress poll.
         lifecycleScope.launch(Dispatchers.IO) {
             db.bookDao().markOpened(bookId, System.currentTimeMillis())
         }
@@ -279,19 +273,6 @@ class ReaderActivity : AppCompatActivity() {
     private fun readerSurface(): Int = getColor(R.color.reader_chrome_bg)
 
     private fun inkColor(): Int = Color.parseColor(readerColors().second)
-
-    /** Convert an Android ARGB color to a CSS hex value for injected EPUB styles. */
-    private fun colorToHex(color: Int): String = String.format("#%08X", color)
-
-    /** Resolve a framework theme attribute for small native reader dialogs. */
-    private fun themeColor(attr: Int): Int {
-        val ta = obtainStyledAttributes(intArrayOf(attr))
-        try {
-            return ta.getColor(0, 0xFF000000.toInt())
-        } finally {
-            ta.recycle()
-        }
-    }
 
     private fun bottomGuardPx(): Int = if (prefs.pageBottomMargin) 56 else 0
 
@@ -349,7 +330,6 @@ class ReaderActivity : AppCompatActivity() {
                         return@evaluateJavascript
                     }
 
-                    applyStoredHighlights(generation)
                     handler.removeCallbacks(progressPoller)
                     handler.post(progressPoller)
 
@@ -369,55 +349,60 @@ class ReaderActivity : AppCompatActivity() {
         binding.webView.addJavascriptInterface(
             ReaderSelectionBridge { selection ->
                 lastSelection = selection
+                val action = pendingSelectionAction.also { pendingSelectionAction = null }
+                runOnUiThread {
+                    action?.invoke(selection)
+                    if (action == null) {
+                        Snackbar.make(binding.root, R.string.selection_captured, Snackbar.LENGTH_SHORT).show()
+                    }
+                }
             },
             "LivreSelection"
         )
         binding.webView.setOnLongClickListener { false }
     }
 
-    private fun captureCurrentSelection(onCaptured: ((ReaderSelectionLocator?) -> Unit)? = null) {
+    private fun captureCurrentSelection(onCaptured: ((ReaderSelectionLocator) -> Unit)? = null) {
         val href = epub?.spine?.getOrNull(spineIndex)?.href.orEmpty()
-        if (href.isBlank()) {
-            onCaptured?.invoke(null)
-            return
-        }
+        if (href.isBlank()) return
+        pendingSelectionAction = onCaptured
         val escapedHref = org.json.JSONObject.quote(href)
-        val script = """
-            (function(){
-                var s=window.getSelection&&window.getSelection();
-                if(!s||s.rangeCount===0||!s.toString().trim()) return;
-                var r=s.getRangeAt(0), body=document.body, text=s.toString().trim();
-                function p(n){
-                    var a=[];
-                    while(n&&n.nodeType===1){
-                        var i=0,q=n.previousSibling;
-                        while(q){if(q.nodeType===n.nodeType&&q.nodeName===n.nodeName)i++;q=q.previousSibling;}
-                        a.unshift(n.nodeName.toLowerCase()+':'+i);n=n.parentNode;
-                    }
-                    return a.join('/');
+        binding.webView.evaluateJavascript(
+            "(function(){var s=window.getSelection&&window.getSelection();if(!s||s.rangeCount===0||!s.toString().trim()){LivreSelection.onSelectionPayload('','','',0,'',0,'','');return;}var r=s.getRangeAt(0);function p(n){var a=[];while(n&&n.nodeType===1){var i=0,q=n.previousSibling;while(q){if(q.nodeType===n.nodeType&&q.nodeName===n.nodeName)i++;q=q.previousSibling;}a.unshift(n.nodeName.toLowerCase()+':'+i);n=n.parentNode;}return a.join('/');}var b=document.body.innerText||'',t=s.toString().trim(),i=Math.max(0,b.indexOf(t));LivreSelection.onSelectionPayload(t," + escapedHref + ",p(r.startContainer),r.startOffset,p(r.endContainer),r.endOffset,b.slice(Math.max(0,i-40),i),b.slice(i+t.length,i+t.length+40));})();",
+            null
+        )
+    }
+
+    private fun defineSelectedWord() {
+        captureCurrentSelection { selection ->
+            val word = selection.text.trim()
+            if (!Regex("^[\\p{L}][\\p{L}'-]*$").matches(word)) {
+                Snackbar.make(binding.root, R.string.dictionary_not_single_word, Snackbar.LENGTH_SHORT).show()
+                return@captureCurrentSelection
+            }
+            lifecycleScope.launch {
+                val entry = offlineDictionary.lookup(word)
+                if (entry == null) {
+                    Snackbar.make(
+                        binding.root,
+                        getString(R.string.dictionary_no_entry, word),
+                        Snackbar.LENGTH_LONG,
+                    ).show()
+                } else {
+                    showDictionarySheet(entry.word, entry.partOfSpeech, entry.definition)
                 }
-                function off(container,offset){
-                    var range=document.createRange();range.selectNodeContents(body);
-                    try{range.setEnd(container,offset);}catch(e){return 0;}
-                    return (range.toString()||'').length;
-                }
-                var a=off(r.startContainer,r.startOffset), b=off(r.endContainer,r.endOffset);
-                if(b<a){var t=a;a=b;b=t;}
-                var all=body.textContent||'', prefix=all.slice(Math.max(0,a-80),a), suffix=all.slice(b,b+80);
-                LivreSelection.onSelectionPayload(
-                    JSON.stringify(text).slice(1,-1),
-                    %s,
-                    JSON.stringify(p(r.startContainer)).slice(1,-1),r.startOffset,
-                    JSON.stringify(p(r.endContainer)).slice(1,-1),r.endOffset,
-                    a,b,JSON.stringify(prefix).slice(1,-1),JSON.stringify(suffix).slice(1,-1)
-                );
-            })();
-        """.trimIndent().format(escapedHref)
-        lastSelection = null
-        binding.webView.evaluateJavascript(script) { raw ->
-            val selection = lastSelection
-            runOnUiThread { onCaptured?.invoke(selection) }
+            }
         }
+    }
+
+    private fun showDictionarySheet(word: String, partOfSpeech: String, definition: String) {
+        val sheet = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        val content = layoutInflater.inflate(R.layout.bottom_sheet_dictionary, null, false)
+        content.findViewById<TextView>(R.id.dictionaryWord).text = word
+        content.findViewById<TextView>(R.id.dictionaryPartOfSpeech).text = partOfSpeech
+        content.findViewById<TextView>(R.id.dictionaryDefinition).text = definition
+        sheet.setContentView(content)
+        sheet.show()
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -1057,10 +1042,17 @@ class ReaderActivity : AppCompatActivity() {
                 null
             } ?: return@launch
             epub = parsed
+            // Keep the chapter/section count available to the Home hero without
+            // reparsing the EPUB there. Existing books get backfilled the next
+            // time they are opened after the schema update.
+            if (entity.spineCount != parsed.spine.size) {
+                db.bookDao().updateSpineCount(bookId, parsed.spine.size)
+            }
             resolver = EpubResourceResolver(file)
             buildTocSectionMap(parsed)
             spineIndex = entity.spineIndex.coerceIn(0, parsed.spine.lastIndex)
             restoreRatio = entity.scrollRatio.takeIf { it > 0f }
+            db.bookDao().updateCurrentLocation(bookId, sectionLabel())
 
             // Patch 7 behavior: page counts come from a REAL offscreen layout pass
             // (the measureWebView), not the ADE byte-map. The total therefore
@@ -1124,10 +1116,10 @@ class ReaderActivity : AppCompatActivity() {
     private fun buildTocSectionMap(book: EpubBook) {
         val bySpine = LinkedHashMap<Int, String>()
         for (e in book.toc) {
-            val path = e.href.substringBefore('#').substringBefore('?').trimStart('/')
+            val path = e.href.substringBefore('#').trimStart('/')
             if (path.isBlank()) continue
-            val idx = book.spineIndexForHref(path)
-            if (idx >= 0 && !bySpine.containsKey(idx)) bySpine[idx] = e.label.trim()
+            val idx = book.spine.indexOfFirst { it.href == path }
+            if (idx >= 0 && !bySpine.containsKey(idx)) bySpine[idx] = e.label
         }
         tocSectionMap = bySpine
         tocSections = bySpine.toList().sortedBy { it.first }
@@ -1254,6 +1246,9 @@ class ReaderActivity : AppCompatActivity() {
         val crossing = index != spineIndex
         if (crossing) capturePageSnapshot(forward = index > spineIndex)  // keep the old page visible while the next loads
         spineIndex = index
+        lifecycleScope.launch(Dispatchers.IO) {
+            db.bookDao().updateCurrentLocation(bookId, sectionLabel())
+        }
         // While per-page seeking is active the seeker's max is total pages, so
         // don't reset progress to a raw spine index here — syncSeekBarFromCurrentPage()
         // (called via the poller / reveal) keeps it on the right absolute page.
@@ -1277,16 +1272,7 @@ class ReaderActivity : AppCompatActivity() {
             "UTF-8",
             null
         )
-        val location = sectionLabel()
-        binding.tvSectionPages.text = location
-        // Home's location is deliberately sourced only from the EPUB navigation
-        // TOC. We never invent a synthetic chapter number here.
-        val tocLocation = tocSections.lastOrNull { it.first <= spineIndex }?.second
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-        lifecycleScope.launch(Dispatchers.IO) {
-            db.bookDao().updateCurrentLocation(bookId, tocLocation)
-        }
+        binding.tvSectionPages.text = sectionLabel()
 
         if (binding.tocBookmarkOverlay.visibility == View.VISIBLE) {
             highlightCurrentTocEntry()
@@ -1301,7 +1287,7 @@ class ReaderActivity : AppCompatActivity() {
         val raw = res.resolve(entryPath)?.bufferedReader()?.use { it.readText() } ?: return null
         val css = buildReaderCss()
         val js = paginationJs(bottomGuardPx(), topGuardPx())
-        val head = "$css$js${highlightRuntimeJavaScript()}"
+        val head = "$css$js"
         return if (raw.contains("</head>", ignoreCase = true)) {
             raw.replaceFirst("(?i)</head>".toRegex(), "$head</head>")
         } else if (raw.contains("<html", ignoreCase = true)) {
@@ -1341,7 +1327,7 @@ class ReaderActivity : AppCompatActivity() {
         val fontCss = fontFamily?.let { "font-family:$it !important;" } ?: ""
         return """<style>
 html, body {
-  background:${colorToHex(bg)} !important;
+  background:${ColorToHex(bg)} !important;
   color:${ink} !important;
   margin:0 !important;
   overflow-x:hidden !important;
@@ -1626,78 +1612,12 @@ body * { background-color: transparent !important; }
     """.trimIndent()
     }
 
-    private fun highlightRuntimeJavaScript(): String = """
-        <script>
-        (function(){
-          function textNodes(){
-            var out=[], w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null);
-            var n; while(n=w.nextNode()){
-              var p=n.parentElement; if(!p) continue;
-              var tag=p.tagName; if(tag==='SCRIPT'||tag==='STYLE'||p.closest('[data-livre-highlight]')) continue;
-              out.push(n);
-            }
-            return out;
-          }
-          function unwrap(){
-            var marks=document.querySelectorAll('[data-livre-highlight]');
-            marks.forEach(function(m){ var parent=m.parentNode; while(m.firstChild) parent.insertBefore(m.firstChild,m); parent.removeChild(m); });
-          }
-          function locate(full, needle, wanted){
-            var at=Math.max(0,Math.min(wanted||0,full.length));
-            var found=full.indexOf(needle,Math.max(0,at-120));
-            if(found<0) found=full.indexOf(needle);
-            return found;
-          }
-          function wrap(item, nodes){
-            var full='', starts=[];
-            nodes.forEach(function(n){starts.push(full.length);full+=n.nodeValue;});
-            var start=locate(full,item.text,item.start), end=start+item.text.length;
-            if(start<0||end>full.length) return;
-            var touched=[];
-            for(var i=0;i<nodes.length;i++){
-              var ns=starts[i], ne=ns+nodes[i].nodeValue.length;
-              if(ne<=start || ns>=end) continue;
-              touched.push({node:nodes[i],from:Math.max(0,start-ns),to:Math.min(nodes[i].nodeValue.length,end-ns)});
-            }
-            touched.forEach(function(t){
-              var node=t.node;
-              if(t.to<node.nodeValue.length) node.splitText(t.to);
-              var target=node;
-              if(t.from>0) target=node.splitText(t.from);
-              var mark=document.createElement('span');
-              mark.setAttribute('data-livre-highlight',String(item.id));
-              mark.style.backgroundColor=item.color||'rgba(255,224,130,.4)';
-              mark.style.borderRadius='2px';
-              mark.style.boxDecorationBreak='clone';
-              mark.style.webkitBoxDecorationBreak='clone';
-              target.parentNode.insertBefore(mark,target); mark.appendChild(target);
-            });
-          }
-          window.LivreHighlights={
-            apply:function(payload){
-              try{
-                var items=typeof payload==='string'?JSON.parse(payload):payload;
-                unwrap();
-                if(!Array.isArray(items)) return;
-                var nodes=textNodes();
-                items.forEach(function(item){if(item&&item.text) wrap(item,nodes=textNodes());});
-              }catch(e){ console.warn('LivreHighlights',e); }
-            },
-            scrollTo:function(id){
-              var n=document.querySelector('[data-livre-highlight="'+String(id)+'"]');
-              if(n) n.scrollIntoView({block:'center',behavior:'smooth'});
-            }
-          };
-        })();
-        </script>
-    """.trimIndent()
-
-    private fun ColorToCss(c: Int): String {
-        val a = android.graphics.Color.alpha(c) / 255f
+    private fun ColorToHex(c: Int): String {
+        val a = android.graphics.Color.alpha(c)
         val r = android.graphics.Color.red(c)
         val g = android.graphics.Color.green(c)
         val b = android.graphics.Color.blue(c)
-        return "rgba($r,$g,$b,$a)"
+        return if (a < 255) String.format("#%08X", c) else String.format("#%06X", c and 0xFFFFFF)
     }
 
     // ---------------------------------------------------------------- navigation
@@ -2046,7 +1966,7 @@ body * { background-color: transparent !important; }
         lastPersistedRatio = ratio
         lastProgressPersistAt = now
         lifecycleScope.launch(Dispatchers.IO) {
-        db.bookDao().updateProgress(bookId, progress, spine, ratio, now)
+            db.bookDao().updateProgress(bookId, progress, spine, ratio, now)
         }
     }
 
@@ -2131,12 +2051,6 @@ body * { background-color: transparent !important; }
     private var bookmarkRv: RecyclerView? = null
     private var bookmarkEmpty: TextView? = null
     private var bookmarkAdapter: BookmarkAdapter? = null
-    private var highlightRv: RecyclerView? = null
-    private var highlightEmpty: TextView? = null
-    private var highlightAdapter: HighlightAdapter? = null
-    private var highlightsTabActive = false
-    private var pendingHighlightId: Long? = null
-    private lateinit var dictionaryLookup: com.epubreader.app.epub.DictionaryLookup
     private var bookmarkObserverStarted = false
 
     /** Whether the Bookmarks tab is currently shown in the TOC overlay. The
@@ -2184,7 +2098,6 @@ body * { background-color: transparent !important; }
             }
         tocEmpty!!.text = getString(R.string.no_toc)
         bookmarkEmpty!!.text = getString(R.string.reader_bookmarks_empty)
-        ensureHighlightsOverlay()
         refreshBookmarkList()
 
         if (!bookmarkObserverStarted) {
@@ -2217,183 +2130,20 @@ body * { background-color: transparent !important; }
 
     private fun applyOverlayTab(checkedId: Int) {
         val isBookmarks = checkedId == binding.btnTabBookmarks.id
-        val isHighlights = checkedId == binding.btnTabHighlights.id
         bookmarksTabActive = isBookmarks
-        highlightsTabActive = isHighlights
         val tocEmpty = epub?.toc.isNullOrEmpty()
-        tocRv?.visibility = if (isBookmarks || isHighlights) View.GONE else View.VISIBLE
-        this.tocEmpty?.visibility = if (!isBookmarks && !isHighlights && tocEmpty) View.VISIBLE else View.GONE
-        bookmarkRv?.visibility = if (isBookmarks) View.VISIBLE else View.GONE
-        this.bookmarkEmpty?.visibility = if (isBookmarks && (bookmarkAdapter?.currentList?.isEmpty() != false)) View.VISIBLE else View.GONE
-        highlightRv?.visibility = if (isHighlights) View.VISIBLE else View.GONE
-        this.highlightEmpty?.visibility = if (isHighlights && (highlightAdapter?.currentList?.isEmpty() != false)) View.VISIBLE else View.GONE
-    }
-
-    // ---------------------------------------------------------------- highlights
-    private fun ensureHighlightsOverlay() {
-        if (highlightRv != null) return
-        val v = LayoutInflater.from(this).inflate(R.layout.overlay_list, binding.overlayContent, false)
-        highlightRv = v.findViewById(R.id.recycler)
-        highlightEmpty = v.findViewById(R.id.emptyText)
-        highlightRv!!.layoutManager = LinearLayoutManager(this)
-        highlightAdapter = HighlightAdapter(
-            onDelete = { h -> lifecycleScope.launch(Dispatchers.IO) { db.highlightDao().delete(h) } },
-            onClick = { h -> goToHighlight(h) },
-        )
-        highlightRv!!.adapter = highlightAdapter
-        binding.overlayContent.addView(v)
-        db.highlightDao().observeForBook(bookId).asLiveData().observe(this) { list ->
-            highlightAdapter?.submitList(list)
-            if (highlightsTabActive) updateHighlightEmptyState()
-        }
-    }
-
-    private fun updateHighlightEmptyState() {
-        if (!highlightsTabActive) return
-        val empty = highlightAdapter?.currentList.isNullOrEmpty()
-        highlightEmpty?.visibility = if (empty) View.VISIBLE else View.GONE
-    }
-
-    private fun saveHighlight(selection: ReaderSelectionLocator, note: String?) {
-        val href = epub?.spine?.getOrNull(spineIndex)?.href ?: selection.spineHref
-        lifecycleScope.launch(Dispatchers.IO) {
-            db.highlightDao().insert(
-                HighlightEntity(
-                    bookId = bookId,
-                    spineHref = href,
-                    text = selection.text,
-                    note = note?.trim()?.takeIf { it.isNotEmpty() },
-                    color = DEFAULT_HIGHLIGHT_COLOR,
-                    prefix = selection.prefix,
-                    suffix = selection.suffix,
-                    startPath = selection.startPath,
-                    endPath = selection.endPath,
-                    startOffset = selection.startOffset,
-                    endOffset = selection.endOffset,
-                    normalizedStart = selection.normalizedStart,
-                    normalizedEnd = selection.normalizedEnd,
-                )
-            )
-            withContext(Dispatchers.Main) {
-                Snackbar.make(binding.root, R.string.highlight_saved, Snackbar.LENGTH_SHORT).show()
-                applyStoredHighlights(activeReaderGeneration)
-            }
-        }
-    }
-
-    private fun promptForNote(selection: ReaderSelectionLocator) {
-        val input = EditText(this).apply {
-            hint = getString(R.string.note_hint)
-            minLines = 3
-            maxLines = 6
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-        }
-        val pad = (20 * resources.displayMetrics.density).roundToInt()
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(pad, 0, pad, 0)
-            addView(input, LinearLayout.LayoutParams(-1, -2))
-        }
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.selection_note)
-            .setMessage(selection.text)
-            .setView(container)
-            .setNegativeButton(R.string.cancel, null)
-            .setPositiveButton(R.string.save) { _, _ -> saveHighlight(selection, input.text.toString()) }
-            .show()
-    }
-
-    private fun goToHighlight(highlight: HighlightEntity) {
-        pendingHighlightId = highlight.id
-        pendingFragment = null
-        val index = epub?.spine?.indexOfFirst { it.href == highlight.spineHref } ?: -1
-        if (index < 0) return
-        if (index != spineIndex) loadChapter(index) else {
-            applyStoredHighlights(activeReaderGeneration) {
-                scrollToStoredHighlight(highlight.id)
-            }
-        }
-        hideOverlays()
-    }
-
-    private fun applyStoredHighlights(generation: Int, after: (() -> Unit)? = null) {
-        val href = epub?.spine?.getOrNull(spineIndex)?.href ?: return
-        lifecycleScope.launch(Dispatchers.IO) {
-            val list = db.highlightDao().getForChapter(bookId, href)
-            withContext(Dispatchers.Main) {
-                if (generation != activeReaderGeneration || href != epub?.spine?.getOrNull(spineIndex)?.href) return@withContext
-                val json = org.json.JSONArray().apply {
-                    list.forEach { h ->
-                        put(org.json.JSONObject().apply {
-                            put("id", h.id)
-                            put("text", h.text)
-                            put("start", h.normalizedStart)
-                            put("prefix", h.prefix)
-                            put("suffix", h.suffix)
-                            put("color", ColorToCss(h.color))
-                        })
-                    }
-                }
-                val script = "window.LivreHighlights&&window.LivreHighlights.apply(" + org.json.JSONObject.quote(json.toString()) + ");"
-                binding.webView.evaluateJavascript(script) {
-                    val pending = pendingHighlightId
-                    if (pending != null && list.any { it.id == pending }) {
-                        pendingHighlightId = null
-                        binding.webView.postDelayed({ scrollToStoredHighlight(pending) }, 80L)
-                    }
-                    after?.invoke()
-                }
-            }
-        }
-    }
-
-    private fun scrollToStoredHighlight(id: Long?) {
-        if (id == null) return
-        binding.webView.evaluateJavascript("window.LivreHighlights&&window.LivreHighlights.scrollTo(" + id + ");", null)
-    }
-
-    private fun showDefinition(raw: String?) {
-        val word = raw?.trim().orEmpty()
-        if (word.isBlank()) return
-        if (word.any { it.isWhitespace() }) {
-            Snackbar.make(binding.root, R.string.selection_single_word_required, Snackbar.LENGTH_SHORT).show()
-            return
-        }
-        lifecycleScope.launch(Dispatchers.IO) {
-            val entries = dictionaryLookup.lookup(word)
-            withContext(Dispatchers.Main) { showDefinitionSheet(word, entries) }
-        }
-    }
-
-    private fun showDefinitionSheet(word: String, entries: List<com.epubreader.app.epub.DictionaryLookup.Entry>) {
-        val dialog = BottomSheetDialog(this)
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val pad = (20 * resources.displayMetrics.density).roundToInt()
-            setPadding(pad, pad, pad, pad)
-        }
-        val title = TextView(this).apply { text = word; textSize = 20f; setTextColor(themeColor(android.R.attr.textColorPrimary)) }
-        root.addView(title)
-        if (entries.isEmpty()) {
-            root.addView(TextView(this).apply { text = getString(R.string.dictionary_not_found); textSize = 14f })
+        if (isBookmarks) {
+            tocRv?.visibility = View.GONE
+            this.tocEmpty?.visibility = View.GONE
+            bookmarkRv?.visibility = View.VISIBLE
+            val bmEmpty = (bookmarkAdapter?.currentList?.isEmpty() != false)
+            this.bookmarkEmpty?.visibility = if (bmEmpty) View.VISIBLE else View.GONE
         } else {
-            entries.forEach { entry ->
-                root.addView(TextView(this).apply {
-                    text = "${entry.partOfSpeech}  ${entry.definition}"
-                    textSize = 14f
-                    setPadding(0, 12, 0, 0)
-                    setTextColor(themeColor(android.R.attr.textColorPrimary))
-                })
-            }
+            bookmarkRv?.visibility = View.GONE
+            this.bookmarkEmpty?.visibility = View.GONE
+            tocRv?.visibility = View.VISIBLE
+            this.tocEmpty?.visibility = if (tocEmpty) View.VISIBLE else View.GONE
         }
-        root.addView(TextView(this).apply {
-            text = getString(R.string.dictionary_attribution_short)
-            textSize = 10f
-            setPadding(0, 20, 0, 0)
-            setTextColor(themeColor(android.R.attr.textColorSecondary))
-        })
-        dialog.setContentView(root)
-        dialog.show()
     }
 
     // ---------------------------------------------------------------- search overlay
@@ -2538,7 +2288,6 @@ body * { background-color: transparent !important; }
         binding.tocBookmarkOverlay.visibility = View.GONE
         binding.searchOverlay.visibility = View.GONE
         bookmarksTabActive = false
-        highlightsTabActive = false
         binding.tvPageIndicator.visibility = View.VISIBLE
         updateHistoryUi()
         binding.webView.requestFocus()
@@ -2556,11 +2305,8 @@ body * { background-color: transparent !important; }
             imm.hideSoftInputFromWindow(binding.searchEdit.windowToken, 0)
             hideOverlays()
         }
-        binding.overlayTabGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
-            if (isChecked && checkedId != View.NO_ID) {
-                if (checkedId == binding.btnTabHighlights.id) ensureHighlightsOverlay()
-                applyOverlayTab(checkedId)
-            }
+        binding.overlayTabGroup.addOnButtonCheckedListener { group, checkedId, isChecked ->
+            if (isChecked && checkedId != View.NO_ID) applyOverlayTab(checkedId)
         }
         // Capture taps so they don't fall through to the WebView.
         binding.tocBookmarkOverlay.setOnClickListener { }
@@ -2665,7 +2411,6 @@ body * { background-color: transparent !important; }
     }
 
     override fun onDestroy() {
-        dictionaryLookup.close()
         cancelMeasurement()
         handler.removeCallbacks(progressPoller)
         handler.removeCallbacks(alphaFallback)
@@ -2678,39 +2423,39 @@ body * { background-color: transparent !important; }
     companion object {
         const val EXTRA_BOOK_ID = "book_id"
         private const val SELECTION_CAPTURE_ID = 0x4C56
-        private const val SELECTION_HIGHLIGHT_ID = 0x4C57
-        private const val SELECTION_NOTE_ID = 0x4C58
-        private const val SELECTION_DEFINE_ID = 0x4C59
+        private const val DICTIONARY_DEFINE_ID = 0x4C57
+
+        /** Patch 17 (Addition #2): slide duration for the page-turn snapshot.
+         *  Longer than the old 220ms crossfade so the slide reads as a page turn
+         *  instead of a flicker. Tune this one number to speed up/slow down the
+         *  animation app-wide. */
         const val PAGE_TURN_DURATION_MS = 340L
-        private const val DEFAULT_HIGHLIGHT_COLOR = 0x66FFE082
     }
 
     override fun onActionModeStarted(mode: ActionMode) {
         super.onActionModeStarted(mode)
         val menu = mode.menu
-        addSelectionMenuItem(menu, SELECTION_HIGHLIGHT_ID, R.string.selection_highlight) {
-            captureCurrentSelection { selection -> selection?.let { saveHighlight(it, null) } }
-            mode.finish()
-        }
-        addSelectionMenuItem(menu, SELECTION_NOTE_ID, R.string.selection_note) {
-            captureCurrentSelection { selection -> selection?.let { promptForNote(it) } }
-            mode.finish()
-        }
-        addSelectionMenuItem(menu, SELECTION_DEFINE_ID, R.string.selection_define) {
-            captureCurrentSelection { selection -> showDefinition(selection?.text) }
-            mode.finish()
-        }
-        addSelectionMenuItem(menu, SELECTION_CAPTURE_ID, R.string.selection_capture) {
-            captureCurrentSelection()
-            mode.finish()
-        }
-        captureCurrentSelection()
-    }
 
-    private fun addSelectionMenuItem(menu: Menu, id: Int, titleRes: Int, action: () -> Unit) {
-        if (menu.findItem(id) != null) return
-        val item = menu.add(0, id, 100 + id, getString(titleRes))
-        item.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
-        item.setOnMenuItemClickListener { action(); true }
+        if (menu.findItem(SELECTION_CAPTURE_ID) == null) {
+            val item = menu.add(0, SELECTION_CAPTURE_ID, 100, getString(R.string.selection_capture))
+            item.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+            item.setOnMenuItemClickListener {
+                captureCurrentSelection()
+                mode.finish()
+                true
+            }
+        }
+
+        if (menu.findItem(DICTIONARY_DEFINE_ID) == null) {
+            val item = menu.add(0, DICTIONARY_DEFINE_ID, 110, getString(R.string.dictionary_define))
+            item.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+            item.setOnMenuItemClickListener {
+                defineSelectedWord()
+                mode.finish()
+                true
+            }
+        }
+
+        captureCurrentSelection()
     }
 }

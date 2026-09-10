@@ -8,16 +8,14 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [BookEntity::class, BookmarkEntity::class, HighlightEntity::class, CollectionEntity::class, BookCollectionRef::class],
-    version = 12,
+    entities = [BookEntity::class, BookmarkEntity::class, CollectionEntity::class, BookCollectionRef::class],
+    version = 10,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun bookDao(): BookDao
 
     abstract fun bookmarkDao(): BookmarkDao
-
-    abstract fun highlightDao(): HighlightDao
 
     abstract fun collectionDao(): CollectionDao
 
@@ -95,45 +93,8 @@ abstract class AppDatabase : RoomDatabase() {
                 }
             }
 
-
         private val MIGRATION_9_10 =
             object : Migration(9, 10) {
-                override fun migrate(database: SupportSQLiteDatabase) {
-                    database.execSQL("ALTER TABLE books ADD COLUMN chapter_count INTEGER NOT NULL DEFAULT 0")
-                    database.execSQL("ALTER TABLE books ADD COLUMN chapter_index INTEGER NOT NULL DEFAULT 0")
-                }
-            }
-
-        private val MIGRATION_10_11 =
-            object : Migration(10, 11) {
-                override fun migrate(database: SupportSQLiteDatabase) {
-                    database.execSQL("""
-                        CREATE TABLE IF NOT EXISTS highlights (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                            book_id INTEGER NOT NULL,
-                            spine_href TEXT NOT NULL,
-                            text TEXT NOT NULL,
-                            note TEXT,
-                            color INTEGER NOT NULL,
-                            prefix TEXT NOT NULL,
-                            suffix TEXT NOT NULL,
-                            start_path TEXT NOT NULL,
-                            end_path TEXT NOT NULL,
-                            start_offset INTEGER NOT NULL,
-                            end_offset INTEGER NOT NULL,
-                            normalized_start INTEGER NOT NULL,
-                            normalized_end INTEGER NOT NULL,
-                            created_at INTEGER NOT NULL,
-                            FOREIGN KEY(book_id) REFERENCES books(id) ON UPDATE NO ACTION ON DELETE CASCADE
-                        )
-                    """.trimIndent())
-                    database.execSQL("CREATE INDEX IF NOT EXISTS index_highlights_book_id ON highlights(book_id)")
-                    database.execSQL("CREATE INDEX IF NOT EXISTS index_highlights_book_id_spine_href ON highlights(book_id, spine_href)")
-                }
-            }
-
-        private val MIGRATION_11_12 =
-            object : Migration(11, 12) {
                 override fun migrate(database: SupportSQLiteDatabase) {
                     database.execSQL("ALTER TABLE books ADD COLUMN current_location TEXT")
                 }
@@ -146,7 +107,7 @@ abstract class AppDatabase : RoomDatabase() {
                         context.applicationContext,
                         AppDatabase::class.java,
                         "epub.db",
-                    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+                    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .build()
                     .also { INSTANCE = it }
             }

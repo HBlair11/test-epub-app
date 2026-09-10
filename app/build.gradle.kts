@@ -14,8 +14,8 @@ android {
         applicationId = "com.epubreader.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 35
-        versionName = "1.34"
+        versionCode = 33
+        versionName = "1.32"
         vectorDrawables { useSupportLibrary = true }
     }
 

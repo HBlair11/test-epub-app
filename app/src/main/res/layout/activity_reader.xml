@@ -356,12 +356,6 @@
                     android:layout_width="0dp"
                     android:layout_weight="1"
                     android:text="@string/reader_tab_bookmarks" />
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnTabHighlights"
-                    style="@style/ReaderToggleBtn"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:text="@string/reader_tab_highlights" />
             </com.google.android.material.button.MaterialButtonToggleGroup>
 
             <FrameLayout

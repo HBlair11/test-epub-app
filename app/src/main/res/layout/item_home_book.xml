@@ -16,12 +16,12 @@
 
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="154dp">
+            android:layout_height="156dp">
 
             <ImageView
                 android:id="@+id/cover"
                 android:layout_width="match_parent"
-                android:layout_height="146dp"
+                android:layout_height="match_parent"
                 android:background="@drawable/cover_frame"
                 android:contentDescription="@string/book_cover"
                 android:scaleType="centerCrop" />
@@ -63,11 +63,11 @@
         <TextView
             android:id="@+id/title"
             android:layout_width="match_parent"
-            android:layout_height="18dp"
-            android:layout_marginTop="8dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="7dp"
             android:ellipsize="end"
-            android:gravity="top"
             android:maxLines="1"
+            android:minLines="1"
             android:textColor="?android:textColorPrimary"
             android:textSize="12sp"
             android:textStyle="bold" />
@@ -75,11 +75,11 @@
         <TextView
             android:id="@+id/author"
             android:layout_width="match_parent"
-            android:layout_height="17dp"
+            android:layout_height="wrap_content"
             android:layout_marginTop="3dp"
             android:ellipsize="end"
-            android:gravity="top"
             android:maxLines="1"
+            android:minLines="1"
             android:textColor="?android:textColorSecondary"
             android:textSize="11sp" />
     </LinearLayout>
