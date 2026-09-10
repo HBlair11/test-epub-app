@@ -280,10 +280,10 @@ class ReaderActivity : AppCompatActivity() {
 
     private fun inkColor(): Int = Color.parseColor(readerColors().second)
 
-    /** Convert an ARGB color to a CSS hex value suitable for injected EPUB styles. */
+    /** Convert an Android ARGB color to a CSS hex value for injected EPUB styles. */
     private fun colorToHex(color: Int): String = String.format("#%08X", color)
 
-    /** Resolve a framework/theme color attribute for reader-native UI elements. */
+    /** Resolve a framework theme attribute for small native reader dialogs. */
     private fun themeColor(attr: Int): Int {
         val ta = obtainStyledAttributes(intArrayOf(attr))
         try {

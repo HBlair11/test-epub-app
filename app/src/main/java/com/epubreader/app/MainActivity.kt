@@ -384,14 +384,6 @@ class MainActivity : AppCompatActivity() {
                 binding.recycler.scrollToPosition(0)
             }
         }
-        // Returning from another activity: force a fresh Home projection so the
-        // Continue Reading card cannot remain on a stale LiveData snapshot. The
-        // ViewModel also performs an optimistic update before ReaderActivity is
-        // launched, so this is a reconciliation pass rather than a visible refresh.
-        if (viewModel.view.value is ShelfView.Home) {
-            viewModel.refreshHome()
-        }
-
         // Returning from the reader / book-details activity lands here. If a
         // restore was queued and the list content has already re-emitted before
         // this point, try once more now (harmless if there is nothing to restore
@@ -1767,11 +1759,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openBook(book: BookEntity) {
-        // Move Continue Reading immediately, before launching the reader. This
-        // makes Home behave like the existing Currently Reading shelf instead of
-        // waiting for the reader's debounced progress persistence.
-        viewModel.markBookOpenedImmediately(book)
-
         // Patch 11: capture this view's scroll position before navigating away so
         // it can be restored exactly on return. Reading is excluded (always
         // refreshes from top on return, per Patch 10 behaviour for that view).

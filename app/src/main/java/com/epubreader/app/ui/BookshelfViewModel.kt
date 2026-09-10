@@ -99,41 +99,9 @@ class BookshelfViewModel(
     val lastOpened: LiveData<BookEntity?> = repo.observeLastOpened().asLiveData()
 
     /** Curated, offline Home data derived from the existing books flow. */
-    private val homeContentSource = repo.observeBooks().asLiveData()
-    private val _homeContent = MediatorLiveData<HomeContent>().apply {
-        addSource(homeContentSource) { books ->
-            value = buildHomeContent(books)
-        }
-    }
-    val homeContent: LiveData<HomeContent> = _homeContent
-
-    /**
-     * Optimistically move a newly opened book to Continue Reading before the
-     * reader activity is launched. Room remains the source of truth and will
-     * reconcile the card on the next books emission.
-     */
-    fun markBookOpenedImmediately(book: BookEntity) {
-        val openedAt = System.currentTimeMillis()
-        _homeContent.value?.let { current ->
-            _homeContent.value = current.copy(
-                continueReading = book.copy(
-                    isCurrentlyReading = true,
-                    lastOpenedDate = openedAt,
-                )
-            )
-        }
-        viewModelScope.launch {
-            repo.markOpened(book.id, openedAt)
-        }
-    }
-
-    /** Force a fresh Home projection when returning from another activity. */
-    fun refreshHome() {
-        viewModelScope.launch {
-            val books = repo.getAllBooks()
-            _homeContent.postValue(buildHomeContent(books))
-        }
-    }
+    val homeContent: LiveData<HomeContent> = repo.observeBooks()
+        .map { books -> buildHomeContent(books) }
+        .asLiveData()
 
     val content: LiveData<List<DisplayItem>> = _trigger.switchMap { t ->
         flowFor(t.view, t.sort, t.asc).asLiveData()
@@ -273,14 +241,27 @@ class BookshelfViewModel(
         _scanMessage.value = msg
     }
 
+    // The DB remains authoritative, but this pair prevents a fast Room emission
+    // containing the pre-open snapshot from briefly replacing the book the user
+    // just opened. It is cleared naturally when a later open supersedes it.
+    private var optimisticContinueBookId: Long? = null
+    private var optimisticContinueOpenedAt: Long = 0L
+
     private fun buildHomeContent(books: List<BookEntity>): HomeContent {
         // Home Recently Added is based on actual library insertion order.
         // Room auto-increments `id`, so the highest ids are the books most recently
         // inserted into the library. This is intentionally independent of the
         // user-facing Recently Added sort selector because Home should always show
         // the six newest additions, newest first.
+        // Home Recently Added is a true newest-first projection of the book's
+        // original added timestamp. ID is only a deterministic tie-breaker.
+        // This is independent of the Library sort selector.
         val newest = books
-            .sortedWith(compareByDescending<BookEntity> { it.id }.thenBy { it.sortTitle })
+            .sortedWith(
+                compareByDescending<BookEntity> { it.addedDate }
+                    .thenByDescending { it.id }
+                    .thenBy { it.sortTitle }
+            )
             .take(6)
         val favorites = books
             .filter { it.isFavorite }
@@ -318,8 +299,24 @@ class BookshelfViewModel(
             .sortedWith(compareByDescending<HomeGroup> { it.count }.thenBy { it.name.lowercase() })
             .take(3)
 
+        val databaseContinue = books.maxByOrNull { it.lastOpenedDate ?: Long.MIN_VALUE }
+        val optimisticBook = optimisticContinueBookId?.let { id ->
+            books.firstOrNull { it.id == id }
+        }
+        val continueReading = if (
+            optimisticBook != null &&
+            optimisticContinueOpenedAt >= (databaseContinue?.lastOpenedDate ?: Long.MIN_VALUE)
+        ) {
+            optimisticBook.copy(
+                isCurrentlyReading = true,
+                lastOpenedDate = optimisticContinueOpenedAt,
+            )
+        } else {
+            databaseContinue
+        }
+
         return HomeContent(
-            continueReading = books.maxByOrNull { it.lastOpenedDate ?: Long.MIN_VALUE },
+            continueReading = continueReading,
             recentlyAdded = newest,
             favorites = favorites.take(6),
             topAuthors = authorGroups,

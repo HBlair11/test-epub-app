@@ -55,8 +55,6 @@ class BookRepository(
 
     suspend fun getBook(id: Long): BookEntity? = bookDao.getById(id)
 
-    suspend fun getAllBooks(): List<BookEntity> = bookDao.getAllBooks()
-
     suspend fun getByChecksum(checksum: String): BookEntity? = bookDao.getByChecksum(checksum)
 
     suspend fun updateProgress(

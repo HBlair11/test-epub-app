@@ -231,15 +231,26 @@ class BookDetailsActivity : AppCompatActivity() {
         binding.btnRead.setOnClickListener {
             shouldRefreshOnResume = true
 
-            startActivity(
-                Intent(
-                    this,
-                    ReaderActivity::class.java
-                ).putExtra(
-                    ReaderActivity.EXTRA_BOOK_ID,
-                    book.id
-                )
-            )
+            // Mark the book as opened at the navigation point, not only after
+            // ReaderActivity's debounced progress persistence. This keeps the
+            // existing Currently Reading / Home ordering authoritative when the
+            // reader is launched from Book Details.
+            lifecycleScope.launch(Dispatchers.IO) {
+                AppDatabase.get(applicationContext).bookDao()
+                    .markOpened(book.id, System.currentTimeMillis())
+
+                withContext(Dispatchers.Main) {
+                    startActivity(
+                        Intent(
+                            this@BookDetailsActivity,
+                            ReaderActivity::class.java
+                        ).putExtra(
+                            ReaderActivity.EXTRA_BOOK_ID,
+                            book.id
+                        )
+                    )
+                }
+            }
         }
 
         // =========================

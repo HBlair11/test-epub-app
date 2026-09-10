@@ -1,29 +1,9 @@
-# v34 — Home Continue Reading location + instant update correction
+# Patch v33 — Continue Reading location + instant book update
 
-## Purpose
-
-This corrective release fixes the v33 compile errors and hardens the Home Continue Reading update path.
-
-## Fixes
-
-- Added the missing `colorToHex()` and `themeColor()` helpers to `ReaderActivity`.
-- Home Continue Reading displays the nearest embedded EPUB navigation/TOC heading, such as `Chapter Five`, `Epilogue`, or a named section. It does not use synthetic chapter counting.
-- `current_location` is stored locally, updated when the reader changes spine chapters, and preserved when an existing EPUB is rescanned/refreshed.
-- Opening a book now optimistically moves that book to Continue Reading before navigation.
-- Returning to Home performs a fresh Room projection so a newly opened book cannot remain hidden behind a stale Home snapshot.
-- The existing Currently Reading logic remains unchanged.
-- Highlights/Notes, Offline Dictionary, metadata/library polish, Home/Library separation, Recently Added ordering, selection foundation, drawer alignment, and legacy database compatibility are preserved.
-
-## Version
-
-- `versionCode = 34`
-- `versionName = 1.33`
-- Room database remains at version 12; no additional schema migration is required for this corrective release.
-
-## Validation
-
-- Static source/reference validation performed before packaging.
-- XML resources parsed and resource IDs checked.
-- Kotlin/XML/Markdown EOF newline check performed.
-- Archive integrity checked.
-- Full Android Gradle compilation remains dependent on the GitHub Actions environment because the local environment cannot fetch Gradle 8.9.
+- Bumps the app to v33 / 1.32.
+- Continue Reading now shows `Location - …` using the EPUB spine/navigation TOC heading, such as `7. Sky-high Rivalry`, `Chapter Five`, or `Epilogue`.
+- The TOC-to-spine mapping uses the existing embedded EPUB navigation data and the reader’s existing section-label logic; no synthetic chapter counting is introduced.
+- The current TOC heading is persisted with the book so Home can display it without reparsing the EPUB.
+- Opening any book now immediately records `last_opened_date` and `is_currently_reading`, so Home’s Continue Reading card switches to the newly opened book as soon as Room invalidates the observed books Flow.
+- Existing Highlights/Notes, Offline Dictionary, Home/Library separation, Recently Added ordering fix, legacy chapter-schema compatibility, drawer alignment, and reader pagination remain intact.
+- Database migration 11→12 adds only the nullable `current_location` column; no existing data is deleted or rewritten.
