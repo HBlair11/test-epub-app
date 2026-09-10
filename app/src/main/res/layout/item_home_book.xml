@@ -56,7 +56,7 @@
                 android:layout_height="3dp"
                 android:layout_gravity="bottom|start"
                 android:background="@color/progress_fill"
-                android:pivotX="0dp"
+                android:pivotX="0"
                 android:visibility="gone" />
         </FrameLayout>
 
