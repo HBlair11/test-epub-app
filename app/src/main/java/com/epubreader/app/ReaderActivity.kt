@@ -73,6 +73,7 @@ class ReaderActivity : AppCompatActivity() {
     private var epub: EpubBook? = null
     private var resolver: EpubResourceResolver? = null
     private var spineIndex: Int = 0
+    private var actualChapterSpines: List<Int> = emptyList()
     private var currentScrollRatio: Float = 0f
     private var currentPageInChapter: Int = 0
     private var pagesInChapter: Int = 1
@@ -1000,15 +1001,18 @@ class ReaderActivity : AppCompatActivity() {
                 null
             } ?: return@launch
             epub = parsed
-            // Keep the chapter/section count available to the Home hero without
-            // reparsing the EPUB there. Existing books get backfilled the next
-            // time they are opened after the schema update.
-            if (entity.spineCount != parsed.spine.size) {
-                db.bookDao().updateSpineCount(bookId, parsed.spine.size)
-            }
+            // Distinguish true content chapters from spine-only front/back matter.
+            // The resulting ordinal powers the Home hero (e.g. Chapter 7 of 35)
+            // without assuming every XHTML spine item is a chapter.
+            actualChapterSpines = EpubChapterDetector.detect(parsed)
             resolver = EpubResourceResolver(file)
             buildTocSectionMap(parsed)
             spineIndex = entity.spineIndex.coerceIn(0, parsed.spine.lastIndex)
+            val actualChapterCount = actualChapterSpines.size
+            val actualChapterIndex = EpubChapterDetector.ordinalForSpine(actualChapterSpines, spineIndex)
+            if (entity.spineCount != parsed.spine.size || entity.chapterCount != actualChapterCount || entity.chapterIndex != actualChapterIndex) {
+                db.bookDao().updateChapterMetadata(bookId, parsed.spine.size, actualChapterCount, actualChapterIndex)
+            }
             restoreRatio = entity.scrollRatio.takeIf { it > 0f }
 
             // Patch 7 behavior: page counts come from a REAL offscreen layout pass
@@ -1920,7 +1924,8 @@ body * { background-color: transparent !important; }
         lastPersistedRatio = ratio
         lastProgressPersistAt = now
         lifecycleScope.launch(Dispatchers.IO) {
-            db.bookDao().updateProgress(bookId, progress, spine, ratio, now)
+            val chapterIndex = EpubChapterDetector.ordinalForSpine(actualChapterSpines, spine)
+        db.bookDao().updateProgress(bookId, progress, spine, chapterIndex, ratio, now)
         }
     }
 

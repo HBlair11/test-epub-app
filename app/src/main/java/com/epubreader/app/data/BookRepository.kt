@@ -57,7 +57,7 @@ class BookRepository(
         spineIndex: Int,
         scrollRatio: Float,
     ) {
-        bookDao.updateProgress(id, progress, spineIndex, scrollRatio, System.currentTimeMillis())
+        bookDao.updateProgress(id, progress, spineIndex, 0, scrollRatio, System.currentTimeMillis())
     }
 
     suspend fun deleteBook(book: BookEntity) = bookDao.delete(book)

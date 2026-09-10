@@ -62,14 +62,15 @@ interface BookDao {
         sourceLastModified: Long,
     )
 
-    @Query("UPDATE books SET spine_count = :spineCount WHERE id = :id")
-    suspend fun updateSpineCount(id: Long, spineCount: Int)
+    @Query("UPDATE books SET spine_count = :spineCount, chapter_count = :chapterCount, chapter_index = :chapterIndex WHERE id = :id")
+    suspend fun updateChapterMetadata(id: Long, spineCount: Int, chapterCount: Int, chapterIndex: Int)
 
-    @Query("UPDATE books SET progress = :progress, spine_index = :spineIndex, scroll_ratio = :scrollRatio, last_opened_date = :lastOpened WHERE id = :id")
+    @Query("UPDATE books SET progress = :progress, spine_index = :spineIndex, chapter_index = :chapterIndex, scroll_ratio = :scrollRatio, last_opened_date = :lastOpened WHERE id = :id")
     suspend fun updateProgress(
         id: Long,
         progress: Float,
         spineIndex: Int,
+        chapterIndex: Int,
         scrollRatio: Float,
         lastOpened: Long
     )

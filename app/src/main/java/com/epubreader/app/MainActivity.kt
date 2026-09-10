@@ -533,12 +533,17 @@ class MainActivity : AppCompatActivity() {
             binding.homeContent.homeContinueSeries.text = seriesText
             binding.homeContent.homeContinueSeries.visibility = if (seriesText.isNullOrBlank()) View.GONE else View.VISIBLE
 
-            val chapterNumber = (book.spineIndex + 1).coerceAtLeast(1)
-            binding.homeContent.homeContinueChapter.text = if (book.spineCount > 0) {
-                getString(R.string.home_continue_chapter, chapterNumber.coerceAtMost(book.spineCount), book.spineCount)
-            } else {
-                getString(R.string.home_continue_chapter_unknown_total, chapterNumber)
+            binding.homeContent.homeContinueChapter.text = when {
+                book.chapterCount > 0 && book.chapterIndex > 0 ->
+                    getString(
+                        R.string.home_continue_chapter,
+                        book.chapterIndex.coerceAtMost(book.chapterCount),
+                        book.chapterCount,
+                    )
+                else -> ""
             }
+            binding.homeContent.homeContinueChapter.visibility =
+                if (book.chapterCount > 0 && book.chapterIndex > 0) View.VISIBLE else View.GONE
             binding.homeContent.homeContinueProgress.text = if (book.progress >= 0.995f) {
                 getString(R.string.progress_completed)
             } else {

@@ -242,12 +242,13 @@ class BookshelfViewModel(
     }
 
     private fun buildHomeContent(books: List<BookEntity>): HomeContent {
-        // Home Recently Added: keep the six newest books, then present that
-        // selected set in ascending added-date order so the shelf progresses
-        // from older-to-newer and the newest book is at the end of the row.
+        // Home Recently Added: use the same recently-added key as the library
+        // sort, but present the six newest books first-to-last (newest at the
+        // leading edge of the shelf). The Library's user-controlled sort is not
+        // changed by this Home-only curated section.
         val newest = books.sortedWith(
-            compareBy<BookEntity> { it.addedDate }.thenBy { it.sortTitle }
-        ).takeLast(6)
+            compareByDescending<BookEntity> { it.addedDate }.thenBy { it.sortTitle }
+        ).take(6)
         val favorites = books
             .filter { it.isFavorite }
             .sortedWith(compareByDescending<BookEntity> { it.lastOpenedDate ?: 0L }.thenBy { it.sortTitle })

@@ -36,6 +36,10 @@ data class BookEntity(
     @ColumnInfo(name = "spine_index") val spineIndex: Int = 0,
     /** Number of EPUB spine items used by the reader as chapter/section units. */
     @ColumnInfo(name = "spine_count") val spineCount: Int = 0,
+    /** Number of content chapters detected from the book TOC/headings, excluding front/back matter. */
+    @ColumnInfo(name = "chapter_count") val chapterCount: Int = 0,
+    /** 1-based ordinal of the current content chapter; 0 when not in a detected chapter. */
+    @ColumnInfo(name = "chapter_index") val chapterIndex: Int = 0,
     @ColumnInfo(name = "scroll_ratio") val scrollRatio: Float = 0f,
     @ColumnInfo(name = "checksum") val checksum: String,
     @ColumnInfo(name = "sort_title") val sortTitle: String = title,
