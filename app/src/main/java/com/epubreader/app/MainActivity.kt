@@ -365,14 +365,6 @@ class MainActivity : AppCompatActivity() {
         else -> BookshelfViewModel.KEY_HOME
     }
 
-    override fun onTaskRemoved(rootIntent: Intent?) {
-        // A task deliberately removed from Recents is a cold session. Keep the
-        // next launcher-created session on Home; an already-running task still
-        // preserves its current screen exactly as before.
-        prefs.lastView = BookshelfViewModel.KEY_HOME
-        super.onTaskRemoved(rootIntent)
-    }
-
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         // Patch 18 (Addition #3): re-handle a VIEW intent delivered to the

@@ -73,3 +73,10 @@ No changes were made to the EPUB reader architecture, WebView/Caesura pagination
 
 - `versionCode = 32`
 - `versionName` intentionally unchanged from the existing v32 baseline.
+
+
+## Compile-fix follow-up: MainActivity binding/lifecycle integration
+
+- Restored `@+id/recycler` to `activity_main.xml` because the existing MainActivity implementation uses `ActivityMainBinding.recycler` for all non-Home shelves, scroll restoration, swipe handling, and list rendering.
+- Removed the invalid `MainActivity.onTaskRemoved()` override. `onTaskRemoved()` is a `Service` lifecycle callback, not an `Activity` override. The desired cold-launch behavior is instead provided by `BookshelfViewModel.initialView() = Home`, while `onSaveInstanceState()` / restoration preserves the current screen when Android recreates an existing task.
+- No new navigation architecture introduced.
