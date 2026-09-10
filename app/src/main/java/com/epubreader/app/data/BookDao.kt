@@ -62,15 +62,11 @@ interface BookDao {
         sourceLastModified: Long,
     )
 
-    @Query("UPDATE books SET spine_count = :spineCount, chapter_count = :chapterCount, chapter_index = :chapterIndex WHERE id = :id")
-    suspend fun updateChapterMetadata(id: Long, spineCount: Int, chapterCount: Int, chapterIndex: Int)
-
-    @Query("UPDATE books SET progress = :progress, spine_index = :spineIndex, chapter_index = :chapterIndex, scroll_ratio = :scrollRatio, last_opened_date = :lastOpened WHERE id = :id")
+    @Query("UPDATE books SET progress = :progress, spine_index = :spineIndex, scroll_ratio = :scrollRatio, last_opened_date = :lastOpened WHERE id = :id")
     suspend fun updateProgress(
         id: Long,
         progress: Float,
         spineIndex: Int,
-        chapterIndex: Int,
         scrollRatio: Float,
         lastOpened: Long
     )
@@ -177,6 +173,14 @@ interface BookDao {
 
     @Query("UPDATE books SET is_currently_reading = 1 WHERE id = :id")
     suspend fun setCurrentlyReading(id: Long)
+
+    /** Marks the book as opened immediately so Home/Currently Reading react
+     * before the reader's debounced progress persistence runs. */
+    @Query("UPDATE books SET is_currently_reading = 1, last_opened_date = :openedAt WHERE id = :id")
+    suspend fun markOpened(id: Long, openedAt: Long)
+
+    @Query("UPDATE books SET current_location = :location WHERE id = :id")
+    suspend fun updateCurrentLocation(id: Long, location: String?)
 
     @Query("UPDATE books SET is_currently_reading = 0 WHERE id = :id")
     suspend fun clearCurrentlyReading(id: Long)

@@ -526,9 +526,6 @@ class EpubImporter(
                 lastOpenedDate = existing?.lastOpenedDate,
                 fileSize = working.length(),
                 spineIndex = existing?.spineIndex ?: 0,
-                spineCount = parsed.spine.size,
-                chapterCount = EpubChapterDetector.detect(parsed).size,
-                chapterIndex = existing?.chapterIndex ?: 0,
                 scrollRatio = existing?.scrollRatio ?: 0f,
                 checksum = checksum,
                 sortTitle = existing?.takeIf { it.metadataEdited }?.sortTitle
@@ -641,9 +638,6 @@ class EpubImporter(
                 lastOpenedDate = existing?.lastOpenedDate,
                 fileSize = working.length(),
                 spineIndex = existing?.spineIndex ?: 0,
-                spineCount = parsed.spine.size,
-                chapterCount = EpubChapterDetector.detect(parsed).size,
-                chapterIndex = existing?.chapterIndex ?: 0,
                 scrollRatio = existing?.scrollRatio ?: 0f,
                 checksum = checksum,
                 sortTitle = existing?.takeIf { it.metadataEdited }?.sortTitle

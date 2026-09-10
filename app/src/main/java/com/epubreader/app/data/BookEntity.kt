@@ -32,13 +32,13 @@ data class BookEntity(
     @ColumnInfo(name = "added_date") val addedDate: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "modified_date") val modifiedDate: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "last_opened_date") val lastOpenedDate: Long? = null,
+    /** TOC heading for the last reader location, e.g. "Chapter Five" or "Epilogue". */
+    @ColumnInfo(name = "current_location") val currentLocation: String? = null,
     @ColumnInfo(name = "file_size") val fileSize: Long = 0L,
     @ColumnInfo(name = "spine_index") val spineIndex: Int = 0,
-    /** Number of EPUB spine items used by the reader as chapter/section units. */
+    /** Legacy v32 chapter metadata columns retained only for database compatibility; not used by the Home UI. */
     @ColumnInfo(name = "spine_count") val spineCount: Int = 0,
-    /** Number of content chapters detected from the book TOC/headings, excluding front/back matter. */
     @ColumnInfo(name = "chapter_count") val chapterCount: Int = 0,
-    /** 1-based ordinal of the current content chapter; 0 when not in a detected chapter. */
     @ColumnInfo(name = "chapter_index") val chapterIndex: Int = 0,
     @ColumnInfo(name = "scroll_ratio") val scrollRatio: Float = 0f,
     @ColumnInfo(name = "checksum") val checksum: String,

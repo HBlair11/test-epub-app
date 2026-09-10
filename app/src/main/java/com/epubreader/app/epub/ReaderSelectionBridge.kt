@@ -2,7 +2,7 @@ package com.epubreader.app.epub
 
 import android.webkit.JavascriptInterface
 
-/** Narrow bridge used only for extracting the user's current text selection. */
+/** Narrow bridge: selection data only; no filesystem, database, or mutation access. */
 class ReaderSelectionBridge(
     private val onSelection: (ReaderSelectionLocator) -> Unit,
 ) {
@@ -14,21 +14,26 @@ class ReaderSelectionBridge(
         startOffset: Int,
         endPath: String,
         endOffset: Int,
+        normalizedStart: Int,
+        normalizedEnd: Int,
         prefix: String,
         suffix: String,
     ) {
-        if (text.isBlank() || spineHref.isBlank()) return
+        val cleanText = text.trim()
+        if (cleanText.isBlank() || spineHref.isBlank()) return
         onSelection(
             ReaderSelectionLocator(
-                text = text.trim(),
+                text = cleanText,
                 spineHref = spineHref,
                 startPath = startPath,
                 startOffset = startOffset,
                 endPath = endPath,
                 endOffset = endOffset,
-                prefix = prefix,
-                suffix = suffix,
-            )
+                normalizedStart = normalizedStart.coerceAtLeast(0),
+                normalizedEnd = normalizedEnd.coerceAtLeast(normalizedStart),
+                prefix = prefix.takeLast(80),
+                suffix = suffix.take(80),
+            ),
         )
     }
 }

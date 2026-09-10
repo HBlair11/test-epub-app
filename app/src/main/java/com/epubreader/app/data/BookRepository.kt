@@ -18,6 +18,12 @@ class BookRepository(
 
     suspend fun setCurrentlyReading(id: Long) = bookDao.setCurrentlyReading(id)
 
+    suspend fun markOpened(id: Long, openedAt: Long = System.currentTimeMillis()) =
+        bookDao.markOpened(id, openedAt)
+
+    suspend fun updateCurrentLocation(id: Long, location: String?) =
+        bookDao.updateCurrentLocation(id, location)
+
     suspend fun clearCurrentlyReading(id: Long) = bookDao.clearCurrentlyReading(id)
 
     fun observeFavorites(): Flow<List<BookEntity>> = bookDao.observeFavorites()
@@ -57,7 +63,7 @@ class BookRepository(
         spineIndex: Int,
         scrollRatio: Float,
     ) {
-        bookDao.updateProgress(id, progress, spineIndex, 0, scrollRatio, System.currentTimeMillis())
+        bookDao.updateProgress(id, progress, spineIndex, scrollRatio, System.currentTimeMillis())
     }
 
     suspend fun deleteBook(book: BookEntity) = bookDao.delete(book)

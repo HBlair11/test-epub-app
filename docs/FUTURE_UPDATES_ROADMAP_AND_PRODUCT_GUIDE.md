@@ -938,3 +938,11 @@ Home intentionally omits sorting, grid/list management, bulk actions, and dense 
 
 When reading-history/statistics infrastructure exists, "Top Authors" and "Top Series" can evolve from library-count ranking to a more personal engagement ranking, but the UI should remain simple.
 
+
+---
+
+## v32 implementation status addendum
+
+The dedicated Home experience is now separate from the complete Library. Continue Reading is the hero element, while Recently Added, Favorites, Top Authors, and Top Series act as restrained curated shelves. The former heuristic chapter-count line was removed after real EPUB testing showed that spine items do not reliably equal user-facing chapters.
+
+The selection foundation is now validated and its first downstream consumers are implemented: Highlights/Notes and an offline dictionary. These continue to use the existing reader overlay/navigation patterns rather than introducing parallel UI systems.
