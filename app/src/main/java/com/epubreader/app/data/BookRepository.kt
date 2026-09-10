@@ -26,6 +26,8 @@ class BookRepository(
 
     fun observeToBeRead(): Flow<List<BookEntity>> = bookDao.observeToBeRead()
 
+    fun observeLastOpened(): Flow<BookEntity?> = bookDao.observeLastOpened()
+
     // Patch 16 (Issue #3): books for the "Recently Added" temp screen.
     fun observeByIds(ids: List<Long>): Flow<List<BookEntity>> =
         if (ids.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyList()) else bookDao.observeByIds(ids)

@@ -58,9 +58,6 @@ import java.io.File
 
 class ReaderActivity : AppCompatActivity() {
 
-    private companion object {
-        const val SELECTION_CAPTURE_ID = 0x4C56
-    }
 
     private lateinit var binding: ActivityReaderBinding
     private lateinit var prefs: PrefsManager
@@ -354,28 +351,6 @@ class ReaderActivity : AppCompatActivity() {
             "LivreSelection"
         )
         binding.webView.setOnLongClickListener { false }
-        binding.webView.customSelectionActionModeCallback = object : ActionMode.Callback {
-            override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
-                if (menu.findItem(android.R.id.selectAll) == null) {
-                    // WebView owns the native selection actions; we add a single
-                    // lightweight foundation action without taking over its menu.
-                    menu.add(0, SELECTION_CAPTURE_ID, 100, getString(R.string.selection_capture))
-                }
-                captureCurrentSelection()
-                return true
-            }
-            override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
-                captureCurrentSelection()
-                return false
-            }
-            override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean =
-                if (item.itemId == SELECTION_CAPTURE_ID) {
-                    captureCurrentSelection()
-                    mode.finish()
-                    true
-                } else false
-            override fun onDestroyActionMode(mode: ActionMode) = Unit
-        }
     }
 
     private fun captureCurrentSelection() {
@@ -2395,11 +2370,27 @@ body * { background-color: transparent !important; }
 
     companion object {
         const val EXTRA_BOOK_ID = "book_id"
+        private const val SELECTION_CAPTURE_ID = 0x4C56
 
         /** Patch 17 (Addition #2): slide duration for the page-turn snapshot.
          *  Longer than the old 220ms crossfade so the slide reads as a page turn
          *  instead of a flicker. Tune this one number to speed up/slow down the
          *  animation app-wide. */
         const val PAGE_TURN_DURATION_MS = 340L
+    }
+
+    override fun onActionModeStarted(mode: ActionMode) {
+        super.onActionModeStarted(mode)
+        val menu = mode.menu
+        if (menu.findItem(SELECTION_CAPTURE_ID) == null) {
+            val item = menu.add(0, SELECTION_CAPTURE_ID, 100, getString(R.string.selection_capture))
+            item.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+            item.setOnMenuItemClickListener {
+                captureCurrentSelection()
+                mode.finish()
+                true
+            }
+        }
+        captureCurrentSelection()
     }
 }
