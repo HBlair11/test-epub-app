@@ -1000,6 +1000,12 @@ class ReaderActivity : AppCompatActivity() {
                 null
             } ?: return@launch
             epub = parsed
+            // Keep the chapter/section count available to the Home hero without
+            // reparsing the EPUB there. Existing books get backfilled the next
+            // time they are opened after the schema update.
+            if (entity.spineCount != parsed.spine.size) {
+                db.bookDao().updateSpineCount(bookId, parsed.spine.size)
+            }
             resolver = EpubResourceResolver(file)
             buildTocSectionMap(parsed)
             spineIndex = entity.spineIndex.coerceIn(0, parsed.spine.lastIndex)

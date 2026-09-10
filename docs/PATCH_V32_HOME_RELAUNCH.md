@@ -80,3 +80,13 @@ No changes were made to the EPUB reader architecture, WebView/Caesura pagination
 - Restored `@+id/recycler` to `activity_main.xml` because the existing MainActivity implementation uses `ActivityMainBinding.recycler` for all non-Home shelves, scroll restoration, swipe handling, and list rendering.
 - Removed the invalid `MainActivity.onTaskRemoved()` override. `onTaskRemoved()` is a `Service` lifecycle callback, not an `Activity` override. The desired cold-launch behavior is instead provided by `BookshelfViewModel.initialView() = Home`, while `onSaveInstanceState()` / restoration preserves the current screen when Android recreates an existing task.
 - No new navigation architecture introduced.
+## V32 Home hero and shelf polish
+
+- Continue Reading is now a dedicated visual hero with an external section heading.
+- The hero includes title, author, optional series/series number, chapter position, progress, and a single read action without adding dense controls.
+- EPUB spine count is stored locally so the hero can show `Chapter X of Y` after a book has been opened. Existing books are backfilled the next time they are opened.
+- Home shelf cards use fixed dimensions with two-line title/author limits and ellipsis so long metadata cannot change card height or clip nearby content.
+- Home horizontal shelves have increased vertical breathing room and bottom inset for a calmer, curated presentation.
+- Existing 20dp content padding, Library behavior, reader architecture, and drawer navigation remain unchanged.
+- Room migration 8 -> 9 adds `spine_count` with a non-destructive default of 0.
+

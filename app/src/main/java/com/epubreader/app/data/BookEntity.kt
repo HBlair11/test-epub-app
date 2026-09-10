@@ -34,6 +34,8 @@ data class BookEntity(
     @ColumnInfo(name = "last_opened_date") val lastOpenedDate: Long? = null,
     @ColumnInfo(name = "file_size") val fileSize: Long = 0L,
     @ColumnInfo(name = "spine_index") val spineIndex: Int = 0,
+    /** Number of EPUB spine items used by the reader as chapter/section units. */
+    @ColumnInfo(name = "spine_count") val spineCount: Int = 0,
     @ColumnInfo(name = "scroll_ratio") val scrollRatio: Float = 0f,
     @ColumnInfo(name = "checksum") val checksum: String,
     @ColumnInfo(name = "sort_title") val sortTitle: String = title,

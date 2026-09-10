@@ -510,11 +510,35 @@ class MainActivity : AppCompatActivity() {
 
         binding.homeContent.homeEmpty.visibility = if (content.hasBooks) View.GONE else View.VISIBLE
         binding.homeContent.homeRecentlyAddedSection.visibility = if (content.recentlyAdded.isEmpty()) View.GONE else View.VISIBLE
-        binding.homeContent.homeContinueCard.visibility = if (content.continueReading != null) View.VISIBLE else View.GONE
+        val hasContinueReading = content.continueReading != null
+        binding.homeContent.homeContinueSection.visibility = if (hasContinueReading) View.VISIBLE else View.GONE
+        binding.homeContent.homeContinueCard.visibility = if (hasContinueReading) View.VISIBLE else View.GONE
 
         content.continueReading?.let { book ->
             binding.homeContent.homeContinueTitle.text = book.title
             binding.homeContent.homeContinueAuthor.text = book.author.ifBlank { getString(R.string.unknown_author) }
+
+            val seriesText = book.series
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { series ->
+                    val index = book.seriesIndex
+                    if (index != null) {
+                        val formattedIndex = if (index % 1.0 == 0.0) index.toInt().toString() else index.toString()
+                        getString(R.string.home_continue_series, "$series #$formattedIndex")
+                    } else {
+                        getString(R.string.home_continue_series, series)
+                    }
+                }
+            binding.homeContent.homeContinueSeries.text = seriesText
+            binding.homeContent.homeContinueSeries.visibility = if (seriesText.isNullOrBlank()) View.GONE else View.VISIBLE
+
+            val chapterNumber = (book.spineIndex + 1).coerceAtLeast(1)
+            binding.homeContent.homeContinueChapter.text = if (book.spineCount > 0) {
+                getString(R.string.home_continue_chapter, chapterNumber.coerceAtMost(book.spineCount), book.spineCount)
+            } else {
+                getString(R.string.home_continue_chapter_unknown_total, chapterNumber)
+            }
             binding.homeContent.homeContinueProgress.text = if (book.progress >= 0.995f) {
                 getString(R.string.progress_completed)
             } else {

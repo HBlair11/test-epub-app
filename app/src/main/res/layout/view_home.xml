@@ -58,86 +58,115 @@
                 android:text="@string/action_import_file" />
         </LinearLayout>
 
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/homeContinueCard"
+        <LinearLayout
+            android:id="@+id/homeContinueSection"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="@dimen/app_row_content_padding_h"
-            android:layout_marginTop="12dp"
-            android:layout_marginEnd="@dimen/app_row_content_padding_h"
-            app:cardBackgroundColor="?attr/colorSurface"
-            app:cardCornerRadius="10dp"
-            app:cardElevation="1dp">
+            android:orientation="vertical">
 
-            <LinearLayout
+            <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="14dp">
+                android:layout_marginStart="@dimen/app_row_content_padding_h"
+                android:layout_marginTop="26dp"
+                android:layout_marginEnd="@dimen/app_row_content_padding_h"
+                android:text="@string/home_continue_heading"
+                android:textColor="?android:textColorPrimary"
+                android:textSize="22sp"
+                android:textStyle="bold" />
 
-                <ImageView
-                    android:id="@+id/homeContinueCover"
-                    android:layout_width="76dp"
-                    android:layout_height="114dp"
-                    android:background="@drawable/cover_frame"
-                    android:contentDescription="@string/book_cover"
-                    android:scaleType="centerCrop" />
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/homeContinueCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/app_row_content_padding_h"
+                android:layout_marginTop="12dp"
+                android:layout_marginEnd="@dimen/app_row_content_padding_h"
+                app:cardBackgroundColor="?attr/colorSurface"
+                app:cardCornerRadius="14dp"
+                app:cardElevation="1dp">
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:padding="18dp">
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/home_continue_label"
-                        android:textColor="?android:textColorSecondary"
-                        android:textSize="12sp" />
+                    <ImageView
+                        android:id="@+id/homeContinueCover"
+                        android:layout_width="94dp"
+                        android:layout_height="141dp"
+                        android:background="@drawable/cover_frame"
+                        android:contentDescription="@string/book_cover"
+                        android:scaleType="centerCrop" />
 
-                    <TextView
-                        android:id="@+id/homeContinueTitle"
-                        android:layout_width="match_parent"
+                    <LinearLayout
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="3dp"
-                        android:ellipsize="end"
-                        android:maxLines="3"
-                        android:textColor="?android:textColorPrimary"
-                        android:textSize="17sp"
-                        android:textStyle="bold" />
+                        android:layout_marginStart="18dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
 
-                    <TextView
-                        android:id="@+id/homeContinueAuthor"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:ellipsize="end"
-                        android:maxLines="1"
-                        android:textColor="?android:textColorSecondary"
-                        android:textSize="12sp" />
+                        <TextView
+                            android:id="@+id/homeContinueTitle"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:maxLines="3"
+                            android:textColor="?android:textColorPrimary"
+                            android:textSize="19sp"
+                            android:textStyle="bold" />
 
-                    <TextView
-                        android:id="@+id/homeContinueProgress"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="5dp"
-                        android:textColor="?android:textColorSecondary"
-                        android:textSize="12sp" />
+                        <TextView
+                            android:id="@+id/homeContinueAuthor"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="5dp"
+                            android:ellipsize="end"
+                            android:maxLines="2"
+                            android:textColor="?android:textColorSecondary"
+                            android:textSize="13sp" />
+
+                        <TextView
+                            android:id="@+id/homeContinueSeries"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="3dp"
+                            android:ellipsize="end"
+                            android:maxLines="2"
+                            android:textColor="?android:textColorSecondary"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/homeContinueChapter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:textColor="?android:textColorSecondary"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/homeContinueProgress"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:textColor="?android:textColorSecondary"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+
+                    <ImageButton
+                        android:id="@+id/homeContinueButton"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:layout_marginStart="8dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/continue_reading"
+                        android:src="@drawable/ic_menu_book"
+                        app:tint="?android:textColorPrimary" />
                 </LinearLayout>
-
-                <ImageButton
-                    android:id="@+id/homeContinueButton"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="@string/continue_reading"
-                    android:src="@drawable/ic_menu_book"
-                    app:tint="?android:textColorPrimary" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/homeRecentlyAddedSection"
@@ -149,7 +178,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="@dimen/app_row_content_padding_h"
-                android:layout_marginTop="24dp"
+                android:layout_marginTop="30dp"
                 android:layout_marginEnd="@dimen/app_row_content_padding_h"
                 android:text="@string/home_recently_added"
                 android:textColor="?android:textColorPrimary"
@@ -159,13 +188,14 @@
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/homeRecentlyAdded"
                 android:layout_width="match_parent"
-                android:layout_height="236dp"
+                android:layout_height="262dp"
                 android:clipToPadding="false"
                 android:nestedScrollingEnabled="false"
                 android:overScrollMode="never"
                 android:paddingStart="@dimen/app_row_content_padding_h"
                 android:paddingEnd="@dimen/app_row_content_padding_h"
-                android:paddingTop="10dp" />
+                android:paddingTop="10dp"
+                android:paddingBottom="8dp" />
         </LinearLayout>
 
         <LinearLayout
@@ -178,7 +208,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="@dimen/app_row_content_padding_h"
-                android:layout_marginTop="22dp"
+                android:layout_marginTop="28dp"
                 android:layout_marginEnd="@dimen/app_row_content_padding_h"
                 android:text="@string/home_favorites"
                 android:textColor="?android:textColorPrimary"
@@ -188,13 +218,14 @@
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/homeFavorites"
                 android:layout_width="match_parent"
-                android:layout_height="236dp"
+                android:layout_height="262dp"
                 android:clipToPadding="false"
                 android:nestedScrollingEnabled="false"
                 android:overScrollMode="never"
                 android:paddingStart="@dimen/app_row_content_padding_h"
                 android:paddingEnd="@dimen/app_row_content_padding_h"
-                android:paddingTop="10dp" />
+                android:paddingTop="10dp"
+                android:paddingBottom="8dp" />
         </LinearLayout>
 
         <LinearLayout
@@ -207,7 +238,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="@dimen/app_row_content_padding_h"
-                android:layout_marginTop="22dp"
+                android:layout_marginTop="28dp"
                 android:layout_marginEnd="@dimen/app_row_content_padding_h"
                 android:text="@string/home_top_authors"
                 android:textColor="?android:textColorPrimary"
@@ -232,13 +263,14 @@
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/homeAuthorBooks1"
                     android:layout_width="match_parent"
-                    android:layout_height="236dp"
+                    android:layout_height="262dp"
                     android:clipToPadding="false"
                     android:nestedScrollingEnabled="false"
                     android:overScrollMode="never"
                     android:paddingStart="@dimen/app_row_content_padding_h"
                     android:paddingEnd="@dimen/app_row_content_padding_h"
-                    android:paddingTop="8dp" />
+                    android:paddingTop="8dp"
+                    android:paddingBottom="8dp" />
             </LinearLayout>
 
             <LinearLayout
@@ -259,13 +291,14 @@
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/homeAuthorBooks2"
                     android:layout_width="match_parent"
-                    android:layout_height="236dp"
+                    android:layout_height="262dp"
                     android:clipToPadding="false"
                     android:nestedScrollingEnabled="false"
                     android:overScrollMode="never"
                     android:paddingStart="@dimen/app_row_content_padding_h"
                     android:paddingEnd="@dimen/app_row_content_padding_h"
-                    android:paddingTop="8dp" />
+                    android:paddingTop="8dp"
+                    android:paddingBottom="8dp" />
             </LinearLayout>
 
             <LinearLayout
@@ -286,13 +319,14 @@
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/homeAuthorBooks3"
                     android:layout_width="match_parent"
-                    android:layout_height="236dp"
+                    android:layout_height="262dp"
                     android:clipToPadding="false"
                     android:nestedScrollingEnabled="false"
                     android:overScrollMode="never"
                     android:paddingStart="@dimen/app_row_content_padding_h"
                     android:paddingEnd="@dimen/app_row_content_padding_h"
-                    android:paddingTop="8dp" />
+                    android:paddingTop="8dp"
+                    android:paddingBottom="8dp" />
             </LinearLayout>
         </LinearLayout>
 
@@ -331,13 +365,14 @@
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/homeSeriesBooks1"
                     android:layout_width="match_parent"
-                    android:layout_height="236dp"
+                    android:layout_height="262dp"
                     android:clipToPadding="false"
                     android:nestedScrollingEnabled="false"
                     android:overScrollMode="never"
                     android:paddingStart="@dimen/app_row_content_padding_h"
                     android:paddingEnd="@dimen/app_row_content_padding_h"
-                    android:paddingTop="8dp" />
+                    android:paddingTop="8dp"
+                    android:paddingBottom="8dp" />
             </LinearLayout>
 
             <LinearLayout
@@ -358,13 +393,14 @@
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/homeSeriesBooks2"
                     android:layout_width="match_parent"
-                    android:layout_height="236dp"
+                    android:layout_height="262dp"
                     android:clipToPadding="false"
                     android:nestedScrollingEnabled="false"
                     android:overScrollMode="never"
                     android:paddingStart="@dimen/app_row_content_padding_h"
                     android:paddingEnd="@dimen/app_row_content_padding_h"
-                    android:paddingTop="8dp" />
+                    android:paddingTop="8dp"
+                    android:paddingBottom="8dp" />
             </LinearLayout>
 
             <LinearLayout
@@ -385,13 +421,14 @@
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/homeSeriesBooks3"
                     android:layout_width="match_parent"
-                    android:layout_height="236dp"
+                    android:layout_height="262dp"
                     android:clipToPadding="false"
                     android:nestedScrollingEnabled="false"
                     android:overScrollMode="never"
                     android:paddingStart="@dimen/app_row_content_padding_h"
                     android:paddingEnd="@dimen/app_row_content_padding_h"
-                    android:paddingTop="8dp" />
+                    android:paddingTop="8dp"
+                    android:paddingBottom="8dp" />
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>

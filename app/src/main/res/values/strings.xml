@@ -4,6 +4,10 @@
 
     <string name="continue_reading">Continue reading</string>
     <string name="home_continue_label">Continue Reading</string>
+    <string name="home_continue_heading">Continue Reading</string>
+    <string name="home_continue_series">%1$s</string>
+    <string name="home_continue_chapter">Chapter %1$d of %2$d</string>
+    <string name="home_continue_chapter_unknown_total">Chapter %1$d</string>
     <string name="home_recently_added">Recently Added</string>
     <string name="home_favorites">Favorites</string>
     <string name="home_top_authors">Top Authors</string>
