@@ -1590,7 +1590,12 @@ class MainActivity : AppCompatActivity() {
             if (folder != null) folderDisplayName(folder) else getString(R.string.folder_none)
         )
         addSettingsRow(getString(R.string.settings_reader_theme), readerThemeLabel())
-        addSettingsRow(getString(R.string.settings_about), getString(R.string.settings_about_detail))
+        addSettingsRow(getString(R.string.settings_reading_stats), getString(R.string.settings_reading_stats_detail)) {
+            startActivity(Intent(this, ReadingStatsActivity::class.java))
+        }
+        addSettingsRow(getString(R.string.settings_about), getString(R.string.settings_about_detail)) {
+            startActivity(Intent(this, AboutPrivacyActivity::class.java))
+        }
         // Patch 11: app-level "Screen On" toggle. When on, keeps the screen awake
         // for 10 minutes longer than the system screen-off timeout while the app
         // is in the foreground (uses FLAG_KEEP_SCREEN_ON + a 10-minute countdown
@@ -1604,10 +1609,14 @@ class MainActivity : AppCompatActivity() {
     private fun readerThemeLabel(): String =
         getString(com.epubreader.app.ui.ReaderTheme.byId(prefs.theme).displayNameRes)
 
-    private fun addSettingsRow(label: String, value: String) {
+    private fun addSettingsRow(label: String, value: String, onClick: (() -> Unit)? = null) {
         val row = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(0, 12.dp(), 0, 0)
+            if (onClick != null) {
+                isClickable = true
+                setOnClickListener { onClick() }
+            }
         }
         android.widget.TextView(this).apply {
             text = label

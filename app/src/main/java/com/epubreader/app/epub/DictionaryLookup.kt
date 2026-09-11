@@ -38,7 +38,8 @@ class DictionaryLookup(context: Context) : AutoCloseable {
     private fun baseForm(word: String): String? {
         val irregular = mapOf(
             "mice" to "mouse", "men" to "man", "women" to "woman", "children" to "child",
-            "people" to "person", "teeth" to "tooth", "feet" to "foot", "better" to "good",
+            "geese" to "goose", "feet" to "foot", "teeth" to "tooth", "people" to "person",
+            "better" to "good",
             "best" to "good", "worse" to "bad", "worst" to "bad", "was" to "be", "were" to "be",
             "did" to "do", "done" to "do", "went" to "go", "gone" to "go",
         )

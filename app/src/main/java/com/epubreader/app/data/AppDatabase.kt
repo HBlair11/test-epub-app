@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [BookEntity::class, BookmarkEntity::class, HighlightEntity::class, CollectionEntity::class, BookCollectionRef::class],
-    version = 12,
+    entities = [BookEntity::class, BookmarkEntity::class, HighlightEntity::class, CollectionEntity::class, BookCollectionRef::class, ReadingSessionEntity::class],
+    version = 13,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -18,6 +18,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun bookmarkDao(): BookmarkDao
 
     abstract fun collectionDao(): CollectionDao
+
+    abstract fun readingSessionDao(): ReadingSessionDao
 
     companion object {
         @Volatile
@@ -137,6 +139,26 @@ abstract class AppDatabase : RoomDatabase() {
                 }
             }
 
+
+        private val MIGRATION_12_13 =
+            object : Migration(12, 13) {
+                override fun migrate(database: SupportSQLiteDatabase) {
+                    database.execSQL("""
+                        CREATE TABLE IF NOT EXISTS reading_sessions (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            book_id INTEGER NOT NULL,
+                            started_at INTEGER NOT NULL,
+                            ended_at INTEGER NOT NULL,
+                            active_seconds INTEGER NOT NULL,
+                            chapters_advanced INTEGER NOT NULL,
+                            pages_advanced INTEGER NOT NULL
+                        )
+                    """.trimIndent())
+                    database.execSQL("CREATE INDEX IF NOT EXISTS index_reading_sessions_started_at ON reading_sessions(started_at)")
+                    database.execSQL("CREATE INDEX IF NOT EXISTS index_reading_sessions_book_id_started_at ON reading_sessions(book_id, started_at)")
+                }
+            }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room
@@ -144,7 +166,7 @@ abstract class AppDatabase : RoomDatabase() {
                         context.applicationContext,
                         AppDatabase::class.java,
                         "epub.db",
-                    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+                    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
                     .build()
                     .also { INSTANCE = it }
             }
