@@ -134,6 +134,12 @@ class MainActivity : AppCompatActivity() {
 
     private val homeAdapters = mutableMapOf<Int, HomeBookAdapter>()
 
+    /** Cached Home content so the Home screen can be re-rendered instantly when
+     *  the user navigates back to it, even if the LiveData already emitted while
+     *  a different view was on screen (e.g. the user opened a book from Library
+     *  and the DB updated Continue Reading while Home was hidden). */
+    private var lastHomeContent: HomeContent? = null
+
     // A list of shelf views that should be restored on return from a sub-activity.
     // Reading is deliberately NOT in this set.
     private fun isRestoreEligible(view: ShelfView): Boolean =
@@ -436,6 +442,7 @@ class MainActivity : AppCompatActivity() {
                 iconRes = 0,
                 isDivider = true,
             ),
+            DrawerItem(getString(R.string.nav_reading_stats), R.drawable.ic_menu_book, launchActivity = ReadingStatsActivity::class.java),
             DrawerItem(getString(R.string.nav_folders), R.drawable.ic_folder, view = ShelfView.Folders),
             DrawerItem(
                 getString(R.string.nav_settings),
@@ -471,6 +478,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun selectDrawer(item: DrawerItem) {
         binding.drawerRoot.close()
+        // If the drawer item launches a separate activity (e.g. Reading Stats),
+        // start it directly without changing the current shelf view.
+        item.launchActivity?.let {
+            startActivity(Intent(this, it))
+            return
+        }
         item.view?.let {
             // Navigating to any shelf view via the drawer should land at the
             // top of that list (title-ascending by default) rather than
@@ -506,6 +519,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderHome(content: HomeContent) {
+        lastHomeContent = content
         if (viewModel.view.value !is ShelfView.Home) return
 
         binding.homeContent.homeEmpty.visibility = if (content.hasBooks) View.GONE else View.VISIBLE
@@ -681,6 +695,9 @@ class MainActivity : AppCompatActivity() {
         if (view is ShelfView.Home) {
             binding.recycler.visibility = View.GONE
             binding.emptyState.visibility = View.GONE
+            // Re-render the cached Home content so Continue Reading reflects the
+            // latest DB state even if the LiveData emitted while Home was hidden.
+            lastHomeContent?.let { renderHome(it) }
         }
         updateFab(view)
         binding.refresh.isEnabled = true // Patch 12: keep the refresh layout always
@@ -1590,17 +1607,16 @@ class MainActivity : AppCompatActivity() {
             if (folder != null) folderDisplayName(folder) else getString(R.string.folder_none)
         )
         addSettingsRow(getString(R.string.settings_reader_theme), readerThemeLabel())
-        addSettingsRow(getString(R.string.settings_reading_stats), getString(R.string.settings_reading_stats_detail)) {
-            startActivity(Intent(this, ReadingStatsActivity::class.java))
-        }
-        addSettingsRow(getString(R.string.settings_about), getString(R.string.settings_about_detail)) {
-            startActivity(Intent(this, AboutPrivacyActivity::class.java))
-        }
         // Patch 11: app-level "Screen On" toggle. When on, keeps the screen awake
         // for 10 minutes longer than the system screen-off timeout while the app
         // is in the foreground (uses FLAG_KEEP_SCREEN_ON + a 10-minute countdown
         // that releases the flag so the system's normal timeout takes over again).
         addScreenOnToggle()
+        // About/Privacy sits below the Screen On toggle so the user encounters
+        // the privacy-forward about screen as the last item in Settings.
+        addSettingsRow(getString(R.string.settings_about), getString(R.string.settings_about_detail)) {
+            startActivity(Intent(this, AboutPrivacyActivity::class.java))
+        }
     }
 
     // Patch 17 (Addition #1): theme display name comes from the single-source

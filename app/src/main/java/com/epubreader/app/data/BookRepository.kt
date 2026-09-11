@@ -10,6 +10,7 @@ class BookRepository(
     private val db = AppDatabase.get(context)
     private val bookDao = db.bookDao()
     private val bookmarkDao = db.bookmarkDao()
+    private val highlightDao = db.highlightDao()
     private val collectionDao = db.collectionDao()
     private val readingSessionDao = db.readingSessionDao()
 
@@ -71,6 +72,18 @@ class BookRepository(
 
     // ---- Bookmarks ----
     fun observeBookmarks(bookId: Long): Flow<List<BookmarkEntity>> = bookmarkDao.observeForBook(bookId)
+
+    // ---- Highlights ----
+    fun observeHighlights(bookId: Long): Flow<List<HighlightEntity>> = highlightDao.observeForBook(bookId)
+
+    suspend fun getHighlightsForChapter(bookId: Long, spineHref: String): List<HighlightEntity> =
+        highlightDao.getForChapter(bookId, spineHref)
+
+    suspend fun addHighlight(highlight: HighlightEntity): Long = highlightDao.insert(highlight)
+
+    suspend fun updateHighlightNote(id: Long, note: String?) = highlightDao.updateNote(id, note)
+
+    suspend fun deleteHighlight(highlight: HighlightEntity) = highlightDao.delete(highlight)
 
     suspend fun addBookmark(b: BookmarkEntity): Long = bookmarkDao.insert(b)
 

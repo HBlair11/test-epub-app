@@ -17,6 +17,7 @@ data class DrawerItem(
     val view: com.epubreader.app.ui.ShelfView? = null,
     val isPlaceholder: Boolean = false,
     val isDivider: Boolean = false,
+    val launchActivity: Class<*>? = null,
 )
 
 class DrawerAdapter(

@@ -301,9 +301,17 @@ class BookshelfViewModel(
     }
 
     private fun applySort(list: List<BookEntity>, sort: String, asc: Boolean): List<BookEntity> {
+        // Recently Added uses explicit ascending/descending comparators instead
+        // of sort-then-reverse so the secondary tie-breaker (id) keeps the same
+        // direction as the primary key (addedDate). This matches the DAO query
+        // observeHomeRecentlyAdded() (ORDER BY id DESC) and the HomeOrderingTest.
         val sorted = when (sort) {
             PrefsManager.SortOption.RECENTLY_ADDED ->
-                list.sortedWith(compareBy<BookEntity> { it.addedDate }.thenBy { it.sortTitle })
+                if (asc) {
+                    list.sortedWith(compareBy<BookEntity> { it.addedDate }.thenBy { it.id })
+                } else {
+                    list.sortedWith(compareByDescending<BookEntity> { it.addedDate }.thenByDescending { it.id })
+                }
 
             PrefsManager.SortOption.RECENTLY_READ ->
                 list.sortedWith(compareBy<BookEntity> { it.lastOpenedDate ?: 0L }.thenBy { it.sortTitle })
@@ -322,7 +330,13 @@ class BookshelfViewModel(
             else ->
                 list.sortedWith(compareBy<BookEntity> { it.sortTitle }.thenBy { it.sortAuthor })
         }
-        return if (asc) sorted else sorted.reversed()
+        // For all sorts except RECENTLY_ADDED (which uses explicit direction
+        // comparators above), apply the ascending/descending toggle by reversing.
+        return if (sort == PrefsManager.SortOption.RECENTLY_ADDED) {
+            sorted
+        } else {
+            if (asc) sorted else sorted.reversed()
+        }
     }
 
     private fun ShelfView.key(): String = when (this) {

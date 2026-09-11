@@ -17,6 +17,8 @@ abstract class AppDatabase : RoomDatabase() {
 
     abstract fun bookmarkDao(): BookmarkDao
 
+    abstract fun highlightDao(): HighlightDao
+
     abstract fun collectionDao(): CollectionDao
 
     abstract fun readingSessionDao(): ReadingSessionDao

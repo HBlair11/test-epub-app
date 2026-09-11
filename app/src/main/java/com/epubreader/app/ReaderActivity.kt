@@ -365,6 +365,9 @@ class ReaderActivity : AppCompatActivity() {
                     handler.postDelayed({
                         if (generation == activeReaderGeneration) {
                             applyPendingFragmentOrRestore()
+                            // Inject existing highlights after the chapter content
+                            // is loaded and Caesura pagination is applied.
+                            injectHighlightsForChapter()
                         }
                     }, 140L)
 
@@ -387,6 +390,12 @@ class ReaderActivity : AppCompatActivity() {
             },
             "LivreSelection"
         )
+        // Highlight tap bridge: when a <mark> element is tapped in the WebView,
+        // it calls LivreHighlight.onHighlightTap(id) to open the note sheet.
+        binding.webView.addJavascriptInterface(
+            HighlightBridge(),
+            "LivreHighlight"
+        )
         binding.webView.setOnLongClickListener { false }
     }
 
@@ -396,7 +405,7 @@ class ReaderActivity : AppCompatActivity() {
         if (href.isBlank()) return
         val escapedHref = org.json.JSONObject.quote(href)
         binding.webView.evaluateJavascript(
-            "(function(){var s=window.getSelection&&window.getSelection();if(!s||s.rangeCount===0||!s.toString().trim())return;var r=s.getRangeAt(0);function p(n){var a=[];while(n&&n.nodeType===1){var i=0,q=n.previousSibling;while(q){if(q.nodeType===n.nodeType&&q.nodeName===n.nodeName)i++;q=q.previousSibling;}a.unshift(n.nodeName.toLowerCase()+':'+i);n=n.parentNode;}return a.join('/');}var b=document.body.innerText||'',t=s.toString().trim(),i=Math.max(0,b.indexOf(t));LivreSelection.onSelectionPayload(t," + escapedHref + ",p(r.startContainer),r.startOffset,p(r.endContainer),r.endOffset,b.slice(Math.max(0,i-40),i),b.slice(i+t.length,i+t.length+40));})();",
+            "(function(){var s=window.getSelection&&window.getSelection();if(!s||s.rangeCount===0||!s.toString().trim())return;var r=s.getRangeAt(0);function p(n){if(n&&n.nodeType!==1)n=n.parentNode;var a=[];while(n&&n.nodeType===1){var i=0,q=n.previousSibling;while(q){if(q.nodeType===n.nodeType&&q.nodeName===n.nodeName)i++;q=q.previousSibling;}a.unshift(n.nodeName.toLowerCase()+':'+i);n=n.parentNode;}return a.join('/');}var walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);var allText='',nodes=[];while(walker.nextNode()){nodes.push({node:walker.currentNode,start:allText.length});allText+=walker.currentNode.textContent;}var t=s.toString().trim();var selStart=0,selEnd=0;var sc=r.startContainer,ec=r.endContainer;for(var i=0;i<nodes.length;i++){if(nodes[i].node===sc)selStart=nodes[i].start+r.startOffset;if(nodes[i].node===ec){selEnd=nodes[i].start+r.endOffset;break;}}var prefix=allText.slice(Math.max(0,selStart-40),selStart);var suffix=allText.slice(selEnd,selEnd+40);LivreSelection.onSelectionPayload(t," + escapedHref + ",p(r.startContainer),r.startOffset,p(r.endContainer),r.endOffset,prefix,suffix);})();",
             null
         )
     }
@@ -1389,6 +1398,12 @@ figure { margin:0.5em 0 !important; }
 table { max-width:100% !important; }
 a { color:${ink} !important; }
 h1,h2,h3,h4,h5,h6 { color:${ink} !important; line-height:1.25 !important; break-after:avoid; }
+/* Highlight marks: subtle background, no layout disruption. */
+mark.livre-highlight {
+  color:inherit !important;
+  break-inside:avoid;
+  -webkit-column-break-inside:avoid;
+}
 </style>""".trimIndent() + darkTextOverride(prefs.theme, ink)
     }
 
@@ -2495,17 +2510,45 @@ body * { background-color: transparent !important; }
         private const val SESSION_IDLE_GAP_SECONDS = 300L
         const val EXTRA_BOOK_ID = "book_id"
         private const val SELECTION_CAPTURE_ID = 0x4C56
+        private const val HIGHLIGHT_ACTION_ID = 0x4C48
 
-        /** Patch 17 (Addition #2): slide duration for the page-turn snapshot.
+        /** Patch 19 (Addition #1): slide duration for the page-turn snapshot.
          *  Longer than the old 220ms crossfade so the slide reads as a page turn
          *  instead of a flicker. Tune this one number to speed up/slow down the
          *  animation app-wide. */
         const val PAGE_TURN_DURATION_MS = 340L
+
+        // Highlight colors — stored as Int ARGB in the DB, rendered as rgba() in CSS.
+        // The color Int is the full-opacity color; the CSS uses 40% opacity for a
+        // subtle highlight that doesn't obscure the text underneath.
+        const val HIGHLIGHT_YELLOW = 0xFFFFEB3B.toInt()
+        const val HIGHLIGHT_GREEN = 0xFF66BB6A.toInt()
+        const val HIGHLIGHT_BLUE = 0xFF42A5F5.toInt()
+        const val HIGHLIGHT_PURPLE = 0xFFAB47BC.toInt()
+
+        fun highlightCssColor(color: Int): String {
+            val r = android.graphics.Color.red(color)
+            val g = android.graphics.Color.green(color)
+            val b = android.graphics.Color.blue(color)
+            return "rgba($r,$g,$b,0.4)"
+        }
     }
 
     override fun onActionModeStarted(mode: ActionMode) {
         super.onActionModeStarted(mode)
         val menu = mode.menu
+        // Define appears first (primary action) so the user sees it immediately
+        // in the selection toolbar rather than buried in the overflow menu.
+        val defineId = 0x4C59
+        if (menu.findItem(defineId) == null) {
+            val item = menu.add(0, defineId, 0, getString(R.string.selection_define))
+            item.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+            item.setOnMenuItemClickListener {
+                captureCurrentSelection { selection -> showDefinition(selection?.text) }
+                mode.finish()
+                true
+            }
+        }
         if (menu.findItem(SELECTION_CAPTURE_ID) == null) {
             val item = menu.add(0, SELECTION_CAPTURE_ID, 100, getString(R.string.selection_capture))
             item.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
@@ -2515,12 +2558,12 @@ body * { background-color: transparent !important; }
                 true
             }
         }
-        val defineId = 0x4C59
-        if (menu.findItem(defineId) == null) {
-            val item = menu.add(0, defineId, 101, getString(R.string.selection_define))
-            item.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+        // Highlight action: shows a color picker bottom sheet for creating highlights.
+        if (menu.findItem(HIGHLIGHT_ACTION_ID) == null) {
+            val item = menu.add(0, HIGHLIGHT_ACTION_ID, 1, getString(R.string.highlight_action))
+            item.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
             item.setOnMenuItemClickListener {
-                captureCurrentSelection { selection -> showDefinition(selection?.text) }
+                captureCurrentSelection { selection -> showHighlightColorPicker(selection) }
                 mode.finish()
                 true
             }
@@ -2577,5 +2620,219 @@ body * { background-color: transparent !important; }
         val value = TypedValue()
         theme.resolveAttribute(attr, value, true)
         return if (value.resourceId != 0) getColor(value.resourceId) else value.data
+    }
+
+    // ---------------------------------------------------------------- highlights
+
+    /** JS interface for highlight tap callbacks from the WebView. */
+    inner class HighlightBridge {
+        @android.webkit.JavascriptInterface
+        fun onHighlightTap(id: Long) {
+            runOnUiThread { showHighlightNoteSheet(id) }
+        }
+    }
+
+    /** Shows a compact color picker bottom sheet for creating a highlight. */
+    private fun showHighlightColorPicker(selection: ReaderSelectionLocator?) {
+        if (selection == null || selection.text.isBlank()) {
+            Snackbar.make(binding.root, R.string.selection_single_word_required, Snackbar.LENGTH_SHORT).show()
+            return
+        }
+        val colors = listOf(
+            HIGHLIGHT_YELLOW to R.string.highlight_color_yellow to R.drawable.highlight_color_yellow,
+            HIGHLIGHT_GREEN to R.string.highlight_color_green to R.drawable.highlight_color_green,
+            HIGHLIGHT_BLUE to R.string.highlight_color_blue to R.drawable.highlight_color_blue,
+            HIGHLIGHT_PURPLE to R.string.highlight_color_purple to R.drawable.highlight_color_purple,
+        )
+        val dialog = BottomSheetDialog(this)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (16 * resources.displayMetrics.density).roundToInt()
+            setPadding(pad, pad, pad, pad)
+        }
+        root.addView(TextView(this).apply {
+            text = getString(R.string.highlight_action)
+            textSize = 16f
+            setTextColor(themeColor(android.R.attr.textColorPrimary))
+            setPadding(0, 0, 0, (12 * resources.displayMetrics.density).roundToInt())
+        })
+        val colorRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+        }
+        colors.forEach { (pair, drawableRes) ->
+            val (colorInt, labelRes) = pair
+            val btn = android.widget.ImageButton(this).apply {
+                setImageResource(drawableRes)
+                background = null
+                val size = (48 * resources.displayMetrics.density).roundToInt()
+                layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                    setMargins((8 * resources.displayMetrics.density).roundToInt(), 0, (8 * resources.displayMetrics.density).roundToInt(), 0)
+                }
+                contentDescription = getString(labelRes)
+                setOnClickListener {
+                    dialog.dismiss()
+                    saveHighlight(selection, colorInt)
+                }
+            }
+            colorRow.addView(btn)
+        }
+        root.addView(colorRow)
+        dialog.setContentView(root)
+        dialog.show()
+    }
+
+    /** Saves a highlight to the database and injects it into the WebView. */
+    private fun saveHighlight(selection: ReaderSelectionLocator, color: Int) {
+        val href = selection.spineHref
+        val highlight = com.epubreader.app.data.HighlightEntity(
+            bookId = bookId,
+            spineHref = href,
+            text = selection.text,
+            color = color,
+            prefix = selection.prefix,
+            suffix = selection.suffix,
+            startPath = selection.startPath,
+            endPath = selection.endPath,
+            startOffset = selection.startOffset,
+            endOffset = selection.endOffset,
+        )
+        lifecycleScope.launch(Dispatchers.IO) {
+            val id = com.epubreader.app.data.BookRepository(applicationContext).addHighlight(highlight)
+            withContext(Dispatchers.Main) {
+                injectHighlightIntoWebView(id, selection.text, selection.prefix, selection.suffix, color)
+                Snackbar.make(binding.root, R.string.highlight_added, Snackbar.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /** Injects a single highlight into the WebView immediately after creation. */
+    private fun injectHighlightIntoWebView(id: Long, text: String, prefix: String, suffix: String, color: Int) {
+        val cssColor = highlightCssColor(color)
+        val safeText = org.json.JSONObject.quote(text)
+        val safePrefix = org.json.JSONObject.quote(prefix)
+        val safeSuffix = org.json.JSONObject.quote(suffix)
+        binding.webView.evaluateJavascript(
+            """(function(){
+                var text=$safeText,prefix=$safePrefix,suffix=$safeSuffix,color='$cssColor',id=$id;
+                if(document.querySelector('mark.livre-highlight[data-highlight-id="'+id+'"]'))return true;
+                var walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);
+                var allText='',nodes=[];
+                while(walker.nextNode()){nodes.push({node:walker.currentNode,start:allText.length});allText+=walker.currentNode.textContent;}
+                var searchStart=0;
+                if(prefix&&prefix.length>0){var pp=allText.indexOf(prefix,searchStart);if(pp>=0)searchStart=pp+prefix.length;}
+                var tp=allText.indexOf(text,searchStart);
+                if(tp<0)return false;
+                var ep=tp+text.length;
+                var sn=null,so=0,en=null,eo=0;
+                for(var i=0;i<nodes.length;i++){var ni=nodes[i],ne=ni.start+ni.node.textContent.length;
+                    if(sn===null&&tp<ne){sn=ni.node;so=tp-ni.start;}
+                    if(ep<=ne){en=ni.node;eo=ep-ni.start;break;}}
+                if(!sn||!en)return false;
+                var range=document.createRange();range.setStart(sn,so);range.setEnd(en,eo);
+                var mark=document.createElement('mark');
+                mark.className='livre-highlight';mark.style.backgroundColor=color;
+                mark.style.borderRadius='2px';
+                mark.dataset.highlightId=id;
+                mark.addEventListener('click',function(e){e.stopPropagation();LivreHighlight.onHighlightTap(id);});
+                try{range.surroundContents(mark);return true;}catch(e){
+                    try{var c=range.extractContents();mark.appendChild(c);range.insertNode(mark);return true;}catch(e2){return false;}}}
+            })();""",
+            null,
+        )
+    }
+
+    /** Loads all highlights for the current chapter and injects them into the WebView. */
+    private fun injectHighlightsForChapter() {
+        val book = epub ?: return
+        val href = book.spine.getOrNull(spineIndex)?.href ?: return
+        lifecycleScope.launch(Dispatchers.IO) {
+            val highlights = com.epubreader.app.data.BookRepository(applicationContext)
+                .getHighlightsForChapter(bookId, href)
+            if (highlights.isEmpty()) return@launch
+            withContext(Dispatchers.Main) {
+                highlights.forEach { h ->
+                    injectHighlightIntoWebView(h.id, h.text, h.prefix, h.suffix, h.color)
+                }
+            }
+        }
+    }
+
+    /** Shows a bottom sheet for viewing a highlight and adding/editing a note. */
+    private fun showHighlightNoteSheet(highlightId: Long) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val repo = com.epubreader.app.data.BookRepository(applicationContext)
+            // Find the highlight by loading all highlights for this book and finding by id.
+            val href = epub?.spine?.getOrNull(spineIndex)?.href ?: return@launch
+            val highlights = repo.getHighlightsForChapter(bookId, href)
+            val highlight = highlights.find { it.id == highlightId } ?: return@launch
+            withContext(Dispatchers.Main) {
+                val dialog = BottomSheetDialog(this@ReaderActivity)
+                val root = LinearLayout(this@ReaderActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    val pad = (16 * resources.displayMetrics.density).roundToInt()
+                    setPadding(pad, pad, pad, pad)
+                }
+                // Highlighted text
+                root.addView(TextView(this@ReaderActivity).apply {
+                    text = highlight.text
+                    textSize = 15f
+                    setTextColor(themeColor(android.R.attr.textColorPrimary))
+                    setPadding(0, 0, 0, (12 * resources.displayMetrics.density).roundToInt())
+                })
+                // Existing note (if any)
+                if (!highlight.note.isNullOrBlank()) {
+                    root.addView(TextView(this@ReaderActivity).apply {
+                        text = highlight.note
+                        textSize = 14f
+                        setTextColor(themeColor(android.R.attr.textColorSecondary))
+                        setPadding(0, 0, 0, (12 * resources.displayMetrics.density).roundToInt())
+                    })
+                }
+                // Note input
+                val input = android.widget.EditText(this@ReaderActivity).apply {
+                    hint = getString(R.string.highlight_note_hint)
+                    setText(highlight.note ?: "")
+                    setSingleLine(false)
+                    minLines = 2
+                    maxLines = 4
+                }
+                root.addView(input)
+                // Button row
+                val btnRow = LinearLayout(this@ReaderActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.END
+                    setPadding(0, (12 * resources.displayMetrics.density).roundToInt(), 0, 0)
+                }
+                btnRow.addView(com.google.android.material.button.MaterialButton(this@ReaderActivity).apply {
+                    text = getString(R.string.delete)
+                    setOnClickListener {
+                        dialog.dismiss()
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            repo.deleteHighlight(highlight)
+                        }
+                        // Remove the highlight from the WebView
+                        binding.webView.evaluateJavascript(
+                            """(function(){var m=document.querySelector('mark.livre-highlight[data-highlight-id="$highlightId"]');if(m){var p=m.parentNode;while(m.firstChild)p.insertBefore(m.firstChild,m);p.removeChild(m);}})();""",
+                            null,
+                        )
+                    }
+                })
+                btnRow.addView(com.google.android.material.button.MaterialButton(this@ReaderActivity).apply {
+                    text = getString(R.string.ok)
+                    setOnClickListener {
+                        val note = input.text.toString().trim().ifEmpty { null }
+                        dialog.dismiss()
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            repo.updateHighlightNote(highlightId, note)
+                        }
+                        Snackbar.make(binding.root, R.string.highlight_note_saved, Snackbar.LENGTH_SHORT).show()
+                    }
+                })
+                root.addView(btnRow)
+                dialog.setContentView(root)
+                dialog.show()
+            }
+        }
     }
 }

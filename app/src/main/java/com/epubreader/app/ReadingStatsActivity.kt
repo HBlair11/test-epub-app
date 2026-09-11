@@ -18,7 +18,7 @@ class ReadingStatsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_reading_stats)
         val root = findViewById<LinearLayout>(R.id.statsRoot)
-        findViewById<TextView>(R.id.statsBack).setOnClickListener { finish() }
+        findViewById<android.widget.ImageButton>(R.id.statsBack).setOnClickListener { finish() }
         val now = System.currentTimeMillis()
         val weekStart = Calendar.getInstance().apply {
             firstDayOfWeek = Calendar.MONDAY

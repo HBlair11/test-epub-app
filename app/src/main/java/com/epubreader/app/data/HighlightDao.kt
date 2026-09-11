@@ -18,6 +18,9 @@ interface HighlightDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(highlight: HighlightEntity): Long
 
+    @Query("UPDATE highlights SET note = :note WHERE id = :id")
+    suspend fun updateNote(id: Long, note: String?)
+
     @Delete
     suspend fun delete(highlight: HighlightEntity)
 }
