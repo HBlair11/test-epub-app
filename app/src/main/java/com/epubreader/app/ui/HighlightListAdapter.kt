@@ -25,7 +25,7 @@ class HighlightListAdapter(
             isClickable = true
         }
         val ta = ctx.obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground))
-        background = ta.getDrawable(0)
+        row.background = ta.getDrawable(0)
         ta.recycle()
 
         val colorDot = View(ctx).apply {
