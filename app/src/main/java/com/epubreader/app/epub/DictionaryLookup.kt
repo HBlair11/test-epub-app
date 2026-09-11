@@ -209,7 +209,7 @@ class DictionaryLookup(context: Context, language: String = DEFAULT_LANGUAGE) : 
 
     private fun normalize(raw: String): String =
         raw.trim()
-            .replace(CHAR_QUOTES, "")
+            .filterNot { it in QUOTE_CHARS }
             .replace(Regex("^[^\\p{L}']+|[^\\p{L}']+$"), "")
             .replace(Regex("\\s+"), " ")
             .lowercase(Locale.US)
@@ -278,6 +278,6 @@ class DictionaryLookup(context: Context, language: String = DEFAULT_LANGUAGE) : 
         private const val MAX_SUGGESTIONS = 6
         private const val SUGGEST_SCAN_LIMIT = 400
         private const val MIN_STEM_LENGTH = 3
-        private val CHAR_QUOTES = charArrayOf('"', '\u201C', '\u201D', '\u2018', '\u2019')
+        private val QUOTE_CHARS = setOf('"', '\u201C', '\u201D', '\u2018', '\u2019')
     }
 }

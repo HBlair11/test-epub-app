@@ -723,7 +723,7 @@ class ReaderActivity : AppCompatActivity() {
             return
         }
         binding.ttsControls.visibility = View.VISIBLE
-        updateTtsServiceState(ttsController?.state == ReaderTtsController.State.PLAYING)
+        updateTtsServiceState()
         lifecycleScope.launch { ttsController?.speakChapter(book.file, item.href) }
         updateTtsSentencePosition()
     }
