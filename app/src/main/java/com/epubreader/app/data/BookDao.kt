@@ -182,7 +182,7 @@ interface BookDao {
     @Query("SELECT * FROM books WHERE series = :series ORDER BY series_index IS NULL, series_index, sort_title COLLATE NOCASE")
     fun observeBySeries(series: String): Flow<List<BookEntity>>
 
-    @Query("SELECT * FROM books WHERE is_currently_reading = 1 ORDER BY last_opened_date DESC")
+    @Query("SELECT * FROM books WHERE is_currently_reading = 1 ORDER BY last_opened_date DESC, id DESC")
     fun observeCurrentlyReading(): Flow<List<BookEntity>>
 
     @Query("UPDATE books SET is_currently_reading = 1 WHERE id = :id")
@@ -202,6 +202,9 @@ interface BookDao {
 
     @Query("SELECT * FROM books WHERE progress >= 0.995 ORDER BY last_opened_date DESC")
     fun observeFinished(): Flow<List<BookEntity>>
+
+    @Query("SELECT COUNT(*) FROM books WHERE progress >= 0.995")
+    suspend fun getFinishedCount(): Int
 
     @Query("SELECT * FROM books WHERE last_opened_date IS NULL ORDER BY added_date DESC")
     fun observeToBeRead(): Flow<List<BookEntity>>

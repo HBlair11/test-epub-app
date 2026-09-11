@@ -47,6 +47,7 @@ import com.epubreader.app.epub.EpubParser
 import com.epubreader.app.epub.EpubResourceResolver
 import com.epubreader.app.epub.EpubSearchEngine
 import com.epubreader.app.epub.ReaderPageMapping
+import com.epubreader.app.epub.ReaderTtsController
 import com.epubreader.app.ui.BookmarkAdapter
 import com.epubreader.app.ui.ReaderSettingsActivity
 import com.epubreader.app.ui.ReaderTheme
@@ -67,6 +68,12 @@ class ReaderActivity : AppCompatActivity() {
     private var lastSelection: ReaderSelectionLocator? = null
     private var pendingSelectionCallback: ((ReaderSelectionLocator?) -> Unit)? = null
     private var dictionaryLookup: com.epubreader.app.epub.DictionaryLookup? = null
+    private var ttsController: ReaderTtsController? = null
+    private var readingSessionStartedAt: Long? = null
+    private var readingSessionLastInteractionAt: Long = 0L
+    private var readingSessionActiveSeconds: Int = 0
+    private var readingSessionStartSpine: Int = 0
+    private var readingSessionStartPage: Int = 0
 
     // Patch 11 "Screen On" controller — keeps the screen awake for 10 minutes
     // beyond the system timeout while the reader is in the foreground.
@@ -230,6 +237,26 @@ class ReaderActivity : AppCompatActivity() {
 
         setupWebView()
         setupMeasureWebView()
+        ttsController = ReaderTtsController(applicationContext, { playing ->
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                binding.ttsControls.visibility = if (playing || (ttsController?.state == ReaderTtsController.State.PAUSED)) View.VISIBLE else View.GONE
+                binding.btnTtsPlayPause.setImageResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play)
+                binding.btnTtsPlayPause.contentDescription = getString(if (playing) R.string.tts_pause else R.string.tts_play)
+                binding.ttsStatus.text = getString(if (playing) R.string.tts_pause else R.string.action_read_aloud)
+            }
+        }, {
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                val next = epub?.let { it.spine.getOrNull(spineIndex + 1) }
+                if (next != null) {
+                    goToSpine(spineIndex + 1)
+                    handler.postDelayed({ startTtsForCurrentChapter() }, 450)
+                } else {
+                    binding.ttsStatus.text = getString(R.string.action_read_aloud)
+                }
+            }
+        })
         setupChrome()
         setupOverlays()
         loadBook()
@@ -350,9 +377,12 @@ class ReaderActivity : AppCompatActivity() {
             ReaderSelectionBridge { selection ->
                 lastSelection = selection
                 runOnUiThread {
-                    pendingSelectionCallback?.invoke(selection)
+                    val callback = pendingSelectionCallback
                     pendingSelectionCallback = null
-                    Snackbar.make(binding.root, R.string.selection_captured, Snackbar.LENGTH_SHORT).show()
+                    callback?.invoke(selection)
+                    if (callback == null) {
+                        Snackbar.make(binding.root, R.string.selection_captured, Snackbar.LENGTH_SHORT).show()
+                    }
                 }
             },
             "LivreSelection"
@@ -646,12 +676,32 @@ class ReaderActivity : AppCompatActivity() {
         binding.measureWebView.stopLoading()
     }
 
+    private fun startTtsForCurrentChapter() {
+        val book = epub ?: return
+        val item = book.spine.getOrNull(spineIndex) ?: return
+        if (ttsController?.state == ReaderTtsController.State.UNAVAILABLE) {
+            Snackbar.make(binding.root, R.string.tts_unavailable, Snackbar.LENGTH_LONG).show()
+            return
+        }
+        binding.ttsControls.visibility = View.VISIBLE
+        lifecycleScope.launch { ttsController?.speakChapter(book.file, item.href) }
+    }
+
     private fun setupChrome() {
         binding.btnBack.setOnClickListener { finish() }
         binding.btnToc.setOnClickListener { showTocBookmarks() }
         binding.btnBookmarks.setOnClickListener { showTocBookmarks(selectBookmarks = true) }
         binding.btnSearch.setOnClickListener { showSearchOverlay() }
         binding.btnSettings.setOnClickListener { showSettings() }
+        binding.btnReadAloud.setOnClickListener {
+            if (ttsController?.state == ReaderTtsController.State.PLAYING || ttsController?.state == ReaderTtsController.State.PAUSED) {
+                ttsController?.togglePauseResume()
+            } else {
+                startTtsForCurrentChapter()
+            }
+        }
+        binding.btnTtsPlayPause.setOnClickListener { ttsController?.togglePauseResume() }
+        binding.btnTtsStop.setOnClickListener { ttsController?.stop(); binding.ttsControls.visibility = View.GONE }
         binding.tvAddBookmark.setOnClickListener { addBookmark() }
         binding.readerHistoryBack.setOnClickListener { goBackInReaderHistory() }
         binding.readerHistoryForward.setOnClickListener { goForwardInReaderHistory() }
@@ -1054,6 +1104,7 @@ class ReaderActivity : AppCompatActivity() {
                 }
                 updatePageIndicator()
                 updateSectionPages()
+                beginReadingSession(System.currentTimeMillis())
             }
         }
     }
@@ -2357,6 +2408,9 @@ body * { background-color: transparent !important; }
 
     // ---------------------------------------------------------------- lifecycle
     override fun onPause() {
+        recordReadingSession(System.currentTimeMillis())
+        ttsController?.stop()
+        binding.ttsControls.visibility = View.GONE
         super.onPause()
         handler.removeCallbacks(progressPoller)
         handler.removeCallbacks(alphaFallback)
@@ -2374,6 +2428,7 @@ body * { background-color: transparent !important; }
 
     override fun onResume() {
         super.onResume()
+        if (epub != null) beginReadingSession(System.currentTimeMillis())
         handler.post(progressPoller)
         updatePageIndicator()
         updateSectionPages()
@@ -2381,6 +2436,13 @@ body * { background-color: transparent !important; }
     }
 
     override fun onUserInteraction() {
+        val now = System.currentTimeMillis()
+        val previous = readingSessionLastInteractionAt
+        if (readingSessionStartedAt != null && previous > 0L) {
+            val gap = ((now - previous) / 1000L).coerceAtLeast(0L)
+            if (gap <= SESSION_IDLE_GAP_SECONDS) readingSessionActiveSeconds += gap.toInt()
+        }
+        readingSessionLastInteractionAt = now
         super.onUserInteraction()
         keepScreenOnController.bump()
     }
@@ -2394,10 +2456,43 @@ body * { background-color: transparent !important; }
         binding.measureWebView.destroy()
         dictionaryLookup?.close()
         dictionaryLookup = null
+        ttsController?.close()
+        ttsController = null
         super.onDestroy()
     }
 
+    private fun beginReadingSession(now: Long) {
+        if (readingSessionStartedAt == null) {
+            readingSessionStartedAt = now
+            readingSessionLastInteractionAt = now
+            readingSessionActiveSeconds = 0
+            readingSessionStartSpine = spineIndex
+            readingSessionStartPage = currentPageInChapter
+        }
+    }
+
+    private fun recordReadingSession(now: Long) {
+        val started = readingSessionStartedAt ?: return
+        if (readingSessionLastInteractionAt > 0L) {
+            val gap = ((now - readingSessionLastInteractionAt) / 1000L).coerceAtLeast(0L)
+            if (gap <= SESSION_IDLE_GAP_SECONDS) readingSessionActiveSeconds += gap.toInt()
+        }
+        val seconds = readingSessionActiveSeconds
+        if (seconds >= 10 && bookId >= 0L) {
+            val session = com.epubreader.app.data.ReadingSessionEntity(
+                bookId = bookId, startedAt = started, endedAt = now, activeSeconds = seconds,
+                chaptersAdvanced = kotlin.math.abs(spineIndex - readingSessionStartSpine),
+                pagesAdvanced = kotlin.math.abs(currentPageInChapter - readingSessionStartPage),
+            )
+            lifecycleScope.launch(Dispatchers.IO) { db.readingSessionDao().insert(session) }
+        }
+        readingSessionStartedAt = null
+        readingSessionLastInteractionAt = 0L
+        readingSessionActiveSeconds = 0
+    }
+
     companion object {
+        private const val SESSION_IDLE_GAP_SECONDS = 300L
         const val EXTRA_BOOK_ID = "book_id"
         private const val SELECTION_CAPTURE_ID = 0x4C56
 
