@@ -439,6 +439,50 @@ class ReaderTtsController(
     }
 
     /**
+     * Heuristic fallback for block types that are not explicit h1-h6 headings.
+     */
+    private fun isLikelyHeading(text: String): Boolean {
+        if (text.length > 80) return false
+        if (text.endsWith(".") || text.endsWith("!") || text.endsWith("?")) return false
+        if (text == text.uppercase() && text.length > 2) return true
+        return text.length < 50
+    }
+
+    /**
+     * Split a structural block into speech-sized punctuation units.
+     */
+    private fun splitIntoSentences(text: String): List<String> {
+        val result = mutableListOf<String>()
+        val regex = Regex("(?<=[.!?])\\s+|(?<=[,;:])\\s+")
+        val parts = text.split(regex)
+        val current = StringBuilder()
+        for (part in parts) {
+            val p = part.trim()
+            if (p.isBlank()) continue
+            current.append(p)
+            if (p.endsWith(".") || p.endsWith("!") || p.endsWith("?") ||
+                p.endsWith(",") || p.endsWith(";") || p.endsWith(":")) {
+                result += current.toString()
+                current.clear()
+            }
+        }
+        if (current.isNotEmpty()) result += current.toString()
+        return result
+    }
+
+    /** Find a safe split point for Android TTS utterance size limits. */
+    private fun findSplitPoint(text: String, start: Int, maxLen: Int): Int {
+        val end = minOf(start + maxLen, text.length)
+        if (end >= text.length) return end
+        for (i in end downTo start) {
+            when (text[i]) {
+                '.', '!', '?', ',', ';', ':' -> return i + 1
+            }
+        }
+        return end
+    }
+
+    /**
      * Block text is whitespace-normalized while rawText follows DOM text-node
      * order. A proportional mapping is therefore used until Phase 3 introduces
      * exact text-node locators. The mapping is deliberately bounded to the
