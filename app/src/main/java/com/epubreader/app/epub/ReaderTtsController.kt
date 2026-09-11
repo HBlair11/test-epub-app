@@ -28,10 +28,10 @@ class ReaderTtsController(
     context: Context,
     private val onStateChanged: (Boolean) -> Unit,
     private val onChapterFinished: () -> Unit,
-    private val onWordRange: ((sentence: String, start: Int, end: Int) -> Unit)? = null,
+    private val onWordRange: ((segment: ReaderTtsSegment, start: Int, end: Int) -> Unit)? = null,
     private val onSleepTimerTick: ((remainingMs: Long) -> Unit)? = null,
     private val onSleepTimerFinished: (() -> Unit)? = null,
-    private val onSentenceHighlight: ((sentence: String) -> Unit)? = null,
+    private val onSentenceHighlight: ((segment: ReaderTtsSegment) -> Unit)? = null,
 ) : AutoCloseable {
     enum class State { UNAVAILABLE, INITIALIZING, READY, PLAYING, PAUSED }
 
@@ -55,6 +55,12 @@ class ReaderTtsController(
     private val mainHandler = Handler(Looper.getMainLooper())
     private var wordLoopActive = false
     private var wordLoopText: String? = null
+    /** Character position reported by onRangeStart for the active segment. */
+    private var resumeCharOffset: Int = 0
+    private var activeSegmentIndex: Int = -1
+    private var activeSegmentBaseOffset: Int = 0
+    /** Guards stale asynchronous TTS callbacks after stop/skip/voice changes. */
+    private var playbackGeneration: Long = 0L
 
     var state: State = State.INITIALIZING
         private set
@@ -110,7 +116,13 @@ class ReaderTtsController(
                 override fun onRangeStart(utteranceId: String, start: Int, end: Int, frame: Int) {
                     if (utteranceId != activeUtteranceId) return
                     val sentence = activeSegmentText
-                    onWordRange?.invoke(sentence, start, end)
+                    if (activeSegmentIndex == segmentIndex) {
+                        resumeCharOffset = start.coerceIn(0, sentence.length)
+                    }
+                    val segment = segments.getOrNull(activeSegmentIndex)
+                    if (segment != null) {
+                        onWordRange?.invoke(segment, (activeSegmentBaseOffset + start).coerceAtMost(segment.text.length), (activeSegmentBaseOffset + end).coerceAtMost(segment.text.length))
+                    }
                     // Word-repeat mode: as soon as the engine starts a word,
                     // cut the sentence and loop that word until turned off.
                     if (repeatMode == RepeatMode.WORD && !wordLoopActive && state == State.PLAYING) {
@@ -125,13 +137,20 @@ class ReaderTtsController(
                 }
 
                 override fun onDone(utteranceId: String) {
+                    if (utteranceId.startsWith(PAUSE_PREFIX)) {
+                        if (utteranceId != activeUtteranceId) return
+                        activeUtteranceId = null
+                        if (state == State.PLAYING) {
+                            advanceAfterSegment()
+                        }
+                        return
+                    }
                     if (utteranceId.startsWith(WORD_LOOP_PREFIX)) {
                         if (utteranceId != activeUtteranceId) return
                         activeUtteranceId = null
                         if (repeatMode == RepeatMode.WORD && state == State.PLAYING) {
                             wordLoopText?.let { word -> mainHandler.post { beginWordLoop(word) } }
                         } else {
-                            // Word loop ended: resume the interrupted sentence.
                             wordLoopActive = false
                             wordLoopText = null
                             if (state == State.PLAYING && segments.isNotEmpty()) speakCurrentSegment()
@@ -140,29 +159,20 @@ class ReaderTtsController(
                     }
                     if (utteranceId != activeUtteranceId) return
                     activeUtteranceId = null
-
-                    // Insert a natural pause after this segment if configured.
-                    val pauseMs = segments.getOrNull(segmentIndex)?.pauseAfterMs ?: 0
-                    if (pauseMs > 0 && state == State.PLAYING) {
-                        // Use a silent utterance to create a pause.
-                        val pauseId = PAUSE_PREFIX + UUID.randomUUID()
-                        activeUtteranceId = pauseId
-                        tts?.playSilentUtterance(pauseMs.toLong(), TextToSpeech.QUEUE_FLUSH, pauseId)
-                        return
-                    }
+                    resumeCharOffset = 0
 
                     if (repeatMode == RepeatMode.SENTENCE && segments.isNotEmpty()) {
                         speakCurrentSegment()
                         return
                     }
-                    segmentIndex++
-                    if (segmentIndex < segments.size) {
-                        speakCurrentSegment()
+
+                    val pauseMs = segments.getOrNull(segmentIndex)?.pauseAfterMs ?: 0L
+                    if (pauseMs > 0L && state == State.PLAYING) {
+                        val pauseId = PAUSE_PREFIX + UUID.randomUUID()
+                        activeUtteranceId = pauseId
+                        tts?.playSilentUtterance(pauseMs, TextToSpeech.QUEUE_FLUSH, pauseId)
                     } else {
-                        state = State.READY
-                        releaseAudioFocus()
-                        onStateChanged(false)
-                        onChapterFinished()
+                        advanceAfterSegment()
                     }
                 }
 
@@ -239,7 +249,11 @@ class ReaderTtsController(
                 0
             }
             wordLoopActive = false
-            wordLoopText = ""
+            wordLoopText = null
+            resumeCharOffset = 0
+            activeSegmentIndex = -1
+            activeSegmentBaseOffset = 0
+            playbackGeneration++
             playInternal()
         }
     }
@@ -257,6 +271,10 @@ class ReaderTtsController(
         if (!initialized || segments.isEmpty()) return
         wordLoopActive = false
         wordLoopText = null
+        resumeCharOffset = 0
+        playbackGeneration++
+        tts?.stop()
+        activeUtteranceId = null
         val target = if (forward) (segmentIndex + 1).coerceAtMost(segments.size - 1)
         else (segmentIndex - 1).coerceAtLeast(0)
         if (target == segmentIndex && state != State.PAUSED) {
@@ -273,10 +291,14 @@ class ReaderTtsController(
     }
 
     fun stop() {
+        playbackGeneration++
         activeUtteranceId = null
         tts?.stop()
         segments = emptyList()
         segmentIndex = 0
+        resumeCharOffset = 0
+        activeSegmentIndex = -1
+        activeSegmentBaseOffset = 0
         wordLoopActive = false
         wordLoopText = null
         cancelSleepTimer()
@@ -299,25 +321,36 @@ class ReaderTtsController(
     /** Apply the selected voice (or language fallback) to the engine. */
     private fun applyVoice() {
         val engine = tts ?: return
-        val voice = voiceName?.let { name -> engine.voices.orEmpty().find { it.name == name && !it.isNetworkConnectionRequired } }
+        val voice = voiceName?.let { name ->
+            engine.voices.orEmpty().firstOrNull {
+                it.name == name && !it.isNetworkConnectionRequired
+            }
+        }
         if (voice != null) {
-            engine.voice = voice
-            return
+            val result = runCatching { engine.voice = voice }.isSuccess
+            if (result) return
+            // A broken/offline-incompatible voice must never leave the engine
+            // unusable. Fall through to the EPUB language/default locale.
+            // Keep the requested name persisted so the UI can still show the
+            // user's selection; the engine uses the safe locale fallback here.
         }
         val tag = bookLanguage
-        if (!tag.isNullOrBlank()) {
-            val locale = Locale.forLanguageTag(tag)
-            engine.language = locale
-        } else {
+        val locale = if (!tag.isNullOrBlank()) Locale.forLanguageTag(tag) else Locale.getDefault()
+        val result = runCatching { engine.language = locale }.getOrNull()
+        if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
             engine.language = Locale.getDefault()
         }
     }
 
     private fun pause() {
+        playbackGeneration++
         activeUtteranceId = null
         tts?.stop()
         wordLoopActive = false
         wordLoopText = null
+        // TextToSpeech has no portable pause-at-character API. We stop the
+        // utterance and retain the last onRangeStart position, then resume by
+        // speaking the unspoken suffix of the same segment.
         state = State.PAUSED
         releaseAudioFocus()
         onStateChanged(false)
@@ -337,11 +370,39 @@ class ReaderTtsController(
 
     private fun speakCurrentSegment() {
         val segment = segments.getOrNull(segmentIndex) ?: return
+        val fullText = segment.text
+        val from = resumeCharOffset.coerceIn(0, fullText.length)
+        if (from >= fullText.length) {
+            resumeCharOffset = 0
+            advanceAfterSegment()
+            return
+        }
+
+        playbackGeneration++
         val id = UUID.randomUUID().toString()
         activeUtteranceId = id
-        activeSegmentText = segment.text
-        onSentenceHighlight?.invoke(segment.text)
-        tts?.speak(segment.text, TextToSpeech.QUEUE_FLUSH, null, id)
+        activeSegmentIndex = segmentIndex
+        activeSegmentBaseOffset = from
+        activeSegmentText = fullText.substring(from)
+        // The callback receives the original segment. Word offsets are relative
+        // to the spoken suffix and are translated by ReaderActivity using the
+        // same suffix offset when needed.
+        onSentenceHighlight?.invoke(segment)
+        tts?.speak(activeSegmentText, TextToSpeech.QUEUE_FLUSH, null, id)
+    }
+
+    private fun advanceAfterSegment() {
+        resumeCharOffset = 0
+        activeSegmentIndex = -1
+        segmentIndex++
+        if (segmentIndex < segments.size) {
+            speakCurrentSegment()
+        } else {
+            state = State.READY
+            releaseAudioFocus()
+            onStateChanged(false)
+            onChapterFinished()
+        }
     }
 
     private fun releaseAudioFocus() {
@@ -453,20 +514,33 @@ class ReaderTtsController(
      */
     private fun splitIntoSentences(text: String): List<String> {
         val result = mutableListOf<String>()
-        val regex = Regex("(?<=[.!?])\\s+|(?<=[,;:])\\s+")
-        val parts = text.split(regex)
-        val current = StringBuilder()
-        for (part in parts) {
-            val p = part.trim()
-            if (p.isBlank()) continue
-            current.append(p)
-            if (p.endsWith(".") || p.endsWith("!") || p.endsWith("?") ||
-                p.endsWith(",") || p.endsWith(";") || p.endsWith(":")) {
-                result += current.toString()
-                current.clear()
+        var start = 0
+        var i = 0
+        while (i < text.length) {
+            val c = text[i]
+            val boundary = c == '.' || c == '!' || c == '?' || c == ',' || c == ';' || c == ':'
+            if (boundary) {
+                // Keep closing quotation/bracket characters with the punctuation.
+                var end = i + 1
+                while (end < text.length && text[end] in "\"'”’»)]}") end++
+                // Only split when punctuation is followed by whitespace/end. This
+                // avoids breaking decimals, initials and abbreviations such as 3.14.
+                val nextIsBoundary = end >= text.length || text[end].isWhitespace()
+                if (nextIsBoundary) {
+                    val part = text.substring(start, end).trim()
+                    if (part.isNotBlank()) result += part
+                    start = end
+                    while (start < text.length && text[start].isWhitespace()) start++
+                    i = start
+                    continue
+                }
             }
+            i++
         }
-        if (current.isNotEmpty()) result += current.toString()
+        if (start < text.length) {
+            val tail = text.substring(start).trim()
+            if (tail.isNotBlank()) result += tail
+        }
         return result
     }
 

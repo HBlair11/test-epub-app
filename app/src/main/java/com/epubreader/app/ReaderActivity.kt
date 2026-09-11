@@ -284,10 +284,10 @@ class ReaderActivity : AppCompatActivity() {
                     binding.tvTtsStatus.text = getString(R.string.action_read_aloud)
                 }
             }
-        }, { sentence, start, end ->
-            // Word-level range callback: highlight the spoken word in the page.
-            // Delivered on a binder thread; hop to the UI thread.
-            runOnUiThread { highlightSpokenWord(sentence, start, end) }
+        }, { segment, start, end ->
+            // Word-level range callback. The controller reports offsets against
+            // the full structural segment even when it is resuming a suffix.
+            runOnUiThread { highlightSpokenWord(segment, start, end) }
         }, { remainingMs ->
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -298,15 +298,13 @@ class ReaderActivity : AppCompatActivity() {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 Snackbar.make(binding.root, R.string.tts_sleep_finished, Snackbar.LENGTH_SHORT).show()
             }
-        }, { sentence ->
-            // Patch v37 follow-up: sentence-level highlight callback.
-            // Fires at the start of each segment. We use it as a fallback
-            // sentence highlight in case the TTS engine doesn't support
-            // word-level onRangeStart callbacks.
+        }, { segment ->
+            // Sentence-level highlight is anchored to the structural TTS
+            // segment, not found by searching the whole chapter for a string.
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 updateTtsSentencePosition()
-                highlightSpokenWord(sentence, 0, sentence.length)
+                highlightSpokenWord(segment, 0, segment.text.length)
             }
         })
         ReaderTtsService.attach(ttsController)
@@ -757,23 +755,60 @@ class ReaderActivity : AppCompatActivity() {
             return
         }
         updateTtsServiceState()
-        // Patch v37 follow-up: get the current visible text offset from the
-        // WebView so TTS starts from the page the user is reading, not the
-        // beginning of the chapter.
+        // Resolve the first readable text position in the page that is actually
+        // visible. The JavaScript walker mirrors ReaderTtsDocumentBuilder:
+        // ignored elements are skipped and <br> contributes one source space.
+        // This gives the controller the same raw character coordinate instead of
+        // using a guessed screen point or falling back to chapter offset zero.
         binding.webView.evaluateJavascript(
             """(function(){
                 try{
-                    var x=Math.max(10,Math.round(window.innerWidth/2));
-                    var y=Math.max(40,Math.round(window.innerHeight*0.3));
-                    var r=document.caretRangeFromPoint?document.caretRangeFromPoint(x,y):null;
-                    if(!r)return 0;
-                    var node=r.startContainer;
-                    var off=r.startOffset;
-                    var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);
-                    var acc=0;var found=false;
-                    while(w.nextNode()){var n=w.currentNode;if(n===node){acc+=off;found=true;break;}acc+=n.textContent.length;}
-                    if(!found)return 0;
-                    return Math.max(0,acc);
+                    var body=document.body;if(!body)return 0;
+                    var ignored={HEAD:1,SCRIPT:1,STYLE:1,NOSCRIPT:1,SVG:1,MATH:1};
+                    var walker=document.createTreeWalker(body,NodeFilter.SHOW_TEXT,null,false);
+                    var raw=0,best=-1,bestTop=1e9;
+                    function inIgnored(n){var p=n.parentElement;while(p){if(ignored[p.tagName])return true;p=p.parentElement;}return false;}
+                    function visibleOffset(n){
+                        var len=n.textContent?n.textContent.length:0;
+                        for(var i=0;i<len;i++){
+                            var r=document.createRange();r.setStart(n,i);r.setEnd(n,Math.min(i+1,len));
+                            var rect=r.getBoundingClientRect();
+                            if(rect.width>0&&rect.height>0&&rect.right>0&&rect.left<window.innerWidth&&rect.bottom>0&&rect.top<window.innerHeight){
+                                var y=rect.top;
+                                if(y<bestTop){bestTop=y;best=raw+i;}
+                                break;
+                            }
+                        }
+                        raw+=len;
+                    }
+                    while(walker.nextNode()){
+                        var n=walker.currentNode;
+                        if(inIgnored(n))continue;
+                        visibleOffset(n);
+                    }
+                    // Recompute raw offsets while treating <br> exactly as the
+                    // builder does, then return the earliest visible source char.
+                    raw=0;best=-1;bestTop=1e9;
+                    var w=document.createTreeWalker(body,NodeFilter.SHOW_ALL,null,false),n;
+                    while(n=w.nextNode()){
+                        if(n.nodeType===1){
+                            if(ignored[n.tagName]){try{w.currentNode=n;w.nextNode();}catch(e){} }
+                            if(n.tagName==='BR')raw++;
+                            continue;
+                        }
+                        if(n.nodeType!==3||inIgnored(n))continue;
+                        var len=n.textContent?n.textContent.length:0;
+                        for(var i=0;i<len;i++){
+                            var r=document.createRange();r.setStart(n,i);r.setEnd(n,Math.min(i+1,len));
+                            var rect=r.getBoundingClientRect();
+                            if(rect.width>0&&rect.height>0&&rect.right>0&&rect.left<window.innerWidth&&rect.bottom>0&&rect.top<window.innerHeight){
+                                if(rect.top<bestTop){bestTop=rect.top;best=raw+i;}
+                                break;
+                            }
+                        }
+                        raw+=len;
+                    }
+                    return Math.max(0,best);
                 }catch(e){return 0;}
             })();""",
         ) { result ->
@@ -1093,7 +1128,7 @@ class ReaderActivity : AppCompatActivity() {
      *  Overlay rects are positioned over the text and never touch the DOM, so
      *  pagination, columns and reflow are all left exactly as the user sees
      *  them. */
-    private fun highlightSpokenWord(sentence: String, start: Int, end: Int) {
+    private fun highlightSpokenWord(segment: com.epubreader.app.epub.ReaderTtsSegment, start: Int, end: Int) {
         if (isFinishing || isDestroyed) return
         val controller = ttsController ?: return
         if (controller.state != ReaderTtsController.State.PLAYING) return
@@ -1101,47 +1136,67 @@ class ReaderActivity : AppCompatActivity() {
         val r = Color.red(color); val g = Color.green(color); val b = Color.blue(color)
         val wordCss = String.format(java.util.Locale.US, "rgba(%d,%d,%d,0.55)", r, g, b)
         val sentenceCss = String.format(java.util.Locale.US, "rgba(%d,%d,%d,0.22)", r, g, b)
-        val key = org.json.JSONObject.quote(sentence)
+        val sentence = org.json.JSONObject.quote(segment.text)
+        val rawStart = segment.rawStart
+        val rawEnd = segment.rawEnd
         binding.webView.evaluateJavascript(
             """(function(){
-                var sentence=$key,start=$start,end=$end,wordColor='$wordCss',sentenceColor='$sentenceCss';
-                var doc=document,body=doc.body;
-                var container=doc.getElementById('livre-tts-hl');
-                if(container){while(container.firstChild)container.removeChild(container.firstChild);}
-                else{container=doc.createElement('div');container.id='livre-tts-hl';
-                    var cs=container.style;cs.position='fixed';cs.top='0';cs.left='0';cs.width='100%';cs.height='100%';
-                    cs.pointerEvents='none';cs.zIndex='2147483646';cs.overflow='hidden';body.appendChild(container);}
-                if(!sentence)return;
-                var nodes=[],all='';
-                // Collect text nodes and build a normalized concatenated string.
-                // Each node's text is whitespace-normalized individually so the
-                // concatenated `all` matches the TTS-extracted text.
-                function collect(){nodes=[];all='';var w=doc.createTreeWalker(body,NodeFilter.SHOW_TEXT,null,false);while(w.nextNode()){var t=w.currentNode.textContent.replace(/\s+/g,' ');if(t){nodes.push({node:w.currentNode,text:t,len:t.length});all+=t;}}}
-                function locate(off){var acc=0;for(var i=0;i<nodes.length;i++){if(off<acc+nodes[i].len)return [nodes[i].node,off-acc];acc+=nodes[i].len;}return null;}
-                function makeRange(a,b){try{var rng=doc.createRange();rng.setStart(a[0],a[1]);rng.setEnd(b[0],b[1]);return rng;}catch(e){return null;}}
-                function drawRects(rng,color){if(!rng)return null;var rects=rng.getClientRects();var last=null;for(var i=0;i<rects.length;i++){var rect=rects[i];var d=doc.createElement('div');var s=d.style;s.position='absolute';s.left=rect.left+'px';s.top=rect.top+'px';s.width=rect.width+'px';s.height=rect.height+'px';s.backgroundColor=color;s.borderRadius='2px';container.appendChild(d);}if(rects.length)last=rects[rects.length-1];return rng.getBoundingClientRect();}
-                collect();
-                // The concatenated `all` is already whitespace-normalized
-                // per-node in collect(), so it matches the TTS text.
-                var k=sentence.replace(/\s+/g,' ').trim();
-                if(k.length>60)k=k.substring(0,60);
-                var si=all.indexOf(k);
-                if(si<0){
-                    // Fallback: try case-insensitive search.
-                    si=all.toLowerCase().indexOf(k.toLowerCase());
+                var sentence=$sentence,rawStart=$rawStart,rawEnd=$rawEnd,start=$start,end=$end;
+                var wordColor='$wordCss',sentenceColor='$sentenceCss',doc=document,body=doc.body;
+                if(!body)return;
+                var c=doc.getElementById('livre-tts-hl');
+                if(c){while(c.firstChild)c.removeChild(c.firstChild);}else{
+                    c=doc.createElement('div');c.id='livre-tts-hl';var cs=c.style;
+                    cs.position='fixed';cs.top='0';cs.left='0';cs.width='100%';cs.height='100%';
+                    cs.pointerEvents='none';cs.zIndex='2147483646';cs.overflow='hidden';body.appendChild(c);
                 }
-                if(si<0)return;
-                var sentenceNorm=sentence.replace(/\s+/g,' ').trim();
-                drawRects(makeRange(locate(si),locate(si+sentenceNorm.length)),sentenceColor);
-                // Word range uses the same offsets captured before drawing, so
-                // no re-collect is needed (the DOM was never mutated).
-                var a=locate(si+start),b=locate(si+end);
-                if(!a||!b)return;
-                var wordRect=drawRects(makeRange(a,b),wordColor);
-                if(wordRect&&window.Caesura){
-                    if(wordRect.left>=window.innerWidth-10){window.Caesura.nextPage();}
-                    else if(wordRect.right<=10){window.Caesura.prevPage();}
+                var ignored={HEAD:1,SCRIPT:1,STYLE:1,NOSCRIPT:1,SVG:1,MATH:1};
+                var nodes=[],raw=0;
+                function ignoredNode(n){var p=n.parentElement;while(p){if(ignored[p.tagName])return true;p=p.parentElement;}return false;}
+                var w=doc.createTreeWalker(body,NodeFilter.SHOW_ALL,null,false),n;
+                while(n=w.nextNode()){
+                    if(n.nodeType===1){if(n.tagName==='BR'&&!ignoredNode(n))raw++;continue;}
+                    if(n.nodeType!==3||ignoredNode(n))continue;
+                    var text=n.textContent||'';nodes.push({node:n,start:raw,end:raw+text.length});raw+=text.length;
                 }
+                function locate(off){for(var i=0;i<nodes.length;i++){var q=nodes[i];if(off>=q.start&&off<=q.end)return [q.node,Math.max(0,Math.min(q.node.textContent.length,off-q.start))];}return null;}
+                function makeRange(a,b){if(!a||!b)return null;try{var r=doc.createRange();r.setStart(a[0],a[1]);r.setEnd(b[0],b[1]);return r;}catch(e){return null;}}
+                function draw(rng,color){if(!rng)return null;var rects=rng.getClientRects(),last=null;for(var i=0;i<rects.length;i++){var z=rects[i];if(z.width<=0||z.height<=0)continue;var d=doc.createElement('div'),s=d.style;s.position='fixed';s.left=z.left+'px';s.top=z.top+'px';s.width=z.width+'px';s.height=z.height+'px';s.backgroundColor=color;s.borderRadius='2px';c.appendChild(d);last=z;}return last;}
+                // rawStart/rawEnd are an anchor range for the structural block.
+                // Within that bounded source area, find the normalized sentence so
+                // repeated sentences elsewhere in the chapter cannot be selected.
+                var rawText='',first=0,last=nodes.length;
+                for(var i=0;i<nodes.length;i++){if(nodes[i].end>=rawStart){first=i;break;}}
+                for(var j=first;j<nodes.length;j++){if(nodes[j].start>rawEnd){last=j;break;}}
+                var normChars=[],normRaw=[];
+                for(var k=first;k<last;k++){
+                    var t=nodes[k].node.textContent||'';
+                    for(var ch=0;ch<t.length;ch++){
+                        var cch=t.charAt(ch);
+                        if(/\s/.test(cch)){
+                            if(normChars.length && normChars[normChars.length-1]!==' '){normChars.push(' ');normRaw.push(nodes[k].start+ch);}
+                        }else{normChars.push(cch);normRaw.push(nodes[k].start+ch);}
+                    }
+                }
+                while(normChars.length&&normChars[0]===' '){normChars.shift();normRaw.shift();}
+                while(normChars.length&&normChars[normChars.length-1]===' '){normChars.pop();normRaw.pop();}
+                var norm=normChars.join(''),needle=sentence.replace(/\s+/g,' ').trim();
+                var pos=norm.indexOf(needle);if(pos<0)pos=norm.toLowerCase().indexOf(needle.toLowerCase());
+                if(pos<0)return;
+                var sentenceRawStart=normRaw[pos], sentenceRawEnd=(normRaw[pos+needle.length-1]||sentenceRawStart)+1;
+                sentenceRawStart=Math.max(rawStart,sentenceRawStart);sentenceRawEnd=Math.min(rawEnd,sentenceRawEnd);
+                var a=locate(sentenceRawStart),b=locate(sentenceRawEnd);
+                var sr=makeRange(a,b);draw(sr,sentenceColor);
+                if(start>=end)return;
+                // Word offsets are relative to the full segment. Map them through
+                // the same normalized character map so whitespace differences in
+                // XHTML do not shift the visual word highlight.
+                var wordPosStart=pos+start,wordPosEnd=pos+end;
+                var wordRawStart=normRaw[Math.max(0,Math.min(normRaw.length-1,wordPosStart))]||sentenceRawStart;
+                var wordRawEnd=(normRaw[Math.max(0,Math.min(normRaw.length-1,wordPosEnd-1))]||wordRawStart)+1;
+                var wa=locate(wordRawStart),wb=locate(Math.min(rawEnd,wordRawEnd));
+                var wr=makeRange(wa,wb),rect=draw(wr,wordColor);
+                if(rect&&window.Caesura){if(rect.right>window.innerWidth-4)window.Caesura.nextPage(false);else if(rect.left<4)window.Caesura.prevPage(false);}
             })();""",
             null,
         )
