@@ -16,7 +16,7 @@
 
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="164dp">
+            android:layout_height="160dp">
 
             <ImageView
                 android:id="@+id/cover"
@@ -24,7 +24,7 @@
                 android:layout_height="match_parent"
                 android:background="@drawable/cover_frame"
                 android:contentDescription="@string/book_cover"
-                android:scaleType="fitCenter" />
+                android:scaleType="centerCrop" />
 
             <TextView
                 android:id="@+id/progressBadge"
@@ -63,7 +63,7 @@
         <TextView
             android:id="@+id/title"
             android:layout_width="match_parent"
-            android:layout_height="18dp"
+            android:layout_height="16dp"
             android:layout_marginTop="8dp"
             android:ellipsize="end"
             android:maxLines="1"
@@ -74,7 +74,7 @@
         <TextView
             android:id="@+id/author"
             android:layout_width="match_parent"
-            android:layout_height="16dp"
+            android:layout_height="15dp"
             android:layout_marginTop="2dp"
             android:ellipsize="end"
             android:maxLines="1"
