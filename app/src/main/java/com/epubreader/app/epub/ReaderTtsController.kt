@@ -8,7 +8,6 @@ import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
-import android.text.Html
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -20,15 +19,10 @@ import java.util.zip.ZipFile
  * Foreground-reader TTS engine wrapper (system engine only; no network and no
  * voice downloads are performed).
  *
- * Patch v37 follow-up: major rework of text segmentation and voice switching.
- *  - Segments now preserve paragraph/heading boundaries and add natural pauses
- *    (short after commas, medium after sentences, longer after headings/POV).
- *  - speakChapter accepts an optional startOffset so TTS can begin from the
- *    user's current reading position instead of always the chapter start.
- *  - Voice changes take effect immediately: if playing, the current utterance
- *    is stopped and the segment is re-spoken with the new voice. If paused,
- *    the new voice is applied and the user resumes from the same segment.
- *  - Sentence highlight callback (onSentenceHighlight) fires for each segment.
+ * Phase 1: TTS now consumes a structural XHTML model rather than a flattened
+ * chapter string. Paragraphs, headings, list items, quotes, and source ranges
+ * are retained so later playback/highlighting phases can operate on stable
+ * locations instead of global string searches.
  */
 class ReaderTtsController(
     context: Context,
@@ -52,7 +46,7 @@ class ReaderTtsController(
         }
     }
     private var tts: TextToSpeech? = null
-    private var segments: List<TtsSegment> = emptyList()
+    private var segments: List<ReaderTtsSegment> = emptyList()
     private var segmentIndex = 0
     private var initialized = false
     private var activeUtteranceId: String? = null
@@ -131,63 +125,55 @@ class ReaderTtsController(
                 }
 
                 override fun onDone(utteranceId: String) {
-                    // TextToSpeech callbacks can arrive on a binder thread. All
-                    // queue/state transitions are serialized on the main thread
-                    // so a rapid skip/pause cannot race an old callback.
-                    mainHandler.post {
-                        if (utteranceId.startsWith(WORD_LOOP_PREFIX)) {
-                            if (utteranceId != activeUtteranceId) return@post
-                            activeUtteranceId = null
-                            if (repeatMode == RepeatMode.WORD && state == State.PLAYING) {
-                                wordLoopText?.let { word -> beginWordLoop(word) }
-                            } else {
-                                // Word loop ended: resume the interrupted sentence.
-                                wordLoopActive = false
-                                wordLoopText = null
-                                if (state == State.PLAYING && segments.isNotEmpty()) speakCurrentSegment()
-                            }
-                            return@post
-                        }
-
-                        // A silent pause is a transition marker, not another
-                        // segment. The previous implementation treated its
-                        // completion as a request to create the same pause again,
-                        // so playback stopped after the first spoken sentence.
-                        if (utteranceId.startsWith(PAUSE_PREFIX)) {
-                            if (utteranceId != activeUtteranceId) return@post
-                            activeUtteranceId = null
-                            advanceAfterSegment()
-                            return@post
-                        }
-
-                        if (utteranceId != activeUtteranceId) return@post
+                    if (utteranceId.startsWith(WORD_LOOP_PREFIX)) {
+                        if (utteranceId != activeUtteranceId) return
                         activeUtteranceId = null
-
-                        val pauseMs = segments.getOrNull(segmentIndex)?.pauseAfterMs ?: 0
-                        if (pauseMs > 0L && state == State.PLAYING) {
-                            val pauseId = PAUSE_PREFIX + UUID.randomUUID()
-                            activeUtteranceId = pauseId
-                            tts?.playSilentUtterance(
-                                pauseMs,
-                                TextToSpeech.QUEUE_FLUSH,
-                                pauseId,
-                            )
+                        if (repeatMode == RepeatMode.WORD && state == State.PLAYING) {
+                            wordLoopText?.let { word -> mainHandler.post { beginWordLoop(word) } }
                         } else {
-                            advanceAfterSegment()
+                            // Word loop ended: resume the interrupted sentence.
+                            wordLoopActive = false
+                            wordLoopText = null
+                            if (state == State.PLAYING && segments.isNotEmpty()) speakCurrentSegment()
                         }
+                        return
+                    }
+                    if (utteranceId != activeUtteranceId) return
+                    activeUtteranceId = null
+
+                    // Insert a natural pause after this segment if configured.
+                    val pauseMs = segments.getOrNull(segmentIndex)?.pauseAfterMs ?: 0
+                    if (pauseMs > 0 && state == State.PLAYING) {
+                        // Use a silent utterance to create a pause.
+                        val pauseId = PAUSE_PREFIX + UUID.randomUUID()
+                        activeUtteranceId = pauseId
+                        tts?.playSilentUtterance(pauseMs.toLong(), TextToSpeech.QUEUE_FLUSH, pauseId)
+                        return
+                    }
+
+                    if (repeatMode == RepeatMode.SENTENCE && segments.isNotEmpty()) {
+                        speakCurrentSegment()
+                        return
+                    }
+                    segmentIndex++
+                    if (segmentIndex < segments.size) {
+                        speakCurrentSegment()
+                    } else {
+                        state = State.READY
+                        releaseAudioFocus()
+                        onStateChanged(false)
+                        onChapterFinished()
                     }
                 }
 
                 override fun onError(utteranceId: String) {
-                    mainHandler.post {
-                        if (utteranceId != activeUtteranceId) return@post
-                        activeUtteranceId = null
-                        wordLoopActive = false
-                        wordLoopText = null
-                        state = State.READY
-                        releaseAudioFocus()
-                        onStateChanged(false)
-                    }
+                    if (utteranceId != activeUtteranceId) return
+                    activeUtteranceId = null
+                    wordLoopActive = false
+                    wordLoopText = null
+                    state = State.READY
+                    releaseAudioFocus()
+                    onStateChanged(false)
                 }
             })
         }
@@ -239,21 +225,21 @@ class ReaderTtsController(
      * playback begins from it. If 0 or omitted, starts from the beginning.
      */
     suspend fun speakChapter(file: File, href: String, startOffset: Int = 0) {
-        val text = extractText(file, href)
+        val document = extractDocument(file, href)
         withContext(Dispatchers.Main) {
-            if (!initialized || text.isBlank()) {
+            if (!initialized || document.blocks.none { it.text.isNotBlank() }) {
                 state = if (initialized) State.READY else State.UNAVAILABLE
                 onStateChanged(false)
                 return@withContext
             }
-            segments = buildSegments(text)
+            segments = buildSegments(document)
             segmentIndex = if (startOffset > 0) {
-                findSegmentIndex(segments, text, startOffset)
+                findSegmentIndex(segments, startOffset)
             } else {
                 0
             }
             wordLoopActive = false
-            wordLoopText = null
+            wordLoopText = ""
             playInternal()
         }
     }
@@ -297,26 +283,6 @@ class ReaderTtsController(
         state = if (initialized) State.READY else State.UNAVAILABLE
         releaseAudioFocus()
         onStateChanged(false)
-    }
-
-    /** Advance exactly once after a spoken segment (and any natural pause). */
-    private fun advanceAfterSegment() {
-        if (state != State.PLAYING || segments.isEmpty()) return
-
-        if (repeatMode == RepeatMode.SENTENCE) {
-            speakCurrentSegment()
-            return
-        }
-
-        segmentIndex++
-        if (segmentIndex < segments.size) {
-            speakCurrentSegment()
-        } else {
-            state = State.READY
-            releaseAudioFocus()
-            onStateChanged(false)
-            onChapterFinished()
-        }
     }
 
     private fun playInternal() {
@@ -382,67 +348,87 @@ class ReaderTtsController(
         audioManager?.abandonAudioFocus(audioFocusListener)
     }
 
-    private suspend fun extractText(file: File, href: String): String = withContext(Dispatchers.IO) {
-        runCatching {
-            ZipFile(file).use { zip ->
-                val entry = zip.getEntry(href) ?: zip.entries().toList().firstOrNull { it.name.equals(href, true) }
-                val html = entry?.let { zip.getInputStream(it).bufferedReader(Charsets.UTF_8).use { r -> r.readText() } }.orEmpty()
-                val withoutScripts = html.replace(Regex("(?is)<(script|style)[^>]*>.*?</\\1>"), " ")
-                Html.fromHtml(withoutScripts, Html.FROM_HTML_MODE_LEGACY).toString()
-                    .replace(Regex("\\s+"), " ")
-                    .trim()
+    /**
+     * Parse the XHTML into a TTS-specific structure. Unlike the old
+     * extractText() path, this does not flatten the chapter before we know
+     * where its paragraphs/headings came from.
+     */
+    private suspend fun extractDocument(file: File, href: String): ReaderTtsDocument =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                ZipFile(file).use { zip ->
+                    val entry = zip.getEntry(href)
+                        ?: zip.entries().toList().firstOrNull { it.name.equals(href, true) }
+                    val html = entry?.let {
+                        zip.getInputStream(it).bufferedReader(Charsets.UTF_8).use { reader ->
+                            reader.readText()
+                        }
+                    }.orEmpty()
+                    ReaderTtsDocumentBuilder.build(href, html)
+                }
+            }.getOrElse {
+                ReaderTtsDocument(href, "", emptyList())
             }
-        }.getOrDefault("")
-    }
+        }
 
     /**
-     * Build TTS segments from the raw chapter text. Each segment is a sentence
-     * or short clause with an associated pause duration for natural rhythm.
-     *
-     * - Headings (short standalone lines, < 60 chars, no sentence-ending punctuation):
-     *   longer pause (600ms) after them.
-     * - Paragraph breaks: medium pause (400ms).
-     * - Sentence endings (. ! ?): medium pause (350ms).
-     * - Commas, semicolons, colons: short pause (150ms).
-     * - POV / chapter names: treated as headings.
+     * Build speech units from structural blocks. Structural XHTML headings
+     * receive a longer pause; real paragraph/list/quote boundaries receive a
+     * paragraph pause. Sentence/clause punctuation still controls shorter
+     * pauses inside a block.
      */
-    private fun buildSegments(text: String): List<TtsSegment> {
-        val result = mutableListOf<TtsSegment>()
+    private fun buildSegments(document: ReaderTtsDocument): List<ReaderTtsSegment> {
+        val result = mutableListOf<ReaderTtsSegment>()
         val maxChars = 3500
 
-        // Split into paragraphs first (double newline or heading-like short lines)
-        val paragraphs = splitIntoParagraphs(text)
+        for ((blockIndex, block) in document.blocks.withIndex()) {
+            val text = block.text.trim()
+            if (text.isBlank()) continue
 
-        for (para in paragraphs) {
-            val trimmed = para.trim()
-            if (trimmed.isBlank()) continue
+            val isHeading = block.kind == ReaderTtsBlockKind.HEADING ||
+                (block.kind == ReaderTtsBlockKind.OTHER && isLikelyHeading(text))
+            val paragraphPause = if (isHeading) 700L else 450L
+            val sentences = splitIntoSentences(text)
+            var localSearchStart = 0
 
-            val isHeading = isLikelyHeading(trimmed)
-            val pauseAfterPara = if (isHeading) 600L else 400L
-
-            // Split paragraph into sentences/clauses
-            val sentences = splitIntoSentences(trimmed)
             for ((idx, sentence) in sentences.withIndex()) {
-                val s = sentence.trim()
-                if (s.isBlank()) continue
+                val spoken = sentence.trim()
+                if (spoken.isBlank()) continue
+
+                val localStart = text.indexOf(spoken, localSearchStart).coerceAtLeast(0)
+                val localEnd = (localStart + spoken.length).coerceAtMost(text.length)
+                localSearchStart = localEnd
 
                 val pauseAfter = when {
-                    idx == sentences.lastIndex -> pauseAfterPara
-                    s.endsWith(",") || s.endsWith(";") || s.endsWith(":") -> 150L
-                    else -> 350L
+                    idx == sentences.lastIndex -> paragraphPause
+                    spoken.endsWith(",") -> 180L
+                    spoken.endsWith(";") || spoken.endsWith(":") -> 220L
+                    else -> 360L
                 }
 
-                if (s.length <= maxChars) {
-                    result += TtsSegment(s, pauseAfter)
+                if (spoken.length <= maxChars) {
+                    result += ReaderTtsSegment(
+                        text = spoken,
+                        pauseAfterMs = pauseAfter,
+                        rawStart = mapBlockOffsetToRaw(block, localStart, text.length),
+                        rawEnd = mapBlockOffsetToRaw(block, localEnd, text.length),
+                        blockIndex = blockIndex,
+                    )
                 } else {
-                    // Split very long segments at natural points
                     var start = 0
-                    while (start < s.length) {
-                        val end = findSplitPoint(s, start, maxChars)
-                        val chunk = s.substring(start, end).trim()
+                    while (start < spoken.length) {
+                        val end = findSplitPoint(spoken, start, maxChars)
+                        val chunk = spoken.substring(start, end).trim()
                         if (chunk.isNotBlank()) {
-                            val isLast = end >= s.length
-                            result += TtsSegment(chunk, if (isLast) pauseAfter else 200L)
+                            val chunkLocalStart = localStart + start
+                            val chunkLocalEnd = localStart + end
+                            result += ReaderTtsSegment(
+                                text = chunk,
+                                pauseAfterMs = if (end >= spoken.length) pauseAfter else 220L,
+                                rawStart = mapBlockOffsetToRaw(block, chunkLocalStart, text.length),
+                                rawEnd = mapBlockOffsetToRaw(block, chunkLocalEnd, text.length),
+                                blockIndex = blockIndex,
+                            )
                         }
                         start = end
                     }
@@ -452,107 +438,31 @@ class ReaderTtsController(
         return result
     }
 
-    /** Split text into paragraphs, preserving heading-like lines separately. */
-    private fun splitIntoParagraphs(text: String): List<String> {
-        val result = mutableListOf<String>()
-        // Split on double newlines (paragraph breaks)
-        val rawParas = text.split(Regex("\\n{2,}"))
-        for (para in rawParas) {
-            val trimmed = para.trim()
-            if (trimmed.isBlank()) continue
-            // If a "paragraph" contains single newlines, it might be multiple
-            // heading-like lines stacked. Split on single newlines too.
-            val lines = trimmed.split(Regex("\\n"))
-            if (lines.size > 1) {
-                for (line in lines) {
-                    val lt = line.trim()
-                    if (lt.isNotBlank()) result += lt
-                }
-            } else {
-                result += trimmed
-            }
-        }
-        return result
+    /**
+     * Block text is whitespace-normalized while rawText follows DOM text-node
+     * order. A proportional mapping is therefore used until Phase 3 introduces
+     * exact text-node locators. The mapping is deliberately bounded to the
+     * block's source range and is already much safer than searching for strings
+     * across the whole chapter.
+     */
+    private fun mapBlockOffsetToRaw(block: ReaderTtsBlock, offset: Int, textLength: Int): Int {
+        if (textLength <= 0) return block.rawStart
+        val ratio = offset.coerceIn(0, textLength).toDouble() / textLength.toDouble()
+        return (block.rawStart + ((block.rawEnd - block.rawStart) * ratio).toInt())
+            .coerceIn(block.rawStart, block.rawEnd)
     }
 
     /**
-     * Heuristic: a short line (< 80 chars) with no sentence-ending punctuation
-     * is likely a heading, chapter title, or POV marker.
+     * Resolve the WebView's current DOM text offset to the structural TTS unit
+     * that contains it. If the offset lands in whitespace between blocks, use
+     * the next readable block instead of falling back to chapter zero.
      */
-    private fun isLikelyHeading(text: String): Boolean {
-        if (text.length > 80) return false
-        if (text.endsWith(".") || text.endsWith("!") || text.endsWith("?")) return false
-        // All-caps or title-case short lines are headings
-        if (text == text.uppercase() && text.length > 2) return true
-        // Short lines without verbs are likely headings
-        if (text.length < 50) return true
-        return false
-    }
-
-    /**
-     * Split a paragraph into sentence-level segments. Splits after sentence
-     * punctuation (. ! ?) and also after commas/semicolons/colons for shorter
-     * spoken chunks with natural pauses.
-     */
-    private fun splitIntoSentences(text: String): List<String> {
-        val result = mutableListOf<String>()
-        val regex = Regex("(?<=[.!?])\\s+|(?<=[,;:])\\s+")
-        val parts = text.split(regex)
-        // Re-join sentence fragments that were split at commas into proper sentences
-        val current = StringBuilder()
-        for (part in parts) {
-            val p = part.trim()
-            if (p.isBlank()) continue
-            current.append(p)
-            // End a segment after sentence-ending punctuation or commas
-            if (p.endsWith(".") || p.endsWith("!") || p.endsWith("?") ||
-                p.endsWith(",") || p.endsWith(";") || p.endsWith(":")
-            ) {
-                result += current.toString()
-                current.clear()
-            }
-        }
-        if (current.isNotEmpty()) {
-            result += current.toString()
-        }
-        return result
-    }
-
-    /** Find a good split point in a long string near maxLen. */
-    private fun findSplitPoint(text: String, start: Int, maxLen: Int): Int {
-        val end = minOf(start + maxLen, text.length)
-        if (end >= text.length) return end
-        // Look for a sentence boundary near the end
-        for (i in end downTo start) {
-            val c = text[i]
-            if (c == '.' || c == '!' || c == '?' || c == ',' || c == ';' || c == ':') {
-                return i + 1
-            }
-        }
-        return end
-    }
-
-    /**
-     * Find the segment index that contains the given character offset in the
-     * original text. Uses a cumulative character count across segments.
-     */
-    private fun findSegmentIndex(segments: List<TtsSegment>, fullText: String, offset: Int): Int {
-        if (offset <= 0 || segments.isEmpty()) return 0
-        // Build a cumulative offset map by searching for each segment's text
-        // in the full text. This is more robust than character counting because
-        // the segment text may differ slightly from the raw text (trimming).
-        var searchPos = 0
-        for (i in segments.indices) {
-            val segText = segments[i].text
-            val found = fullText.indexOf(segText.substring(0, minOf(40, segText.length)), searchPos)
-            if (found < 0) continue
-            val segEnd = found + segText.length
-            if (offset <= segEnd) {
-                return i
-            }
-            searchPos = segEnd
-        }
-        return 0
+    private fun findSegmentIndex(segments: List<ReaderTtsSegment>, offset: Int): Int {
+        if (segments.isEmpty() || offset <= 0) return 0
+        val containing = segments.indexOfFirst { offset <= it.rawEnd && offset >= it.rawStart }
+        if (containing >= 0) return containing
+        val next = segments.indexOfFirst { it.rawStart >= offset }
+        return if (next >= 0) next else segments.lastIndex
     }
 
     @Volatile
@@ -563,12 +473,6 @@ class ReaderTtsController(
         tts?.shutdown()
         tts = null
     }
-
-    /** A TTS segment: the text to speak and the pause (ms) after it. */
-    private data class TtsSegment(
-        val text: String,
-        val pauseAfterMs: Long,
-    )
 
     companion object {
         const val MIN_RATE = 0.5f
