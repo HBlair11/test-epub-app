@@ -90,3 +90,71 @@ chrome, word-highlight rendering, and highlight-list row layout are touched.
 - App version remains v36 per the user's standing instruction.
 - No architecture or foundation changes; existing single sources of truth
   (colors, strings, dimens, styles) are reused. No hardcoded values added.
+
+## Follow-up patch (same v37)
+
+After user testing, the following refinements were made:
+
+### 6. Selection toolbar position fixed (floating, not top-fixed)
+- The `LivreWebView` wrapper now extends `ActionMode.Callback2` instead of plain
+  `ActionMode.Callback`, and delegates `onGetContentRect()` to the original
+  callback. Android uses the content rect to position the floating toolbar near
+  the selected text; the previous plain-Callback wrapper dropped it, causing the
+  toolbar to fall back to the top of the screen. The toolbar now floats near the
+  selection as the user expects.
+
+### 7. Tap suppression — highlight taps and selection dismissal no longer turn
+   pages or toggle chrome
+- Added `suppressReaderTapUntilMs` (time-based guard) and `consumingSelectionDismissTap`
+  (gesture-consumption flag).
+- `HighlightBridge.onHighlightTap` calls `suppressReaderTap()` before showing the
+  note/delete sheet; the JS click handler also calls `e.preventDefault()`.
+- The WebView touch listener now consumes the entire gesture (DOWN → MOVE → UP)
+  when a text selection is active, so dismissing a selection never also turns the
+  page or toggles the reader chrome.
+- `onSingleTapConfirmed` checks `overlayVisible()`, `shouldSuppressReaderTap()`,
+  and `chromeVisible` before deciding to turn the page. When chrome is visible, a
+  tap only hides it — never turns the page.
+
+### 8. TTS overlay is a compact bottom panel (EPUB content stays visible)
+- The full-screen `ttsOverlay` was replaced with a compact `wrap_content` panel
+  anchored to the bottom of the reader (`layout_gravity="bottom"`). The EPUB
+  content, top bar, and page indicator stay visible — only the bottom bar is
+  hidden to avoid overlap.
+- `showTtsOverlay` / `hideTtsOverlay` no longer force-hide the reader chrome.
+
+### 9. Highlight list row uses XML layout
+- `HighlightListAdapter` now inflates `item_highlight.xml` (text column with
+  `width=0dp + weight=1`, giving the TextView a real width to wrap against).
+  This reliably fixes the vertical-text bug that the previous programmatic
+  `MATCH_PARENT` approach could not.
+
+### 10. Highlight note sheet button spacing
+- The Delete and OK buttons in `showHighlightNoteSheet` now have
+  `marginStart` between them (using `app_section_spacing`).
+
+### 11. Overlay state restoration on resume
+- `onResume()` now checks whether a modal overlay (TOC / Bookmarks / Search) or
+  the TTS panel is visible and forces the reader chrome hidden so the top/bottom
+  bars don't reappear alongside the overlay after the phone is closed and reopened.
+
+### 12. Reading Stats / About-Privacy / Vocabulary screens styled consistently
+- `activity_reading_stats.xml`, `activity_about_privacy.xml`, and
+  `activity_vocabulary.xml` now use `fitsSystemWindows="true"` on the root,
+  `?android:colorBackground` toolbar background, and
+  `navigationIconTint="?android:textColorPrimary"` — matching the app's standard
+  activity convention (system bar / nav bar insets respected).
+
+### Files updated / added in the follow-up
+
+- `app/src/main/java/com/epubreader/app/ui/LivreWebView.kt` — Callback2 + onGetContentRect delegation.
+- `app/src/main/java/com/epubreader/app/ReaderActivity.kt` — tap suppression, TTS overlay rework,
+  highlight note button spacing, onResume overlay-state fix, onSingleTapConfirmed guards,
+  highlight JS click preventDefault.
+- `app/src/main/java/com/epubreader/app/ui/HighlightListAdapter.kt` — rewritten to inflate XML.
+- `app/src/main/res/layout/item_highlight.xml` (new) — highlight list row layout.
+- `app/src/main/res/layout/activity_reader.xml` — TTS overlay changed to compact bottom panel.
+- `app/src/main/res/layout/activity_reading_stats.xml` — fitsSystemWindows + toolbar styling.
+- `app/src/main/res/layout/activity_about_privacy.xml` — fitsSystemWindows + toolbar styling.
+- `app/src/main/res/layout/activity_vocabulary.xml` — fitsSystemWindows + toolbar styling.
+- `docs/V37_SELECTION_TTS_HIGHLIGHTS_UPDATE.md` — this follow-up section.

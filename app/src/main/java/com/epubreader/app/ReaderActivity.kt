@@ -78,6 +78,14 @@ class ReaderActivity : AppCompatActivity() {
      *  Held so it can be dismissed when the user navigates away or taps the
      *  page. Patch v37. */
     private var currentSelectionActionMode: ActionMode? = null
+    /** Time-based guard: a tap that should NOT turn the page or toggle chrome
+     *  (e.g. it landed on a highlight, or dismissed a text selection) sets this
+     *  so the GestureDetector's onSingleTapConfirmed is ignored. Patch v37. */
+    private var suppressReaderTapUntilMs = 0L
+    /** Tracks an in-progress tap that is dismissing an active text selection.
+     *  The entire gesture (DOWN → MOVE → UP) is consumed so it never reaches the
+     *  GestureDetector. Patch v37. */
+    private var consumingSelectionDismissTap = false
     private var dictionaryLookup: com.epubreader.app.epub.DictionaryLookup? = null
     private var ttsController: ReaderTtsController? = null
     private var readingSessionStartedAt: Long? = null
@@ -777,15 +785,12 @@ class ReaderActivity : AppCompatActivity() {
         }
     }
 
-    /** Opens the full-screen Read Aloud overlay: hides the reader top/bottom
-     *  bars (the original menu) so only the TTS panel is visible, then refreshes
-     *  the header (book title + current section) and transport state. */
+    /** Shows the compact Read Aloud panel at the bottom of the reader. The
+     *  EPUB content stays visible — the panel floats over it. Only the bottom
+     *  bar is hidden to avoid overlap with the panel. */
     private fun showTtsOverlay() {
         clearReaderSelection()
-        chromeVisible = false
-        binding.topBar.visibility = View.GONE
         binding.bottomBar.visibility = View.GONE
-        binding.tvPageIndicator.visibility = View.GONE
         binding.ttsOverlay.visibility = View.VISIBLE
         binding.tvTtsBookTitle.text = epub?.metadata?.title?.ifBlank { null }
             ?: bookEntity?.title
@@ -796,19 +801,14 @@ class ReaderActivity : AppCompatActivity() {
         updateHistoryUi()
     }
 
-    /** Closes the Read Aloud overlay and restores the reader chrome. Read-aloud
-     *  itself is NOT stopped here (the Stop button does that), so closing the
-     *  panel while playing keeps playback going in the background when the user
-     *  has enabled it. */
+    /** Hides the Read Aloud panel. The bottom bar is restored only if chrome is
+     *  visible. Read-aloud itself is NOT stopped here (the Stop button does
+     *  that), so closing the panel while playing keeps playback going in the
+     *  background when the user has enabled it. */
     private fun hideTtsOverlay() {
         binding.ttsOverlay.visibility = View.GONE
-        chromeVisible = true
-        binding.topBar.visibility = View.VISIBLE
-        binding.bottomBar.visibility = View.VISIBLE
-        binding.tvPageIndicator.visibility = View.GONE
-        if (chromeVisible) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (chromeVisible) binding.bottomBar.visibility = View.VISIBLE
         updateHistoryUi()
-        updatePageIndicator()
     }
 
     private fun updateTtsSentencePosition() {
@@ -1227,6 +1227,14 @@ class ReaderActivity : AppCompatActivity() {
         val detector =
             android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
                 override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                    // Patch v37: don't turn the page or toggle chrome when a
+                    // modal overlay (TOC / Bookmarks / Search) is open.
+                    if (overlayVisible()) return true
+                    // Patch v37: don't turn the page or toggle chrome when this
+                    // tap landed on a highlight (the HighlightBridge already
+                    // opened the note/delete sheet) or just dismissed a text
+                    // selection.
+                    if (shouldSuppressReaderTap()) return true
                     // Patch 16 (Issue #2): the user reported that tapping a link inside
                     // a TOC (rendered as html/xhtml content in the reader) registers
                     // BOTH the link click AND a page turn (left third -> back, right
@@ -1241,6 +1249,11 @@ class ReaderActivity : AppCompatActivity() {
                     if (tappedLinkOnWebView(e)) return true
                     val w = binding.webView.width.toFloat()
                     if (w <= 0f) {
+                        toggleChrome(); return true
+                    }
+                    // Patch v37: when the reader settings menu (chrome) is
+                    // visible, a tap only hides it — it never turns the page.
+                    if (chromeVisible) {
                         toggleChrome(); return true
                     }
                     when {
@@ -1263,12 +1276,21 @@ class ReaderActivity : AppCompatActivity() {
                 }
             })
         binding.webView.setOnTouchListener { _, event ->
-            // Patch v37: a fresh tap on the page dismisses the floating
-            // selection toolbar (Define / Highlight / Copy / …). We only act on
-            // ACTION_DOWN when a selection ActionMode is already active, so the
-            // long-press gesture that starts a NEW selection is untouched.
+            // Patch v37: a fresh tap that lands while a text selection is active
+            // dismisses the selection. The entire gesture is consumed (never
+            // reaches the GestureDetector) so it does NOT also turn the page or
+            // toggle the reader chrome — the user explicitly asked that
+            // unselecting text leave the page and chrome untouched.
             if (event.actionMasked == MotionEvent.ACTION_DOWN && currentSelectionActionMode != null) {
+                consumingSelectionDismissTap = true
+                suppressReaderTap()
                 clearReaderSelection()
+            }
+            if (consumingSelectionDismissTap) {
+                if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                    consumingSelectionDismissTap = false
+                }
+                return@setOnTouchListener true
             }
             detector.onTouchEvent(event); false
         }
@@ -1440,6 +1462,9 @@ class ReaderActivity : AppCompatActivity() {
     private var snapshotAnimToken = 0
     private fun turnPage(forward: Boolean) {
         if (overlayVisible()) return
+        // Patch v37: don't turn the page while the reader settings menu (chrome)
+        // is visible — the user explicitly asked that the page not change then.
+        if (chromeVisible) return
         val now = System.currentTimeMillis()
         if (now < pageTurnThrottleUntil) return
         // Patch 17 (Addition #2): throttle now matches the (longer) slide
@@ -2968,6 +2993,20 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         updatePageIndicator()
         updateSectionPages()
         keepScreenOnController.onResume()
+        // Patch v37: if a modal overlay (TOC / Bookmarks / Search) was open when
+        // the activity was paused (e.g. phone closed), the system may restore
+        // window visibility on resume. Force the reader chrome hidden so the
+        // top/bottom bars don't appear alongside the overlay.
+        if (overlayVisible()) {
+            chromeVisible = false
+            binding.topBar.visibility = View.GONE
+            binding.bottomBar.visibility = View.GONE
+            binding.tvPageIndicator.visibility = View.GONE
+        }
+        // Same for the TTS panel: if it's visible, keep the bottom bar hidden.
+        if (binding.ttsOverlay.visibility == View.VISIBLE) {
+            binding.bottomBar.visibility = View.GONE
+        }
     }
 
     override fun onUserInteraction() {
@@ -3062,17 +3101,13 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
 
     override fun onActionModeStarted(mode: ActionMode) {
         super.onActionModeStarted(mode)
-        // Patch v37: Define and Highlight live directly in the floating
-        // selection toolbar. onActionModeStarted fires once when a selection
-        // begins; we store the mode reference (so it can be dismissed on
-        // navigation / touch). The primary, reliable path that keeps the items
-        // visible is LivreWebView.startActionMode wrapping the WebView's own
-        // callback (see ui/LivreWebView.kt) — it re-adds the items in
-        // onPrepareActionMode after the WebView rebuilds its menu. Adding here
-        // too is idempotent and covers any path that doesn't reach the wrapper.
+        // Patch v37: we only track the active mode reference here so it can be
+        // dismissed on navigation / touch. The actual Define/Highlight items are
+        // added by the LivreWebView wrapper's onPrepareActionMode (which runs
+        // after the WebView rebuilds its menu). Adding items here too would be
+        // redundant and could interfere with the floating toolbar's positioning.
         currentSelectionActionMode = mode
         definitionPopup?.dismiss()
-        addSelectionActionItems(mode.menu)
     }
 
     override fun onActionModeFinished(mode: ActionMode) {
@@ -3125,6 +3160,17 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             null,
         )
     }
+
+    /** Suppresses page-turn / chrome-toggle for a short window after a tap that
+     *  should not change the page (highlight tap, selection dismissal). The
+     *  GestureDetector's onSingleTapConfirmed fires ~200ms after ACTION_DOWN;
+     *  a 700ms window comfortably covers it. Patch v37. */
+    private fun suppressReaderTap(durationMs: Long = 700L) {
+        suppressReaderTapUntilMs = android.os.SystemClock.uptimeMillis() + durationMs
+    }
+
+    private fun shouldSuppressReaderTap(): Boolean =
+        android.os.SystemClock.uptimeMillis() < suppressReaderTapUntilMs
 
     private fun showDefinition(selection: ReaderSelectionLocator?) {
         val raw = selection?.text?.trim().orEmpty()
@@ -3304,6 +3350,9 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
     inner class HighlightBridge {
         @android.webkit.JavascriptInterface
         fun onHighlightTap(id: Long) {
+            // Patch v37: suppress the page-turn / chrome-toggle that the
+            // GestureDetector would otherwise fire for this tap.
+            suppressReaderTap()
             runOnUiThread { showHighlightNoteSheet(id) }
         }
     }
@@ -3413,7 +3462,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 function locate(nodes,off){var acc=0;for(var i=0;i<nodes.length;i++){var len=nodes[i].textContent.length;if(off<=acc+len)return [nodes[i],off-acc];acc+=len;}return null;}
                 function markNodes(sn,so,en,eo){
                     if(!sn||!en)return false;
-                    function make(){var m=document.createElement('mark');m.className='livre-highlight';m.style.backgroundColor=color;m.style.borderRadius='2px';m.dataset.highlightId=id;m.addEventListener('click',function(e){e.stopPropagation();LivreHighlight.onHighlightTap(id);});return m;}
+                    function make(){var m=document.createElement('mark');m.className='livre-highlight';m.style.backgroundColor=color;m.style.borderRadius='2px';m.dataset.highlightId=id;m.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();LivreHighlight.onHighlightTap(id);});return m;}
                     try{var r=document.createRange();r.setStart(sn,so);r.setEnd(en,eo);r.surroundContents(make());return true;}catch(e){}
                     try{var r2=document.createRange();r2.setStart(sn,so);r2.setEnd(en,eo);var m2=make();m2.appendChild(r2.extractContents());r2.insertNode(m2);return true;}catch(e2){}
                     return false;
@@ -3530,6 +3579,14 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 })
                 btnRow.addView(com.google.android.material.button.MaterialButton(this@ReaderActivity).apply {
                     text = getString(R.string.ok)
+                    // Patch v37: add spacing between Delete and OK so they're
+                    // not cramped together.
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ).apply {
+                        marginStart = resources.getDimensionPixelSize(R.dimen.app_section_spacing)
+                    }
                     setOnClickListener {
                         val note = input.text.toString().trim().ifEmpty { null }
                         dialog.dismiss()

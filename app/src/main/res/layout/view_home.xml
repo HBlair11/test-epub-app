@@ -95,8 +95,8 @@
 
                     <ImageView
                         android:id="@+id/homeContinueCover"
-                        android:layout_width="133dp"
-                        android:layout_height="200dp"
+                        android:layout_width="94dp"
+                        android:layout_height="141dp"
                         android:background="@drawable/cover_frame"
                         android:contentDescription="@string/book_cover"
                         android:scaleType="centerCrop" />

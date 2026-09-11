@@ -5,6 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
+    android:fitsSystemWindows="true"
     android:background="?android:colorBackground">
 
     <LinearLayout
@@ -18,7 +19,7 @@
             android:id="@+id/statsToolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="?attr/colorSurface"
+            android:background="?android:colorBackground"
             android:title="@string/stats_title"
             android:titleTextColor="?android:textColorPrimary"
             app:navigationIcon="@drawable/ic_arrow_back"
