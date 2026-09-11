@@ -91,6 +91,12 @@
                 app:srcCompat="@drawable/ic_bookmarks_view" />
 
             <ImageButton
+                android:id="@+id/btnHighlights"
+                style="@style/EpubReaderIconButton"
+                android:contentDescription="@string/action_highlights"
+                app:srcCompat="@drawable/ic_highlight" />
+
+            <ImageButton
                 android:id="@+id/btnSearch"
                 style="@style/EpubReaderIconButton"
                 android:contentDescription="@string/action_search"

@@ -298,6 +298,16 @@ class ReaderActivity : AppCompatActivity() {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 Snackbar.make(binding.root, R.string.tts_sleep_finished, Snackbar.LENGTH_SHORT).show()
             }
+        }, { sentence ->
+            // Patch v37 follow-up: sentence-level highlight callback.
+            // Fires at the start of each segment. We use it as a fallback
+            // sentence highlight in case the TTS engine doesn't support
+            // word-level onRangeStart callbacks.
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                updateTtsSentencePosition()
+                highlightSpokenWord(sentence, 0, sentence.length)
+            }
         })
         ReaderTtsService.attach(ttsController)
         setupChrome()
@@ -445,11 +455,9 @@ class ReaderActivity : AppCompatActivity() {
         // onPrepareActionMode, so items added from the Activity-level
         // onActionModeStarted hook get wiped. The only reliable interception point
         // is startActionMode itself, so the reading WebView is our LivreWebView
-        // subclass (see ui/LivreWebView.kt) which wraps the WebView's own callback.
-        // The decorator below is idempotent and runs in onPrepareActionMode —
-        // after the WebView rebuilds its menu — so our items survive and every
-        // default action stays alongside ours. We never call menu.clear().
-        binding.webView.selectionMenuDecorator = { menu -> addSelectionActionItems(menu) }
+        // Patch v37 follow-up: the LivreWebView startActionMode override was
+        // removed (Play Protect). Selection items are now added in
+        // onActionModeStarted via Handler.post. No decorator wiring needed.
     }
 
     private fun captureCurrentSelection(onCaptured: ((ReaderSelectionLocator?) -> Unit)? = null) {
@@ -748,11 +756,30 @@ class ReaderActivity : AppCompatActivity() {
             Snackbar.make(binding.root, R.string.tts_unavailable, Snackbar.LENGTH_LONG).show()
             return
         }
-        // Note: the overlay is opened by the speaker button / showTtsOverlay,
-        // not here, so auto-advancing to the next chapter during TTS does not
-        // reopen the overlay if the user minimized it.
         updateTtsServiceState()
-        lifecycleScope.launch { ttsController?.speakChapter(book.file, item.href) }
+        // Patch v37 follow-up: get the current visible text offset from the
+        // WebView so TTS starts from the page the user is reading, not the
+        // beginning of the chapter.
+        binding.webView.evaluateJavascript(
+            """(function(){
+                try{
+                    var x=Math.max(10,Math.round(window.innerWidth/2));
+                    var y=Math.max(40,Math.round(window.innerHeight*0.3));
+                    var r=document.caretRangeFromPoint?document.caretRangeFromPoint(x,y):null;
+                    if(!r)return 0;
+                    var node=r.startContainer;
+                    var off=r.startOffset;
+                    var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);
+                    var acc=0;var found=false;
+                    while(w.nextNode()){var n=w.currentNode;if(n===node){acc+=off;found=true;break;}acc+=n.textContent.length;}
+                    if(!found)return 0;
+                    return Math.max(0,acc);
+                }catch(e){return 0;}
+            })();""",
+        ) { result ->
+            val offset = result?.trim()?.removeSurrounding("\"")?.toIntOrNull() ?: 0
+            lifecycleScope.launch { ttsController?.speakChapter(book.file, item.href, offset) }
+        }
         updateTtsSentencePosition()
     }
 
@@ -988,8 +1015,22 @@ class ReaderActivity : AppCompatActivity() {
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle(R.string.tts_voice)
             .setSingleChoiceItems(labels.toTypedArray(), checked) { dialog, which ->
+                val wasPlaying = controller.state == ReaderTtsController.State.PLAYING
                 controller.voiceName = values[which]
                 scheduleTtsSettingsSave()
+                // Patch v37 follow-up: if TTS is playing, pause it so the new
+                // voice takes effect when the user presses play again. The
+                // voice setter already applied the new voice to the engine;
+                // pausing here ensures the current utterance stops.
+                if (wasPlaying) {
+                    controller.togglePauseResume()
+                    updateTtsControlsUi(false)
+                    Snackbar.make(
+                        binding.root,
+                        R.string.tts_voice_changed_pause,
+                        Snackbar.LENGTH_SHORT,
+                    ).show()
+                }
                 dialog.dismiss()
             }
             .setNegativeButton(R.string.cancel, null)
@@ -1072,15 +1113,26 @@ class ReaderActivity : AppCompatActivity() {
                     cs.pointerEvents='none';cs.zIndex='2147483646';cs.overflow='hidden';body.appendChild(container);}
                 if(!sentence)return;
                 var nodes=[],all='';
-                function collect(){nodes=[];all='';var w=doc.createTreeWalker(body,NodeFilter.SHOW_TEXT,null,false);while(w.nextNode()){nodes.push(w.currentNode);all+=w.currentNode.textContent;}}
-                function locate(off){var acc=0;for(var i=0;i<nodes.length;i++){var len=nodes[i].textContent.length;if(off<acc+len)return [nodes[i],off-acc];acc+=len;}return null;}
+                // Collect text nodes and build a normalized concatenated string.
+                // Each node's text is whitespace-normalized individually so the
+                // concatenated `all` matches the TTS-extracted text.
+                function collect(){nodes=[];all='';var w=doc.createTreeWalker(body,NodeFilter.SHOW_TEXT,null,false);while(w.nextNode()){var t=w.currentNode.textContent.replace(/\s+/g,' ');if(t){nodes.push({node:w.currentNode,text:t,len:t.length});all+=t;}}}
+                function locate(off){var acc=0;for(var i=0;i<nodes.length;i++){if(off<acc+nodes[i].len)return [nodes[i].node,off-acc];acc+=nodes[i].len;}return null;}
                 function makeRange(a,b){try{var rng=doc.createRange();rng.setStart(a[0],a[1]);rng.setEnd(b[0],b[1]);return rng;}catch(e){return null;}}
                 function drawRects(rng,color){if(!rng)return null;var rects=rng.getClientRects();var last=null;for(var i=0;i<rects.length;i++){var rect=rects[i];var d=doc.createElement('div');var s=d.style;s.position='absolute';s.left=rect.left+'px';s.top=rect.top+'px';s.width=rect.width+'px';s.height=rect.height+'px';s.backgroundColor=color;s.borderRadius='2px';container.appendChild(d);}if(rects.length)last=rects[rects.length-1];return rng.getBoundingClientRect();}
                 collect();
-                var k=sentence.length>60?sentence.substring(0,60):sentence;
+                // The concatenated `all` is already whitespace-normalized
+                // per-node in collect(), so it matches the TTS text.
+                var k=sentence.replace(/\s+/g,' ').trim();
+                if(k.length>60)k=k.substring(0,60);
                 var si=all.indexOf(k);
+                if(si<0){
+                    // Fallback: try case-insensitive search.
+                    si=all.toLowerCase().indexOf(k.toLowerCase());
+                }
                 if(si<0)return;
-                drawRects(makeRange(locate(si),locate(si+sentence.length)),sentenceColor);
+                var sentenceNorm=sentence.replace(/\s+/g,' ').trim();
+                drawRects(makeRange(locate(si),locate(si+sentenceNorm.length)),sentenceColor);
                 // Word range uses the same offsets captured before drawing, so
                 // no re-collect is needed (the DOM was never mutated).
                 var a=locate(si+start),b=locate(si+end);
@@ -1110,6 +1162,7 @@ class ReaderActivity : AppCompatActivity() {
         binding.btnBack.setOnClickListener { finish() }
         binding.btnToc.setOnClickListener { showTocBookmarks() }
         binding.btnBookmarks.setOnClickListener { showTocBookmarks(selectBookmarks = true) }
+        binding.btnHighlights.setOnClickListener { showTocBookmarks(selectHighlights = true) }
         binding.btnSearch.setOnClickListener { showSearchOverlay() }
         binding.btnSettings.setOnClickListener { showSettings() }
         // Patch v37: the TTS transport lives in its own full-screen overlay now
@@ -2580,7 +2633,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
      *  this guard it re-shows the "empty bookmarks" hint over the TOC tab. */
     private var bookmarksTabActive = false
 
-    private fun showTocBookmarks(selectBookmarks: Boolean = false) {
+    private fun showTocBookmarks(selectBookmarks: Boolean = false, selectHighlights: Boolean = false) {
         clearReaderSelection()
         val book = epub ?: return
         val root = binding.overlayContent
@@ -2666,8 +2719,13 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         }
         highlightEmpty?.text = getString(R.string.reader_highlights_empty)
 
-        binding.overlayTabGroup.check(if (selectBookmarks) binding.btnTabBookmarks.id else binding.btnTabContents.id)
-        applyOverlayTab(if (selectBookmarks) binding.btnTabBookmarks.id else binding.btnTabContents.id)
+        val initialTab = when {
+            selectHighlights -> binding.btnTabHighlights.id
+            selectBookmarks -> binding.btnTabBookmarks.id
+            else -> binding.btnTabContents.id
+        }
+        binding.overlayTabGroup.check(initialTab)
+        applyOverlayTab(initialTab)
 
         chromeVisible = false
         binding.topBar.visibility = View.GONE
@@ -3101,13 +3159,16 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
 
     override fun onActionModeStarted(mode: ActionMode) {
         super.onActionModeStarted(mode)
-        // Patch v37: we only track the active mode reference here so it can be
-        // dismissed on navigation / touch. The actual Define/Highlight items are
-        // added by the LivreWebView wrapper's onPrepareActionMode (which runs
-        // after the WebView rebuilds its menu). Adding items here too would be
-        // redundant and could interfere with the floating toolbar's positioning.
+        // Patch v37 follow-up: the LivreWebView startActionMode override was
+        // removed (Play Protect flagged it). We now re-add our Define/Highlight
+        // items here via Handler.post — the WebView's own onPrepareActionMode
+        // clears and rebuilds the menu synchronously during startActionMode,
+        // so a post (which runs after the current loop iteration) lands after
+        // that rebuild. A second postDelayed catches any async menu refresh.
         currentSelectionActionMode = mode
         definitionPopup?.dismiss()
+        binding.webView.post { addSelectionActionItems(mode.menu) }
+        binding.webView.postDelayed({ addSelectionActionItems(mode.menu) }, 100)
     }
 
     override fun onActionModeFinished(mode: ActionMode) {

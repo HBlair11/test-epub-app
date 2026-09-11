@@ -158,3 +158,67 @@ After user testing, the following refinements were made:
 - `app/src/main/res/layout/activity_about_privacy.xml` — fitsSystemWindows + toolbar styling.
 - `app/src/main/res/layout/activity_vocabulary.xml` — fitsSystemWindows + toolbar styling.
 - `docs/V37_SELECTION_TTS_HIGHLIGHTS_UPDATE.md` — this follow-up section.
+
+## Second follow-up patch (same v37)
+
+### 13. Play Protect fix — removed LivreWebView startActionMode override
+- Google Play Protect flagged the app because `LivreWebView` overrode
+  `startActionMode` and wrapped the system `ActionMode.Callback2` (intercepting
+  system selection callbacks looks like a security bypass to the scanner).
+- The `startActionMode` override and `selectionMenuDecorator` wiring were removed.
+  `LivreWebView` is now a plain pass-through WebView subclass (kept so the layout
+  XML doesn't change). Selection items (Define / Highlight) are now added in
+  `onActionModeStarted` via `Handler.post` + `postDelayed`, which runs after the
+  WebView's own `onPrepareActionMode` menu rebuild.
+
+### 14. TTS sentence segmentation with natural pauses
+- `ReaderTtsController.chunkText` was replaced with `buildSegments`, which:
+  - Splits text into paragraphs (preserving heading/POV boundaries)
+  - Further splits into sentences/clauses at `. ! ? , ; :`
+  - Adds pauses via `playSilentUtterance`: 150ms after commas/semicolons, 350ms
+    after sentence endings, 400ms after paragraphs, 600ms after headings/POV.
+- Headings are detected heuristically (short lines, < 80 chars, no sentence
+  punctuation, all-caps or title-case).
+
+### 15. TTS starts from the current page
+- `speakChapter` now accepts an optional `startOffset` parameter.
+- `startTtsForCurrentChapter` injects JavaScript that uses
+  `document.caretRangeFromPoint` at the upper-middle of the viewport to find the
+  visible text position, walks text nodes to compute a cumulative character
+  offset, and passes it to `speakChapter`.
+- `findSegmentIndex` locates the segment containing that offset so playback
+  begins from the user's current reading position.
+
+### 16. Voice change takes effect immediately
+- The `voiceName` setter now calls `applyVoice()` immediately, so the new voice
+  is applied to the engine as soon as it's selected.
+- The voice picker pauses TTS if it's playing when a new voice is selected, and
+  shows a snackbar: "Voice updated. Press play to continue." The user presses
+  play to resume from the same segment with the new voice.
+
+### 17. Sentence highlighting restored and made robust
+- Added `onSentenceHighlight` callback to `ReaderTtsController` that fires at
+  the start of each segment. It serves as a fallback sentence highlight for TTS
+  engines that don't support word-level `onRangeStart` callbacks.
+- The `highlightSpokenWord` JS now normalizes whitespace in each text node
+  individually during collection, so the concatenated DOM text matches the
+  TTS-extracted text. Added case-insensitive fallback search.
+
+### 18. Highlight icon button in Reader menu
+- Added an `ImageButton` (`btnHighlights`) in the reader top bar after the
+  Bookmarks button, using the existing `ic_highlight` drawable and
+  `EpubReaderIconButton` style.
+- `showTocBookmarks` now accepts a `selectHighlights` parameter; the button
+  opens the TOC/Bookmarks overlay directly on the Highlights tab.
+
+### Files updated in the second follow-up
+
+- `app/src/main/java/com/epubreader/app/ui/LivreWebView.kt` — stripped to plain pass-through.
+- `app/src/main/java/com/epubreader/app/epub/ReaderTtsController.kt` — rewritten segmentation,
+  startOffset support, voice setter, sentence highlight callback, pause utterances.
+- `app/src/main/java/com/epubreader/app/ReaderActivity.kt` — onActionModeStarted Handler.post,
+  startTtsForCurrentChapter JS offset, voice picker pause, sentence highlight callback,
+  highlightSpokenWord JS robustness, btnHighlights wiring, showTocBookmarks selectHighlights.
+- `app/src/main/res/layout/activity_reader.xml` — added btnHighlights ImageButton.
+- `app/src/main/res/values/strings.xml` — added `action_highlights`, `tts_voice_changed_pause`.
+- `docs/V37_SELECTION_TTS_HIGHLIGHTS_UPDATE.md` — this section.

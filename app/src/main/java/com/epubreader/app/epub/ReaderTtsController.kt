@@ -20,19 +20,15 @@ import java.util.zip.ZipFile
  * Foreground-reader TTS engine wrapper (system engine only; no network and no
  * voice downloads are performed).
  *
- * Patch v37 additions on top of the original chunked chapter reader:
- *  - offline voice selection + per-book language from EPUB dc:language
- *  - speech rate (0.5x–3.0x) and pitch (0.5x–2.0x) applied live
- *  - sentence skip forward/backward with QUEUE_FLUSH
- *  - repeat loop cycling: off -> sentence -> single word
- *  - sleep timer with per-second progress callback
- *  - word-level range callbacks (onRangeStart) for bimodal reading
- *  - sentence position reporting for the status line
- *
- * Background playback is enabled by the host (ReaderActivity keeps the
- * process alive through ReaderTtsService when the user turns it on); the
- * controller itself is lifecycle-agnostic and guarded against stale
- * utterance callbacks.
+ * Patch v37 follow-up: major rework of text segmentation and voice switching.
+ *  - Segments now preserve paragraph/heading boundaries and add natural pauses
+ *    (short after commas, medium after sentences, longer after headings/POV).
+ *  - speakChapter accepts an optional startOffset so TTS can begin from the
+ *    user's current reading position instead of always the chapter start.
+ *  - Voice changes take effect immediately: if playing, the current utterance
+ *    is stopped and the segment is re-spoken with the new voice. If paused,
+ *    the new voice is applied and the user resumes from the same segment.
+ *  - Sentence highlight callback (onSentenceHighlight) fires for each segment.
  */
 class ReaderTtsController(
     context: Context,
@@ -41,6 +37,7 @@ class ReaderTtsController(
     private val onWordRange: ((sentence: String, start: Int, end: Int) -> Unit)? = null,
     private val onSleepTimerTick: ((remainingMs: Long) -> Unit)? = null,
     private val onSleepTimerFinished: (() -> Unit)? = null,
+    private val onSentenceHighlight: ((sentence: String) -> Unit)? = null,
 ) : AutoCloseable {
     enum class State { UNAVAILABLE, INITIALIZING, READY, PLAYING, PAUSED }
 
@@ -55,11 +52,11 @@ class ReaderTtsController(
         }
     }
     private var tts: TextToSpeech? = null
-    private var chunks: List<String> = emptyList()
-    private var chunkIndex = 0
+    private var segments: List<TtsSegment> = emptyList()
+    private var segmentIndex = 0
     private var initialized = false
     private var activeUtteranceId: String? = null
-    private var activeChunkText: String = ""
+    private var activeSegmentText: String = ""
     private var sleepTimer: CountDownTimer? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var wordLoopActive = false
@@ -84,6 +81,11 @@ class ReaderTtsController(
 
     /** Explicit voice name; overrides [bookLanguage] when set and available. */
     var voiceName: String? = null
+        set(value) {
+            field = value
+            // Apply immediately so the change is audible without restart.
+            applyVoice()
+        }
 
     /** Language tag from the EPUB's dc:language; used when no explicit voice. */
     var bookLanguage: String? = null
@@ -95,7 +97,7 @@ class ReaderTtsController(
         tts = TextToSpeech(appContext) { status ->
             initialized = status == TextToSpeech.SUCCESS
             state = if (initialized) {
-                applyLanguage()
+                applyVoice()
                 State.READY
             } else {
                 State.UNAVAILABLE
@@ -113,7 +115,7 @@ class ReaderTtsController(
 
                 override fun onRangeStart(utteranceId: String, start: Int, end: Int, frame: Int) {
                     if (utteranceId != activeUtteranceId) return
-                    val sentence = activeChunkText
+                    val sentence = activeSegmentText
                     onWordRange?.invoke(sentence, start, end)
                     // Word-repeat mode: as soon as the engine starts a word,
                     // cut the sentence and loop that word until turned off.
@@ -138,19 +140,30 @@ class ReaderTtsController(
                             // Word loop ended: resume the interrupted sentence.
                             wordLoopActive = false
                             wordLoopText = null
-                            if (state == State.PLAYING && chunks.isNotEmpty()) speakCurrentChunk()
+                            if (state == State.PLAYING && segments.isNotEmpty()) speakCurrentSegment()
                         }
                         return
                     }
                     if (utteranceId != activeUtteranceId) return
                     activeUtteranceId = null
-                    if (repeatMode == RepeatMode.SENTENCE && chunks.isNotEmpty()) {
-                        speakCurrentChunk()
+
+                    // Insert a natural pause after this segment if configured.
+                    val pauseMs = segments.getOrNull(segmentIndex)?.pauseAfterMs ?: 0
+                    if (pauseMs > 0 && state == State.PLAYING) {
+                        // Use a silent utterance to create a pause.
+                        val pauseId = PAUSE_PREFIX + UUID.randomUUID()
+                        activeUtteranceId = pauseId
+                        tts?.playSilentUtterance(pauseMs.toLong(), TextToSpeech.QUEUE_FLUSH, pauseId)
                         return
                     }
-                    chunkIndex++
-                    if (chunkIndex < chunks.size) {
-                        speakCurrentChunk()
+
+                    if (repeatMode == RepeatMode.SENTENCE && segments.isNotEmpty()) {
+                        speakCurrentSegment()
+                        return
+                    }
+                    segmentIndex++
+                    if (segmentIndex < segments.size) {
+                        speakCurrentSegment()
                     } else {
                         state = State.READY
                         releaseAudioFocus()
@@ -183,7 +196,7 @@ class ReaderTtsController(
 
     /** 1-based (index, count) of the sentence currently being spoken. */
     fun sentencePosition(): Pair<Int, Int>? =
-        if (chunks.isEmpty()) null else (chunkIndex + 1).coerceAtMost(chunks.size) to chunks.size
+        if (segments.isEmpty()) null else (segmentIndex + 1).coerceAtMost(segments.size) to segments.size
 
     fun sleepTimerRemainingMs(): Long =
         sleepTimer?.let { timer -> sleepRemainingMs } ?: -1L
@@ -212,7 +225,12 @@ class ReaderTtsController(
         sleepRemainingMs = -1L
     }
 
-    suspend fun speakChapter(file: File, href: String) {
+    /**
+     * Speak the chapter starting from [startOffset] characters into the text.
+     * If startOffset > 0, the segment containing that offset is located and
+     * playback begins from it. If 0 or omitted, starts from the beginning.
+     */
+    suspend fun speakChapter(file: File, href: String, startOffset: Int = 0) {
         val text = extractText(file, href)
         withContext(Dispatchers.Main) {
             if (!initialized || text.isBlank()) {
@@ -220,8 +238,12 @@ class ReaderTtsController(
                 onStateChanged(false)
                 return@withContext
             }
-            chunks = chunkText(text)
-            chunkIndex = 0
+            segments = buildSegments(text)
+            segmentIndex = if (startOffset > 0) {
+                findSegmentIndex(segments, text, startOffset)
+            } else {
+                0
+            }
             wordLoopActive = false
             wordLoopText = null
             playInternal()
@@ -238,29 +260,29 @@ class ReaderTtsController(
 
     /** Jump to the previous/next sentence and speak it immediately. */
     fun skipSentence(forward: Boolean) {
-        if (!initialized || chunks.isEmpty()) return
+        if (!initialized || segments.isEmpty()) return
         wordLoopActive = false
         wordLoopText = null
-        val target = if (forward) (chunkIndex + 1).coerceAtMost(chunks.size - 1)
-        else (chunkIndex - 1).coerceAtLeast(0)
-        if (target == chunkIndex && state != State.PAUSED) {
+        val target = if (forward) (segmentIndex + 1).coerceAtMost(segments.size - 1)
+        else (segmentIndex - 1).coerceAtLeast(0)
+        if (target == segmentIndex && state != State.PAUSED) {
             // Re-speak the same sentence on a no-op skip so the user gets feedback.
-            speakCurrentChunk()
+            speakCurrentSegment()
             return
         }
-        chunkIndex = target
+        segmentIndex = target
         if (state == State.PAUSED) {
             state = State.PLAYING
             onStateChanged(true)
         }
-        speakCurrentChunk()
+        speakCurrentSegment()
     }
 
     fun stop() {
         activeUtteranceId = null
         tts?.stop()
-        chunks = emptyList()
-        chunkIndex = 0
+        segments = emptyList()
+        segmentIndex = 0
         wordLoopActive = false
         wordLoopText = null
         cancelSleepTimer()
@@ -270,17 +292,18 @@ class ReaderTtsController(
     }
 
     private fun playInternal() {
-        if (!initialized || chunks.isEmpty()) return
+        if (!initialized || segments.isEmpty()) return
         audioManager?.requestAudioFocus(audioFocusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-        applyLanguage()
+        applyVoice()
         tts?.setSpeechRate(speechRate)
         tts?.setPitch(pitch)
         state = State.PLAYING
         onStateChanged(true)
-        speakCurrentChunk()
+        speakCurrentSegment()
     }
 
-    private fun applyLanguage() {
+    /** Apply the selected voice (or language fallback) to the engine. */
+    private fun applyVoice() {
         val engine = tts ?: return
         val voice = voiceName?.let { name -> engine.voices.orEmpty().find { it.name == name && !it.isNetworkConnectionRequired } }
         if (voice != null) {
@@ -318,12 +341,13 @@ class ReaderTtsController(
         tts?.speak(word, TextToSpeech.QUEUE_FLUSH, null, id)
     }
 
-    private fun speakCurrentChunk() {
-        val text = chunks.getOrNull(chunkIndex) ?: return
+    private fun speakCurrentSegment() {
+        val segment = segments.getOrNull(segmentIndex) ?: return
         val id = UUID.randomUUID().toString()
         activeUtteranceId = id
-        activeChunkText = text
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, id)
+        activeSegmentText = segment.text
+        onSentenceHighlight?.invoke(segment.text)
+        tts?.speak(segment.text, TextToSpeech.QUEUE_FLUSH, null, id)
     }
 
     private fun releaseAudioFocus() {
@@ -343,25 +367,164 @@ class ReaderTtsController(
         }.getOrDefault("")
     }
 
-    private fun chunkText(text: String): List<String> {
-        val paragraphs = text.split(Regex("(?<=[.!?])\\s+|\\n+"))
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-        val result = mutableListOf<String>()
+    /**
+     * Build TTS segments from the raw chapter text. Each segment is a sentence
+     * or short clause with an associated pause duration for natural rhythm.
+     *
+     * - Headings (short standalone lines, < 60 chars, no sentence-ending punctuation):
+     *   longer pause (600ms) after them.
+     * - Paragraph breaks: medium pause (400ms).
+     * - Sentence endings (. ! ?): medium pause (350ms).
+     * - Commas, semicolons, colons: short pause (150ms).
+     * - POV / chapter names: treated as headings.
+     */
+    private fun buildSegments(text: String): List<TtsSegment> {
+        val result = mutableListOf<TtsSegment>()
         val maxChars = 3500
-        for (paragraph in paragraphs) {
-            if (paragraph.length <= maxChars) {
-                result += paragraph
-                continue
-            }
-            var start = 0
-            while (start < paragraph.length) {
-                val end = minOf(start + maxChars, paragraph.length)
-                result += paragraph.substring(start, end).trim()
-                start = end
+
+        // Split into paragraphs first (double newline or heading-like short lines)
+        val paragraphs = splitIntoParagraphs(text)
+
+        for (para in paragraphs) {
+            val trimmed = para.trim()
+            if (trimmed.isBlank()) continue
+
+            val isHeading = isLikelyHeading(trimmed)
+            val pauseAfterPara = if (isHeading) 600L else 400L
+
+            // Split paragraph into sentences/clauses
+            val sentences = splitIntoSentences(trimmed)
+            for ((idx, sentence) in sentences.withIndex()) {
+                val s = sentence.trim()
+                if (s.isBlank()) continue
+
+                val pauseAfter = when {
+                    idx == sentences.lastIndex -> pauseAfterPara
+                    s.endsWith(",") || s.endsWith(";") || s.endsWith(":") -> 150L
+                    else -> 350L
+                }
+
+                if (s.length <= maxChars) {
+                    result += TtsSegment(s, pauseAfter)
+                } else {
+                    // Split very long segments at natural points
+                    var start = 0
+                    while (start < s.length) {
+                        val end = findSplitPoint(s, start, maxChars)
+                        val chunk = s.substring(start, end).trim()
+                        if (chunk.isNotBlank()) {
+                            val isLast = end >= s.length
+                            result += TtsSegment(chunk, if (isLast) pauseAfter else 200L)
+                        }
+                        start = end
+                    }
+                }
             }
         }
         return result
+    }
+
+    /** Split text into paragraphs, preserving heading-like lines separately. */
+    private fun splitIntoParagraphs(text: String): List<String> {
+        val result = mutableListOf<String>()
+        // Split on double newlines (paragraph breaks)
+        val rawParas = text.split(Regex("\\n{2,}"))
+        for (para in rawParas) {
+            val trimmed = para.trim()
+            if (trimmed.isBlank()) continue
+            // If a "paragraph" contains single newlines, it might be multiple
+            // heading-like lines stacked. Split on single newlines too.
+            val lines = trimmed.split(Regex("\\n"))
+            if (lines.size > 1) {
+                for (line in lines) {
+                    val lt = line.trim()
+                    if (lt.isNotBlank()) result += lt
+                }
+            } else {
+                result += trimmed
+            }
+        }
+        return result
+    }
+
+    /**
+     * Heuristic: a short line (< 80 chars) with no sentence-ending punctuation
+     * is likely a heading, chapter title, or POV marker.
+     */
+    private fun isLikelyHeading(text: String): Boolean {
+        if (text.length > 80) return false
+        if (text.endsWith(".") || text.endsWith("!") || text.endsWith("?")) return false
+        // All-caps or title-case short lines are headings
+        if (text == text.uppercase() && text.length > 2) return true
+        // Short lines without verbs are likely headings
+        if (text.length < 50) return true
+        return false
+    }
+
+    /**
+     * Split a paragraph into sentence-level segments. Splits after sentence
+     * punctuation (. ! ?) and also after commas/semicolons/colons for shorter
+     * spoken chunks with natural pauses.
+     */
+    private fun splitIntoSentences(text: String): List<String> {
+        val result = mutableListOf<String>()
+        val regex = Regex("(?<=[.!?])\\s+|(?<=[,;:])\\s+")
+        val parts = text.split(regex)
+        // Re-join sentence fragments that were split at commas into proper sentences
+        val current = StringBuilder()
+        for (part in parts) {
+            val p = part.trim()
+            if (p.isBlank()) continue
+            current.append(p)
+            // End a segment after sentence-ending punctuation or commas
+            if (p.endsWith(".") || p.endsWith("!") || p.endsWith("?") ||
+                p.endsWith(",") || p.endsWith(";") || p.endsWith(":")
+            ) {
+                result += current.toString()
+                current.clear()
+            }
+        }
+        if (current.isNotEmpty()) {
+            result += current.toString()
+        }
+        return result
+    }
+
+    /** Find a good split point in a long string near maxLen. */
+    private fun findSplitPoint(text: String, start: Int, maxLen: Int): Int {
+        val end = minOf(start + maxLen, text.length)
+        if (end >= text.length) return end
+        // Look for a sentence boundary near the end
+        for (i in end downTo start) {
+            val c = text[i]
+            if (c == '.' || c == '!' || c == '?' || c == ',' || c == ';' || c == ':') {
+                return i + 1
+            }
+        }
+        return end
+    }
+
+    /**
+     * Find the segment index that contains the given character offset in the
+     * original text. Uses a cumulative character count across segments.
+     */
+    private fun findSegmentIndex(segments: List<TtsSegment>, fullText: String, offset: Int): Int {
+        if (offset <= 0 || segments.isEmpty()) return 0
+        // Build a cumulative offset map by searching for each segment's text
+        // in the full text. This is more robust than character counting because
+        // the segment text may differ slightly from the raw text (trimming).
+        var searchPos = 0
+        for (i in segments.indices) {
+            val segText = segments[i].text
+            val found = fullText.indexOf(segText.substring(0, minOf(40, segText.length)), searchPos)
+            if (found < 0) continue
+            val segEnd = found + segText.length
+            if (offset <= segEnd) {
+                return i
+            }
+            searchPos = segEnd
+        }
+        return 0
     }
 
     @Volatile
@@ -373,11 +536,18 @@ class ReaderTtsController(
         tts = null
     }
 
+    /** A TTS segment: the text to speak and the pause (ms) after it. */
+    private data class TtsSegment(
+        val text: String,
+        val pauseAfterMs: Long,
+    )
+
     companion object {
         const val MIN_RATE = 0.5f
         const val MAX_RATE = 3.0f
         const val MIN_PITCH = 0.5f
         const val MAX_PITCH = 2.0f
         private const val WORD_LOOP_PREFIX = "livre-word-loop-"
+        private const val PAUSE_PREFIX = "livre-pause-"
     }
 }

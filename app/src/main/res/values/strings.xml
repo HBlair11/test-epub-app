@@ -24,6 +24,7 @@
     <string name="action_more">More</string>
     <string name="action_toc">Contents</string>
     <string name="action_bookmarks">Bookmarks</string>
+    <string name="action_highlights">Highlights</string>
     <string name="action_settings">Settings</string>
     <string name="action_back">Back</string>
     <string name="action_prev">Previous</string>
@@ -332,6 +333,7 @@
     <string name="tts_pitch">Pitch</string>
     <string name="tts_voice">Voice</string>
     <string name="tts_voice_default">Automatic (book language)</string>
+    <string name="tts_voice_changed_pause">Voice updated. Press play to continue.</string>
     <string name="tts_background_playback">Keep reading in background</string>
     <string name="tts_background_playback_summary">Continue read-aloud when the screen is off or you switch apps</string>
     <string name="tts_sentence_position">Sentence %1$d of %2$d</string>
