@@ -338,4 +338,12 @@
     <string name="tts_notification_title">Reading aloud</string>
     <string name="tts_notification_channel">Read aloud playback</string>
 
+    <!-- Patch v37: dedicated Read Aloud overlay (replaces the crowded in-menu
+         transport). Speaker icon opens this full-screen panel; the original
+         reader menu disappears while it is open. -->
+    <string name="tts_overlay_title">Read aloud</string>
+    <string name="tts_close">Close read aloud</string>
+    <string name="tts_section">Section</string>
+    <string name="tts_stop_confirm">Stop</string>
+
 </resources>

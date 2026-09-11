@@ -51,6 +51,18 @@ class HighlightListAdapter(
         val text = TextView(ctx).apply {
             textSize = 14f
             maxLines = 3
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            // Patch v37: an explicit match-parent width is required here. The
+            // row is a horizontal LinearLayout whose text column is a vertical
+            // LinearLayout sized via layout_weight (width 0 + weight 1). A child
+            // TextView left at the default wrap_content is first measured against
+            // a 0-width constraint, which wraps every character onto its own
+            // line (the word renders vertically). Forcing match_parent makes the
+            // text fill the weighted column and wrap normally.
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
         }
         val note = TextView(ctx).apply {
             textSize = 12f

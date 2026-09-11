@@ -74,6 +74,10 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var prefs: PrefsManager
     private var pendingSelectionCallback: ((ReaderSelectionLocator?) -> Unit)? = null
     private var definitionPopup: PopupWindow? = null
+    /** Active text-selection ActionMode (the floating Copy/Translate/… toolbar).
+     *  Held so it can be dismissed when the user navigates away or taps the
+     *  page. Patch v37. */
+    private var currentSelectionActionMode: ActionMode? = null
     private var dictionaryLookup: com.epubreader.app.epub.DictionaryLookup? = null
     private var ttsController: ReaderTtsController? = null
     private var readingSessionStartedAt: Long? = null
@@ -269,7 +273,7 @@ class ReaderActivity : AppCompatActivity() {
                     goToSpine(spineIndex + 1)
                     handler.postDelayed({ startTtsForCurrentChapter() }, 450)
                 } else {
-                    binding.ttsStatus.text = getString(R.string.action_read_aloud)
+                    binding.tvTtsStatus.text = getString(R.string.action_read_aloud)
                 }
             }
         }, { sentence, start, end ->
@@ -279,7 +283,7 @@ class ReaderActivity : AppCompatActivity() {
         }, { remainingMs ->
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                binding.ttsStatus.text = getString(R.string.tts_sleep_remaining, (remainingMs / 60000L).toInt() + 1)
+                binding.tvTtsStatus.text = getString(R.string.tts_sleep_remaining, (remainingMs / 60000L).toInt() + 1)
             }
         }, {
             runOnUiThread {
@@ -424,6 +428,17 @@ class ReaderActivity : AppCompatActivity() {
             "LivreHighlight"
         )
         binding.webView.setOnLongClickListener { false }
+
+        // Patch v37: add Define + Highlight to the native floating selection
+        // toolbar (the same one that shows Copy / Translate / Select all /
+        // Share / Web search). The previous attempt added the items in the
+        // Activity-level onActionModeStarted hook, but the WebView rebuilds its
+        // selection menu in onPrepareActionMode afterwards, which dropped them.
+        // Registering a custom selection ActionMode callback lets us add the
+        // items in onPrepareActionMode (the last point before the toolbar is
+        // rendered) so they survive — and we never call menu.clear(), so every
+        // default action the user expects stays alongside ours.
+        binding.webView.setCustomSelectionActionModeCallback(selectionActionCallback)
     }
 
     private fun captureCurrentSelection(onCaptured: ((ReaderSelectionLocator?) -> Unit)? = null) {
@@ -722,7 +737,9 @@ class ReaderActivity : AppCompatActivity() {
             Snackbar.make(binding.root, R.string.tts_unavailable, Snackbar.LENGTH_LONG).show()
             return
         }
-        binding.ttsControls.visibility = View.VISIBLE
+        // Note: the overlay is opened by the speaker button / showTtsOverlay,
+        // not here, so auto-advancing to the next chapter during TTS does not
+        // reopen the overlay if the user minimized it.
         updateTtsServiceState()
         lifecycleScope.launch { ttsController?.speakChapter(book.file, item.href) }
         updateTtsSentencePosition()
@@ -736,25 +753,64 @@ class ReaderActivity : AppCompatActivity() {
     /** SeekBar progress -> engine pitch (0.5 + N * 0.05). */
     private fun ttsPitchFor(progress: Int): Float = 0.5f + progress * 0.05f
 
-    /** Transport row state: visibility, play/pause icon, status line. */
+    /** Transport + status state for the dedicated TTS overlay. The overlay's
+     *  own visibility is managed by [showTtsOverlay] / [hideTtsOverlay] (opened
+     *  by the speaker icon, closed by the back / stop controls); this only
+     *  refreshes the play/pause icon and the status line. */
     private fun updateTtsControlsUi(playing: Boolean) {
-        binding.ttsControls.visibility =
-            if (playing || ttsController?.state == ReaderTtsController.State.PAUSED) View.VISIBLE else View.GONE
         binding.btnTtsPlayPause.setImageResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play)
         binding.btnTtsPlayPause.contentDescription = getString(if (playing) R.string.tts_pause else R.string.tts_play)
-        binding.btnTtsRepeat.alpha =
-            if (ttsController?.repeatMode == null || ttsController?.repeatMode == ReaderTtsController.RepeatMode.OFF) 0.55f else 1f
         if (playing) {
             updateTtsSentencePosition()
         } else {
             val remaining = ttsController?.sleepTimerRemainingMs() ?: -1L
-            if (remaining <= 0L) binding.ttsStatus.text = getString(R.string.action_read_aloud)
+            if (remaining > 0L) {
+                binding.tvTtsStatus.text = getString(R.string.tts_sleep_remaining, (remaining / 60000L).toInt() + 1)
+            } else if (ttsController?.state == ReaderTtsController.State.PAUSED) {
+                binding.tvTtsStatus.text = getString(R.string.tts_pause)
+            } else {
+                binding.tvTtsStatus.text = getString(R.string.action_read_aloud)
+            }
         }
+    }
+
+    /** Opens the full-screen Read Aloud overlay: hides the reader top/bottom
+     *  bars (the original menu) so only the TTS panel is visible, then refreshes
+     *  the header (book title + current section) and transport state. */
+    private fun showTtsOverlay() {
+        clearReaderSelection()
+        chromeVisible = false
+        binding.topBar.visibility = View.GONE
+        binding.bottomBar.visibility = View.GONE
+        binding.tvPageIndicator.visibility = View.GONE
+        binding.ttsOverlay.visibility = View.VISIBLE
+        binding.tvTtsBookTitle.text = epub?.metadata?.title?.ifBlank { null }
+            ?: bookEntity?.title
+            ?: getString(R.string.app_name)
+        binding.tvTtsSection.text = sectionLabel()
+        val playing = ttsController?.state == ReaderTtsController.State.PLAYING
+        updateTtsControlsUi(playing)
+        updateHistoryUi()
+    }
+
+    /** Closes the Read Aloud overlay and restores the reader chrome. Read-aloud
+     *  itself is NOT stopped here (the Stop button does that), so closing the
+     *  panel while playing keeps playback going in the background when the user
+     *  has enabled it. */
+    private fun hideTtsOverlay() {
+        binding.ttsOverlay.visibility = View.GONE
+        chromeVisible = true
+        binding.topBar.visibility = View.VISIBLE
+        binding.bottomBar.visibility = View.VISIBLE
+        binding.tvPageIndicator.visibility = View.GONE
+        if (chromeVisible) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        updateHistoryUi()
+        updatePageIndicator()
     }
 
     private fun updateTtsSentencePosition() {
         val position = ttsController?.sentencePosition() ?: return
-        binding.ttsStatus.text = getString(R.string.tts_sentence_position, position.first, position.second)
+        binding.tvTtsStatus.text = getString(R.string.tts_sentence_position, position.first, position.second)
     }
 
     /** Starts/stops the keep-alive foreground service with the media
@@ -779,10 +835,10 @@ class ReaderActivity : AppCompatActivity() {
 
     private fun stopTtsCompletely() {
         ttsController?.stop()
-        binding.ttsControls.visibility = View.GONE
         clearSpokenWordHighlight()
         ReaderTtsService.stop(this)
-        binding.ttsStatus.text = getString(R.string.action_read_aloud)
+        binding.tvTtsStatus.text = getString(R.string.action_read_aloud)
+        hideTtsOverlay()
     }
 
     private fun showSleepTimerMenu() {
@@ -802,42 +858,110 @@ class ReaderActivity : AppCompatActivity() {
             .show()
     }
 
-    /** Bottom sheet with background-playback toggle and voice picker. */
+    /** Read-aloud settings sub-screen (opened from the TTS overlay's tune
+     *  button). Hosts the speed/pitch sliders, sleep timer, background-playback
+     *  toggle and voice picker so the main overlay stays clean. */
     private fun showTtsSettingsSheet() {
         val controller = ttsController ?: return
         val dialog = BottomSheetDialog(this)
-        val pad = (20 * resources.displayMetrics.density).roundToInt()
+        val density = resources.displayMetrics.density
+        val pad = (20 * density).roundToInt()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad, pad, pad)
         }
+        val sectionGap = (12 * density).roundToInt()
         root.addView(TextView(this).apply {
             text = getString(R.string.tts_settings)
             textSize = 16f
             setTextColor(themeColor(android.R.attr.textColorPrimary))
-            setPadding(0, 0, 0, (12 * resources.displayMetrics.density).roundToInt())
+            setPadding(0, 0, 0, sectionGap)
         })
+
+        fun sliderRow(labelRes: Int, value: Float, max: Int, progress: Int, onChange: (Float) -> Unit, onStop: (Int) -> Unit): LinearLayout {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, 0, 0, sectionGap)
+            }
+            val labelRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
+            labelRow.addView(TextView(this).apply {
+                text = getString(labelRes)
+                textSize = 14f
+                setTextColor(themeColor(android.R.attr.textColorPrimary))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            val valueView = TextView(this).apply {
+                text = String.format(java.util.Locale.US, "%.2fx", value)
+                textSize = 14f
+                setTextColor(themeColor(android.R.attr.textColorSecondary))
+            }
+            labelRow.addView(valueView)
+            row.addView(labelRow)
+            val seek = SeekBar(this).apply {
+                this.max = max
+                this.progress = progress
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
+                        if (!fromUser) return
+                        val v = if (labelRes == R.string.tts_speed) ttsRateFor(p) else ttsPitchFor(p)
+                        valueView.text = String.format(java.util.Locale.US, "%.2fx", v)
+                        onChange(v)
+                    }
+                    override fun onStartTrackingTouch(sb: SeekBar?) {}
+                    override fun onStopTrackingTouch(sb: SeekBar?) {
+                        onStop(sb?.progress ?: progress)
+                    }
+                })
+            }
+            row.addView(seek)
+            return row
+        }
+
+        root.addView(sliderRow(
+            R.string.tts_speed, controller.speechRate, PrefsManager.TTS_SPEED_MAX,
+            (((controller.speechRate - 0.5f) / 0.05f).roundToInt()).coerceIn(0, PrefsManager.TTS_SPEED_MAX),
+            onChange = { v -> controller.speechRate = v; scheduleTtsSettingsSave() },
+            onStop = { p -> prefs.ttsSpeedProgress = p; scheduleTtsSettingsSave() },
+        ))
+        root.addView(sliderRow(
+            R.string.tts_pitch, controller.pitch, PrefsManager.TTS_PITCH_MAX,
+            (((controller.pitch - 0.5f) / 0.05f).roundToInt()).coerceIn(0, PrefsManager.TTS_PITCH_MAX),
+            onChange = { v -> controller.pitch = v; scheduleTtsSettingsSave() },
+            onStop = { p -> prefs.ttsPitchProgress = p; scheduleTtsSettingsSave() },
+        ))
+
+        val sleepButton = com.google.android.material.button.MaterialButton(this).apply {
+            val remaining = controller.sleepTimerRemainingMs()
+            text = if (remaining > 0L) getString(R.string.tts_sleep_remaining, (remaining / 60000L).toInt() + 1)
+            else getString(R.string.tts_sleep_timer)
+            setOnClickListener {
+                showSleepTimerMenu()
+                dialog.dismiss()
+            }
+        }
+        root.addView(sleepButton)
+
         val backgroundSwitch = com.google.android.material.switchmaterial.SwitchMaterial(this).apply {
             text = getString(R.string.tts_background_playback)
             isChecked = prefs.ttsBackgroundPlayback
+            setOnCheckedChangeListener { _, checked ->
+                if (checked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                }
+                prefs.ttsBackgroundPlayback = checked
+                updateTtsServiceState()
+            }
         }
         root.addView(backgroundSwitch)
         root.addView(TextView(this).apply {
             text = getString(R.string.tts_background_playback_summary)
             textSize = 12f
             setTextColor(themeColor(android.R.attr.textColorSecondary))
-            setPadding(0, 0, 0, (12 * resources.displayMetrics.density).roundToInt())
+            setPadding(0, 0, 0, sectionGap)
         })
-        backgroundSwitch.setOnCheckedChangeListener { _, checked ->
-            if (checked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-                android.content.pm.PackageManager.PERMISSION_GRANTED
-            ) {
-                notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-            }
-            prefs.ttsBackgroundPlayback = checked
-            updateTtsServiceState()
-        }
         val voiceButton = com.google.android.material.button.MaterialButton(this).apply {
             text = getString(R.string.tts_voice)
             setOnClickListener { showVoicePicker() }
@@ -869,7 +993,10 @@ class ReaderActivity : AppCompatActivity() {
             .show()
     }
 
-    /** Loads per-book rate/pitch/voice from Room (falls back to app prefs). */
+    /** Loads per-book rate/pitch/voice from Room (falls back to app prefs).
+     *  Patch v37: the sliders no longer live in the top bar (they moved into
+     *  the settings sheet), so this only applies saved values to the controller;
+     *  the sheet reads controller.speechRate / pitch each time it opens. */
     private fun applyTtsSettings() {
         val controller = ttsController ?: return
         controller.bookLanguage = epub?.metadata?.language
@@ -881,19 +1008,11 @@ class ReaderActivity : AppCompatActivity() {
                     controller.speechRate = saved.speechRate
                     controller.pitch = saved.pitch
                     controller.voiceName = saved.voiceName
-                    binding.ttsSpeed.progress =
-                        (((saved.speechRate - 0.5f) / 0.05f).roundToInt()).coerceIn(0, PrefsManager.TTS_SPEED_MAX)
-                    binding.ttsPitch.progress =
-                        (((saved.pitch - 0.5f) / 0.05f).roundToInt()).coerceIn(0, PrefsManager.TTS_PITCH_MAX)
                 } else {
                     controller.speechRate = ttsRateFor(prefs.ttsSpeedProgress)
                     controller.pitch = ttsPitchFor(prefs.ttsPitchProgress)
                     controller.voiceName = null
-                    binding.ttsSpeed.progress = prefs.ttsSpeedProgress
-                    binding.ttsPitch.progress = prefs.ttsPitchProgress
                 }
-                binding.ttsSpeedLabel.text = String.format(java.util.Locale.US, "%.2fx", controller.speechRate)
-                binding.ttsPitchLabel.text = String.format(java.util.Locale.US, "%.2fx", controller.pitch)
             }
         }
     }
@@ -919,50 +1038,54 @@ class ReaderActivity : AppCompatActivity() {
         }
     }
 
-    /** Bimodal reading: tints the sentence being spoken and wraps the exact
-     *  word in a stronger span, auto-turning the page when the spoken word
-     *  moves off-page. */
+    /** Bimodal reading: tints the sentence being spoken and the exact word
+     *  being read, auto-turning the page when the spoken word moves off-page.
+     *
+     *  Patch v37: the highlight is drawn with non-mutating overlay rectangles
+     *  (absolutely-positioned divs in a fixed container) instead of wrapping the
+     *  text in <span>s. surroundContents/extractContents mutate the EPUB content
+     *  tree, which reflowed the page and shifted the layout every time a new
+     *  word was spoken — the user explicitly asked for the content to stay put.
+     *  Overlay rects are positioned over the text and never touch the DOM, so
+     *  pagination, columns and reflow are all left exactly as the user sees
+     *  them. */
     private fun highlightSpokenWord(sentence: String, start: Int, end: Int) {
         if (isFinishing || isDestroyed) return
         val controller = ttsController ?: return
         if (controller.state != ReaderTtsController.State.PLAYING) return
         val color = getColor(R.color.tts_word_highlight)
-        val wordCss = String.format(
-            java.util.Locale.US, "rgba(%d,%d,%d,0.55)",
-            Color.red(color), Color.green(color), Color.blue(color),
-        )
-        val sentenceCss = String.format(
-            java.util.Locale.US, "rgba(%d,%d,%d,0.22)",
-            Color.red(color), Color.green(color), Color.blue(color),
-        )
-        // Full sentence: onRangeStart offsets are relative to the whole
-        // chunk, so the JS side must receive the complete text.
+        val r = Color.red(color); val g = Color.green(color); val b = Color.blue(color)
+        val wordCss = String.format(java.util.Locale.US, "rgba(%d,%d,%d,0.55)", r, g, b)
+        val sentenceCss = String.format(java.util.Locale.US, "rgba(%d,%d,%d,0.22)", r, g, b)
         val key = org.json.JSONObject.quote(sentence)
         binding.webView.evaluateJavascript(
             """(function(){
                 var sentence=$key,start=$start,end=$end,wordColor='$wordCss',sentenceColor='$sentenceCss';
-                function unwrap(cls){var p=document.querySelector(cls);if(p){var q=p.parentNode;while(p.firstChild)q.insertBefore(p.firstChild,p);q.removeChild(p);}}
-                unwrap('.livre-tts-word');unwrap('.livre-tts-sentence');
+                var doc=document,body=doc.body;
+                var container=doc.getElementById('livre-tts-hl');
+                if(container){while(container.firstChild)container.removeChild(container.firstChild);}
+                else{container=doc.createElement('div');container.id='livre-tts-hl';
+                    var cs=container.style;cs.position='fixed';cs.top='0';cs.left='0';cs.width='100%';cs.height='100%';
+                    cs.pointerEvents='none';cs.zIndex='2147483646';cs.overflow='hidden';body.appendChild(container);}
                 if(!sentence)return;
                 var nodes=[],all='';
-                function collect(){nodes=[];all='';var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);while(w.nextNode()){nodes.push(w.currentNode);all+=w.currentNode.textContent;}}
+                function collect(){nodes=[];all='';var w=doc.createTreeWalker(body,NodeFilter.SHOW_TEXT,null,false);while(w.nextNode()){nodes.push(w.currentNode);all+=w.currentNode.textContent;}}
                 function locate(off){var acc=0;for(var i=0;i<nodes.length;i++){var len=nodes[i].textContent.length;if(off<acc+len)return [nodes[i],off-acc];acc+=len;}return null;}
-                function wrap(a,b,cls,color){try{var r=document.createRange();r.setStart(a[0],a[1]);r.setEnd(b[0],b[1]);var s=document.createElement('span');s.className=cls;s.style.backgroundColor=color;r.surroundContents(s);return s;}catch(e){try{var r2=document.createRange();r2.setStart(a[0],a[1]);r2.setEnd(b[0],b[1]);var frag=r2.extractContents();var s2=document.createElement('span');s2.className=cls;s2.style.backgroundColor=color;s2.appendChild(frag);r2.insertNode(s2);return s2;}catch(e2){return null;}}}
+                function makeRange(a,b){try{var rng=doc.createRange();rng.setStart(a[0],a[1]);rng.setEnd(b[0],b[1]);return rng;}catch(e){return null;}}
+                function drawRects(rng,color){if(!rng)return null;var rects=rng.getClientRects();var last=null;for(var i=0;i<rects.length;i++){var rect=rects[i];var d=doc.createElement('div');var s=d.style;s.position='absolute';s.left=rect.left+'px';s.top=rect.top+'px';s.width=rect.width+'px';s.height=rect.height+'px';s.backgroundColor=color;s.borderRadius='2px';container.appendChild(d);}if(rects.length)last=rects[rects.length-1];return rng.getBoundingClientRect();}
                 collect();
                 var k=sentence.length>60?sentence.substring(0,60):sentence;
                 var si=all.indexOf(k);
                 if(si<0)return;
-                // Sentence-level tint first.
-                wrap(locate(si),locate(si+sentence.length),'livre-tts-sentence',sentenceColor);
-                // The DOM just changed; re-collect before wrapping the word.
-                collect();
+                drawRects(makeRange(locate(si),locate(si+sentence.length)),sentenceColor);
+                // Word range uses the same offsets captured before drawing, so
+                // no re-collect is needed (the DOM was never mutated).
                 var a=locate(si+start),b=locate(si+end);
                 if(!a||!b)return;
-                var span=wrap(a,b,'livre-tts-word',wordColor);
-                if(span&&window.Caesura){
-                    var rect=span.getBoundingClientRect();
-                    if(rect.left>=window.innerWidth-10){window.Caesura.nextPage();}
-                    else if(rect.right<=10){window.Caesura.prevPage();}
+                var wordRect=drawRects(makeRange(a,b),wordColor);
+                if(wordRect&&window.Caesura){
+                    if(wordRect.left>=window.innerWidth-10){window.Caesura.nextPage();}
+                    else if(wordRect.right<=10){window.Caesura.prevPage();}
                 }
             })();""",
             null,
@@ -971,8 +1094,11 @@ class ReaderActivity : AppCompatActivity() {
 
     private fun clearSpokenWordHighlight() {
         if (isFinishing || isDestroyed) return
+        // Patch v37: removes the non-mutating overlay container created in
+        // highlightSpokenWord. No EPUB content was wrapped, so there is nothing
+        // to unwrap — just drop the overlay divs.
         binding.webView.evaluateJavascript(
-            "(function(){['livre-tts-word','livre-tts-sentence'].forEach(function(c){var p=document.querySelector('.'+c);if(p){var q=p.parentNode;while(p.firstChild)q.insertBefore(p.firstChild,p);q.removeChild(p);}});})();",
+            "(function(){var c=document.getElementById('livre-tts-hl');if(c&&c.parentNode)c.parentNode.removeChild(c);})();",
             null,
         )
     }
@@ -983,86 +1109,42 @@ class ReaderActivity : AppCompatActivity() {
         binding.btnBookmarks.setOnClickListener { showTocBookmarks(selectBookmarks = true) }
         binding.btnSearch.setOnClickListener { showSearchOverlay() }
         binding.btnSettings.setOnClickListener { showSettings() }
+        // Patch v37: the TTS transport lives in its own full-screen overlay now
+        // (see showTtsOverlay / hideTtsOverlay). The top bar's speaker button
+        // only opens that overlay (or starts playback if idle) — it no longer
+        // toggles pause, because pause lives in the overlay's own play/pause
+        // button. The overlay's transport (play/pause, prev/next sentence, stop,
+        // settings) is wired here. Speed + pitch sliders moved into
+        // showTtsSettingsSheet so the overlay stays clean.
         binding.btnReadAloud.setOnClickListener {
-            if (ttsController?.state == ReaderTtsController.State.PLAYING || ttsController?.state == ReaderTtsController.State.PAUSED) {
-                ttsController?.togglePauseResume()
+            val state = ttsController?.state
+            if (state == ReaderTtsController.State.PLAYING || state == ReaderTtsController.State.PAUSED) {
+                // Already running: bring the overlay back (it may have been
+                // dismissed) rather than toggling pause from the top bar.
+                showTtsOverlay()
             } else {
+                showTtsOverlay()
                 startTtsForCurrentChapter()
             }
         }
+        binding.btnTtsClose.setOnClickListener { hideTtsOverlay() }
         binding.btnTtsPlayPause.setOnClickListener { ttsController?.togglePauseResume() }
-        binding.btnTtsStop.setOnClickListener { stopTtsCompletely() }
-        binding.btnTtsSkipBack.setOnClickListener {
+        binding.btnTtsPrev.setOnClickListener {
             ttsController?.skipSentence(forward = false)
             updateTtsSentencePosition()
         }
-        binding.btnTtsSkipForward.setOnClickListener {
+        binding.btnTtsNext.setOnClickListener {
             ttsController?.skipSentence(forward = true)
             updateTtsSentencePosition()
         }
-        binding.btnTtsRepeat.setOnClickListener {
-            val controller = ttsController ?: return@setOnClickListener
-            controller.repeatMode = when (controller.repeatMode) {
-                ReaderTtsController.RepeatMode.OFF -> ReaderTtsController.RepeatMode.SENTENCE
-                ReaderTtsController.RepeatMode.SENTENCE -> ReaderTtsController.RepeatMode.WORD
-                ReaderTtsController.RepeatMode.WORD -> ReaderTtsController.RepeatMode.OFF
-            }
-            binding.btnTtsRepeat.alpha = if (controller.repeatMode == ReaderTtsController.RepeatMode.OFF) 0.55f else 1f
-            val message = when (controller.repeatMode) {
-                ReaderTtsController.RepeatMode.OFF -> R.string.tts_repeat_off
-                ReaderTtsController.RepeatMode.SENTENCE -> R.string.tts_repeat_on
-                ReaderTtsController.RepeatMode.WORD -> R.string.tts_repeat_word
-            }
-            Snackbar.make(binding.root, message, Snackbar.LENGTH_SHORT).show()
-        }
-        binding.btnTtsRepeat.alpha = 0.55f
-        binding.btnTtsTimer.setOnClickListener { showSleepTimerMenu() }
+        binding.btnTtsStop.setOnClickListener { stopTtsCompletely() }
         binding.btnTtsSettings.setOnClickListener { showTtsSettingsSheet() }
 
-        // Patch v37: TTS speed + pitch sliders. Progress N maps to
-        // 0.5 + N * 0.05 engine units (speed 0..50 = 0.5x..3.0x, default 8 =
-        // 0.9x; pitch 0..30 = 0.5x..2.0x, default 10 = 1.0x). Actual applied
-        // values may come from per-book TTS settings (see applyTtsSettings).
-        val savedProgress = prefs.ttsSpeedProgress
-        binding.ttsSpeed.max = PrefsManager.TTS_SPEED_MAX
-        binding.ttsSpeed.progress = savedProgress
-        val savedRate = ttsRateFor(savedProgress)
-        ttsController?.speechRate = savedRate
-        binding.ttsSpeedLabel.text = String.format(java.util.Locale.US, "%.2fx", savedRate)
-        binding.ttsSpeed.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (!fromUser) return
-                val rate = ttsRateFor(progress)
-                ttsController?.speechRate = rate
-                binding.ttsSpeedLabel.text = String.format(java.util.Locale.US, "%.2fx", rate)
-                scheduleTtsSettingsSave()
-            }
-            override fun onStartTrackingTouch(sb: SeekBar?) {}
-            override fun onStopTrackingTouch(sb: SeekBar?) {
-                prefs.ttsSpeedProgress = sb?.progress ?: PrefsManager.DEFAULT_TTS_SPEED_PROGRESS
-                scheduleTtsSettingsSave()
-            }
-        })
-        val savedPitchProgress = prefs.ttsPitchProgress
-        binding.ttsPitch.max = PrefsManager.TTS_PITCH_MAX
-        binding.ttsPitch.progress = savedPitchProgress
-        val savedPitch = ttsPitchFor(savedPitchProgress)
-        ttsController?.pitch = savedPitch
-        binding.ttsPitchLabel.text = String.format(java.util.Locale.US, "%.2fx", savedPitch)
-        binding.ttsPitch.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (!fromUser) return
-                val pitchValue = ttsPitchFor(progress)
-                ttsController?.pitch = pitchValue
-                binding.ttsPitchLabel.text = String.format(java.util.Locale.US, "%.2fx", pitchValue)
-                scheduleTtsSettingsSave()
-            }
-            override fun onStartTrackingTouch(sb: SeekBar?) {}
-            override fun onStopTrackingTouch(sb: SeekBar?) {
-                prefs.ttsPitchProgress = sb?.progress ?: PrefsManager.DEFAULT_TTS_PITCH_PROGRESS
-                scheduleTtsSettingsSave()
-            }
-        })
+        // Seed the engine rate/pitch from app prefs as a fallback before the
+        // per-book Room settings load (applyTtsSettings). The settings sheet is
+        // the single place sliders are shown now.
+        ttsController?.speechRate = ttsRateFor(prefs.ttsSpeedProgress)
+        ttsController?.pitch = ttsPitchFor(prefs.ttsPitchProgress)
         binding.tvAddBookmark.setOnClickListener { addBookmark() }
         binding.readerHistoryBack.setOnClickListener { goBackInReaderHistory() }
         binding.readerHistoryForward.setOnClickListener { goForwardInReaderHistory() }
@@ -1177,7 +1259,16 @@ class ReaderActivity : AppCompatActivity() {
                     return true
                 }
             })
-        binding.webView.setOnTouchListener { _, event -> detector.onTouchEvent(event); false }
+        binding.webView.setOnTouchListener { _, event ->
+            // Patch v37: a fresh tap on the page dismisses the floating
+            // selection toolbar (Define / Highlight / Copy / …). We only act on
+            // ACTION_DOWN when a selection ActionMode is already active, so the
+            // long-press gesture that starts a NEW selection is untouched.
+            if (event.actionMasked == MotionEvent.ACTION_DOWN && currentSelectionActionMode != null) {
+                clearReaderSelection()
+            }
+            detector.onTouchEvent(event); false
+        }
     }
 
 
@@ -1633,6 +1724,7 @@ class ReaderActivity : AppCompatActivity() {
 
     // ---------------------------------------------------------------- chapter rendering
     private fun loadChapter(index: Int, resetRatio: Boolean = true) {
+        clearReaderSelection()
         val book = epub ?: return
         if (index !in book.spine.indices) return
         val crossing = index != spineIndex
@@ -2018,6 +2110,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
 
     // ---------------------------------------------------------------- navigation
     private fun navigateToUrl(url: String) {
+        clearReaderSelection()
         val book = epub ?: return
         val path = url.substringAfter(EpubResourceResolver.VIRTUAL_HOST).trimStart('/')
         val parts = path.split("/", limit = 2)
@@ -2039,6 +2132,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
     }
 
     private fun goToSpine(index: Int) {
+        clearReaderSelection()
         val book = epub ?: return
         if (index in book.spine.indices && index != spineIndex) {
             pendingFragment = null
@@ -2459,6 +2553,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
     private var bookmarksTabActive = false
 
     private fun showTocBookmarks(selectBookmarks: Boolean = false) {
+        clearReaderSelection()
         val book = epub ?: return
         val root = binding.overlayContent
         if (tocRv == null) {
@@ -2602,6 +2697,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
     private var searchEdit: android.widget.EditText? = null
 
     private fun showSearchOverlay() {
+        clearReaderSelection()
         if (searchRv == null) {
             val v = LayoutInflater.from(this).inflate(R.layout.overlay_list, binding.searchContent, false)
             searchRv = v.findViewById(R.id.recycler)
@@ -2770,6 +2866,11 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         if (binding.tocBookmarkOverlay.visibility == View.VISIBLE) {
             hideOverlays(); return
         }
+        // Patch v37: if the Read Aloud overlay is open, back minimizes it
+        // (playback keeps going — Stop is the button that ends read-aloud).
+        if (binding.ttsOverlay.visibility == View.VISIBLE) {
+            hideTtsOverlay(); return
+        }
         if (chromeVisible) {
             toggleChrome(); return
         }
@@ -2784,6 +2885,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
      *  them ONCE here on return (window theme + chapter reload + re-measure).
      *  This avoids re-measuring page counts on every +/- tap. */
     private fun showSettings() {
+        clearReaderSelection()
         settingsLauncher.launch(Intent(this, ReaderSettingsActivity::class.java))
     }
 
@@ -2837,7 +2939,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         // behavior.
         if (!prefs.ttsBackgroundPlayback) {
             ttsController?.stop()
-            binding.ttsControls.visibility = View.GONE
+            hideTtsOverlay()
         } else {
             updateTtsServiceState()
         }
@@ -2930,6 +3032,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         private const val SESSION_IDLE_GAP_SECONDS = 300L
         const val EXTRA_BOOK_ID = "book_id"
         private const val HIGHLIGHT_ACTION_ID = 0x4C48
+        private const val SELECTION_DEFINE_ID = 0x4C59
         private const val TTS_SETTINGS_SAVE_DELAY_MS = 800L
 
         /** Patch 19 (Addition #1): slide duration for the page-turn snapshot.
@@ -2957,20 +3060,39 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
     override fun onActionModeStarted(mode: ActionMode) {
         super.onActionModeStarted(mode)
         // Patch v37: Define and Highlight live directly in the floating
-        // selection toolbar (the old auto-popup bottom sheet captured the
-        // selection too early — onActionModeStarted fires when the selection
-        // begins, often with only the first word — and its buttons then used
-        // that stale selection). Both actions below capture the selection at
-        // click time instead, which is what a standard reader does.
+        // selection toolbar. onActionModeStarted fires once when a selection
+        // begins; we store the mode reference (so it can be dismissed on
+        // navigation / touch) and add our items here as a backup path. The
+        // primary, reliable path is the custom selection callback's
+        // onPrepareActionMode (see selectionActionCallback) — that one survives
+        // the WebView's menu rebuild — but adding here too is idempotent and
+        // covers devices that don't reach onPrepareActionMode.
+        currentSelectionActionMode = mode
         definitionPopup?.dismiss()
-        val menu = mode.menu
-        val defineId = 0x4C59
-        if (menu.findItem(defineId) == null) {
-            val item = menu.add(0, defineId, 0, getString(R.string.selection_define))
+        addSelectionActionItems(mode.menu)
+    }
+
+    override fun onActionModeFinished(mode: ActionMode) {
+        super.onActionModeFinished(mode)
+        if (currentSelectionActionMode === mode) currentSelectionActionMode = null
+    }
+
+    /** Adds the Define + Highlight items to the floating selection toolbar.
+     *  Idempotent (skips items already present) and never clears the menu, so
+     *  Android's default Copy / Translate / Select all / Share / Web search
+     *  actions stay alongside ours. Both actions capture the live selection at
+     *  click time (not when the toolbar appeared) and only finish the ActionMode
+     *  after the selection text has been read back, so finishing early can't
+     *  wipe the selection before it's captured. */
+    private fun addSelectionActionItems(menu: android.view.Menu) {
+        if (menu.findItem(SELECTION_DEFINE_ID) == null) {
+            val item = menu.add(0, SELECTION_DEFINE_ID, 0, getString(R.string.selection_define))
             item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
             item.setOnMenuItemClickListener {
-                captureCurrentSelection { selection -> showDefinition(selection) }
-                mode.finish()
+                captureCurrentSelection { selection ->
+                    currentSelectionActionMode?.finish()
+                    showDefinition(selection)
+                }
                 true
             }
         }
@@ -2978,11 +3100,54 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             val item = menu.add(0, HIGHLIGHT_ACTION_ID, 1, getString(R.string.highlight_action))
             item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
             item.setOnMenuItemClickListener {
-                captureCurrentSelection { selection -> showHighlightColorPicker(selection) }
-                mode.finish()
+                captureCurrentSelection { selection ->
+                    currentSelectionActionMode?.finish()
+                    showHighlightColorPicker(selection)
+                }
                 true
             }
         }
+    }
+
+    /** Custom WebView selection ActionMode callback. The reliable home for the
+     *  Define + Highlight items: onPrepareActionMode is the last chance to add
+     *  menu items before the floating toolbar renders, so items added here are
+     *  not dropped by a later rebuild. Returns true from onCreate/onPrepare so
+     *  the menu is shown; onActionItemClicked returns false because each item
+     *  has its own click listener set in [addSelectionActionItems]. */
+    private val selectionActionCallback = object : ActionMode.Callback {
+        override fun onCreateActionMode(mode: ActionMode, menu: android.view.Menu): Boolean {
+            currentSelectionActionMode = mode
+            definitionPopup?.dismiss()
+            addSelectionActionItems(menu)
+            return true
+        }
+
+        override fun onPrepareActionMode(mode: ActionMode, menu: android.view.Menu): Boolean {
+            currentSelectionActionMode = mode
+            addSelectionActionItems(menu)
+            return true
+        }
+
+        override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean = false
+
+        override fun onDestroyActionMode(mode: ActionMode) {
+            if (currentSelectionActionMode === mode) currentSelectionActionMode = null
+        }
+    }
+
+    /** Dismisses the active text-selection ActionMode (the floating toolbar with
+     *  Copy / Define / Highlight / …) and clears the WebView selection ranges.
+     *  Called before any navigation away from the reader page (TOC / Bookmarks /
+     *  Highlights / Search / Settings / TTS overlay / chapter change) and on a
+     *  fresh tap on the page, so the selection toolbar never lingers. */
+    private fun clearReaderSelection() {
+        currentSelectionActionMode?.finish()
+        currentSelectionActionMode = null
+        binding.webView.evaluateJavascript(
+            "if(window.getSelection){try{window.getSelection().removeAllRanges();}catch(e){}}",
+            null,
+        )
     }
 
     private fun showDefinition(selection: ReaderSelectionLocator?) {

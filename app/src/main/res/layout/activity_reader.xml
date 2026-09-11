@@ -145,142 +145,6 @@
             android:paddingEnd="@dimen/app_reader_icon_inset"
             android:textColor="?android:textColorSecondary"
             android:textSize="13sp" />
-
-        <!-- Patch v37: expanded read-aloud controls. Row 1: status + transport
-             (settings, repeat, timer, play/pause, stop). Row 2: sentence skip
-             + speed and pitch sliders (0.5x-3.0x / 0.5x-2.0x in 0.05 steps). -->
-        <LinearLayout
-            android:id="@+id/ttsControls"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:visibility="gone">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/ttsStatus"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:paddingStart="@dimen/app_reader_icon_inset"
-                    android:paddingEnd="8dp"
-                    android:text="@string/action_read_aloud"
-                    android:textColor="@color/reader_chrome_text_muted"
-                    android:textSize="12sp" />
-
-                <ImageButton
-                    android:id="@+id/btnTtsSettings"
-                    style="@style/EpubReaderIconButton"
-                    android:contentDescription="@string/tts_settings"
-                    app:srcCompat="@drawable/ic_tune" />
-
-                <ImageButton
-                    android:id="@+id/btnTtsRepeat"
-                    style="@style/EpubReaderIconButton"
-                    android:contentDescription="@string/tts_repeat"
-                    app:srcCompat="@drawable/ic_repeat" />
-
-                <ImageButton
-                    android:id="@+id/btnTtsTimer"
-                    style="@style/EpubReaderIconButton"
-                    android:contentDescription="@string/tts_sleep_timer"
-                    app:srcCompat="@drawable/ic_timer" />
-
-                <ImageButton
-                    android:id="@+id/btnTtsPlayPause"
-                    style="@style/EpubReaderIconButton"
-                    android:contentDescription="@string/tts_play"
-                    app:srcCompat="@drawable/ic_play" />
-
-                <ImageButton
-                    android:id="@+id/btnTtsStop"
-                    style="@style/EpubReaderIconButton"
-                    android:contentDescription="@string/tts_stop"
-                    app:srcCompat="@drawable/ic_stop" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingStart="@dimen/app_reader_icon_inset"
-                android:paddingEnd="@dimen/app_reader_icon_inset">
-
-                <ImageButton
-                    android:id="@+id/btnTtsSkipBack"
-                    style="@style/EpubReaderIconButton"
-                    android:contentDescription="@string/tts_skip_back"
-                    app:srcCompat="@drawable/ic_skip_back" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="4dp"
-                    android:paddingEnd="4dp"
-                    android:text="@string/tts_speed"
-                    android:textColor="@color/reader_chrome_text_muted"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:id="@+id/ttsSpeedLabel"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:minWidth="36dp"
-                    android:paddingEnd="4dp"
-                    android:text="0.9x"
-                    android:textColor="@color/reader_chrome_text_muted"
-                    android:textSize="12sp" />
-
-                <SeekBar
-                    android:id="@+id/ttsSpeed"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:max="50"
-                    android:progress="8" />
-
-                <ImageButton
-                    android:id="@+id/btnTtsSkipForward"
-                    style="@style/EpubReaderIconButton"
-                    android:contentDescription="@string/tts_skip_forward"
-                    app:srcCompat="@drawable/ic_skip_forward" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="8dp"
-                    android:paddingEnd="4dp"
-                    android:text="@string/tts_pitch"
-                    android:textColor="@color/reader_chrome_text_muted"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:id="@+id/ttsPitchLabel"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:minWidth="36dp"
-                    android:paddingEnd="4dp"
-                    android:text="1.0x"
-                    android:textColor="@color/reader_chrome_text_muted"
-                    android:textSize="12sp" />
-
-                <SeekBar
-                    android:id="@+id/ttsPitch"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:max="30"
-                    android:progress="10" />
-            </LinearLayout>
-        </LinearLayout>
     </LinearLayout>
 
     <!-- Bottom bar: chapter nav + progress + bold whole-book page X/Y -->
@@ -570,4 +434,152 @@
             android:layout_height="0dp"
             android:layout_weight="1" />
     </LinearLayout>
+
+    <!-- Patch v37: dedicated Read Aloud overlay. Opening the speaker icon
+         (@id/btnReadAloud) hides the reader top/bottom bars and shows this
+         full-screen panel in their place. Header carries the book title and the
+         current section; the transport row exposes only prev-sentence /
+         play-pause / next-sentence / stop (the repeat control was removed).
+         Speed, pitch, sleep timer, background playback and voice live behind the
+         settings (tune) button's bottom sheet so the main panel stays clean.
+         Closing the overlay returns to the normal reader chrome; read-aloud
+         keeps running in the background when the user has enabled it. -->
+    <FrameLayout
+        android:id="@+id/ttsOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/reader_chrome_bg"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical">
+
+            <!-- Header row: close (left) + title + settings (right). -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="@dimen/app_chrome_padding_h"
+                android:paddingTop="@dimen/app_chrome_padding_v"
+                android:paddingEnd="@dimen/app_chrome_padding_h"
+                android:paddingBottom="@dimen/app_chrome_padding_v">
+
+                <ImageButton
+                    android:id="@+id/btnTtsClose"
+                    style="@style/EpubReaderIconButton"
+                    android:contentDescription="@string/tts_close"
+                    app:srcCompat="@drawable/ic_arrow_back" />
+
+                <TextView
+                    android:id="@+id/tvTtsOverlayTitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:gravity="center"
+                    android:maxLines="1"
+                    android:paddingStart="@dimen/app_reader_icon_inset"
+                    android:paddingEnd="@dimen/app_reader_icon_inset"
+                    android:text="@string/tts_overlay_title"
+                    android:textColor="@color/reader_chrome_text"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <ImageButton
+                    android:id="@+id/btnTtsSettings"
+                    style="@style/EpubReaderIconButton"
+                    android:contentDescription="@string/tts_settings"
+                    app:srcCompat="@drawable/ic_tune" />
+            </LinearLayout>
+
+            <!-- Book title (bold) + current section (muted) give context while
+                 the reader chrome is hidden. -->
+            <TextView
+                android:id="@+id/tvTtsBookTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:paddingStart="@dimen/app_row_content_padding_h"
+                android:paddingEnd="@dimen/app_row_content_padding_h"
+                android:paddingTop="@dimen/app_section_spacing"
+                android:textColor="@color/reader_chrome_text"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvTtsSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:paddingStart="@dimen/app_row_content_padding_h"
+                android:paddingEnd="@dimen/app_row_content_padding_h"
+                android:paddingTop="@dimen/app_row_padding_v"
+                android:textColor="@color/reader_chrome_text_muted"
+                android:textSize="14sp" />
+
+            <!-- Status line: sentence position / sleep-timer countdown. -->
+            <TextView
+                android:id="@+id/tvTtsStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:paddingStart="@dimen/app_row_content_padding_h"
+                android:paddingEnd="@dimen/app_row_content_padding_h"
+                android:paddingTop="@dimen/app_row_padding_v"
+                android:text="@string/action_read_aloud"
+                android:textColor="@color/reader_chrome_text_muted"
+                android:textSize="13sp" />
+
+            <!-- Spacer pushes the transport to the lower third for a clean,
+                 uncluttered layout. -->
+            <Space
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <!-- Transport: previous sentence | play/pause | next sentence | stop.
+                 Clean, single row — no repeat, no inline sliders. -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:orientation="horizontal"
+                android:paddingStart="@dimen/app_row_content_padding_h"
+                android:paddingEnd="@dimen/app_row_content_padding_h"
+                android:paddingBottom="@dimen/app_section_spacing">
+
+                <ImageButton
+                    android:id="@+id/btnTtsPrev"
+                    style="@style/EpubReaderIconButton"
+                    android:contentDescription="@string/tts_skip_back"
+                    app:srcCompat="@drawable/ic_skip_back" />
+
+                <ImageButton
+                    android:id="@+id/btnTtsPlayPause"
+                    style="@style/EpubReaderIconButton"
+                    android:contentDescription="@string/tts_play"
+                    app:srcCompat="@drawable/ic_play" />
+
+                <ImageButton
+                    android:id="@+id/btnTtsNext"
+                    style="@style/EpubReaderIconButton"
+                    android:contentDescription="@string/tts_skip_forward"
+                    app:srcCompat="@drawable/ic_skip_forward" />
+
+                <ImageButton
+                    android:id="@+id/btnTtsStop"
+                    style="@style/EpubReaderIconButton"
+                    android:contentDescription="@string/tts_stop"
+                    app:srcCompat="@drawable/ic_stop" />
+            </LinearLayout>
+        </LinearLayout>
+    </FrameLayout>
 </FrameLayout>
