@@ -255,27 +255,4 @@
     <string name="metadata_refresh_detail_read_failed">Could not read the EPUB source file.</string>
     <string name="metadata_refresh_detail_parse_failed">Could not parse EPUB metadata.</string>
     <string name="metadata_refresh_detail_failed">Refresh failed for this EPUB.</string>
-
-    <string name="action_read_aloud">Read aloud</string>
-    <string name="tts_play">Play</string>
-    <string name="tts_pause">Pause</string>
-    <string name="tts_stop">Stop</string>
-    <string name="tts_unavailable">Offline read-aloud is unavailable. Install an offline voice in your system Text-to-Speech settings.</string>
-    <string name="home_progress_location">%1$d%% · %2$s</string>
-    <string name="settings_reading_stats">Reading Stats</string>
-    <string name="settings_reading_stats_detail">Quiet, private reading reflection</string>
-    <string name="stats_title">Reading Stats</string>
-    <string name="stats_privacy">All reading stats stay on your device.</string>
-    <string name="stats_time_week">Time this week</string>
-    <string name="stats_time_year">Time this year</string>
-    <string name="stats_books_finished">Books finished</string>
-    <string name="stats_current_streak">Current streak</string>
-    <string name="stats_chapters">Approx. chapters advanced</string>
-    <string name="stats_pages">Approx. pages advanced</string>
-    <string name="stats_days">days</string>
-    <string name="stats_minutes_value">%1$d min</string>
-    <string name="stats_hours_value">%1$dh %2$dm</string>
-    <string name="about_privacy_title">Privacy</string>
-    <string name="about_privacy_body">The Livre Magicae is designed to work entirely offline.\n\n• No account\n• No tracking\n• No analytics\n• No cloud library\n• No advertising\n• No internet connection required\n\nYour books stay on your device.</string>
-
 </resources>

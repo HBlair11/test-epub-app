@@ -67,16 +67,6 @@
             android:theme="@style/Theme.EpubReader" />
 
         <activity
-            android:name=".AboutPrivacyActivity"
-            android:exported="false"
-            android:theme="@style/Theme.EpubReader" />
-
-        <activity
-            android:name=".ReadingStatsActivity"
-            android:exported="false"
-            android:theme="@style/Theme.EpubReader" />
-
-        <activity
             android:name=".SearchActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden"

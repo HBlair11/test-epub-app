@@ -11,7 +11,6 @@ class BookRepository(
     private val bookDao = db.bookDao()
     private val bookmarkDao = db.bookmarkDao()
     private val collectionDao = db.collectionDao()
-    private val readingSessionDao = db.readingSessionDao()
 
     fun observeBooks(): Flow<List<BookEntity>> = bookDao.observeAll()
 
@@ -81,14 +80,6 @@ class BookRepository(
         spineIndex: Int,
         ratio: Float,
     ): Boolean = bookmarkDao.existsNear(bookId, spineIndex, ratio)
-
-
-    // ---- Reading statistics ----
-    suspend fun addReadingSession(session: ReadingSessionEntity) = readingSessionDao.insert(session)
-    suspend fun activeSecondsSince(since: Long): Int = readingSessionDao.activeSecondsSince(since)
-    suspend fun chaptersSince(since: Long): Int = readingSessionDao.chaptersSince(since)
-    suspend fun pagesSince(since: Long): Int = readingSessionDao.pagesSince(since)
-    suspend fun activeDays(): List<String> = readingSessionDao.activeDays()
 
     // ---- Collections ----
     fun observeCollections(): Flow<List<CollectionEntity>> = collectionDao.observeAll()

@@ -104,13 +104,12 @@ class BookshelfViewModel(
         viewModelScope.launch { repo.markOpened(bookId) }
     }
 
-    /** Curated Home data. Home reuses the same Recently Added ordering used by the
-     * main Book Layout (added date descending, newest first) and uses the same
-     * Currently Reading query for the Continue Reading hero. */
+    /** Curated, offline Home data. Recently Added is supplied by a dedicated Room query
+     * so the Home shelf cannot accidentally inherit a different in-memory sort. */
     val homeContent: LiveData<HomeContent> = combine(
         repo.observeBooks(),
-        repo.observeCurrentlyReading(),
-    ) { books, currentlyReading -> buildHomeContent(books, currentlyReading) }
+        repo.observeHomeRecentlyAdded(),
+    ) { books, recentlyAdded -> buildHomeContent(books, recentlyAdded) }
         .asLiveData()
 
     val content: LiveData<List<DisplayItem>> = _trigger.switchMap { t ->
@@ -251,9 +250,8 @@ class BookshelfViewModel(
         _scanMessage.value = msg
     }
 
-    private fun buildHomeContent(books: List<BookEntity>, currentlyReading: List<BookEntity>): HomeContent {
-        // This intentionally mirrors applySort(..., RECENTLY_ADDED, false): newest first.
-        val newest = applySort(books, PrefsManager.SortOption.RECENTLY_ADDED, false).take(6)
+    private fun buildHomeContent(books: List<BookEntity>, recentlyAdded: List<BookEntity>): HomeContent {
+        val newest = recentlyAdded
         val favorites = books
             .filter { it.isFavorite }
             .sortedWith(compareByDescending<BookEntity> { it.lastOpenedDate ?: 0L }.thenBy { it.sortTitle })
@@ -291,8 +289,8 @@ class BookshelfViewModel(
             .take(3)
 
         return HomeContent(
-            continueReading = currentlyReading.firstOrNull(),
-            recentlyAdded = newest,
+            continueReading = books.maxByOrNull { it.lastOpenedDate ?: Long.MIN_VALUE },
+            recentlyAdded = newest.take(6),
             favorites = favorites.take(6),
             topAuthors = authorGroups,
             topSeries = seriesGroups,

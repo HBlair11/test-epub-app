@@ -938,17 +938,3 @@ Home intentionally omits sorting, grid/list management, bulk actions, and dense 
 
 When reading-history/statistics infrastructure exists, "Top Authors" and "Top Series" can evolve from library-count ranking to a more personal engagement ranking, but the UI should remain simple.
 
-
-## v36 implementation checkpoint
-
-This checkpoint covers the controlled v36 scope:
-
-- Home Recently Added reuses the main bookshelf Recently Added ordering logic and presents newest additions first.
-- Home Continue Reading reuses the Currently Reading Room ordering and promotes the book opened most recently without manual refresh.
-- Continue Reading can display the current EPUB embedded TOC location.
-- Home cards retain fixed dimensions, one-line title/author ellipsis, and non-cropping cover presentation.
-- Selection Foundation remains read-only and renderer-independent.
-- Offline Dictionary uses a bundled local dataset and no online fallback.
-- Read Aloud uses the installed system TTS engine in the foreground only.
-- Reading Stats are local, quiet, and explicitly privacy-forward.
-- Highlights/Notes remain foundation-only in this release; no annotation UI or rendering changes are introduced here.

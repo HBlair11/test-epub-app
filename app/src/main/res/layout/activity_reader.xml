@@ -97,12 +97,6 @@
                 app:srcCompat="@drawable/ic_search" />
 
             <ImageButton
-                android:id="@+id/btnReadAloud"
-                style="@style/EpubReaderIconButton"
-                android:contentDescription="@string/action_read_aloud"
-                app:srcCompat="@drawable/ic_volume" />
-
-            <ImageButton
                 android:id="@+id/btnSettings"
                 style="@style/EpubReaderIconButton"
                 android:contentDescription="@string/action_settings"
@@ -145,38 +139,6 @@
             android:paddingEnd="@dimen/app_reader_icon_inset"
             android:textColor="?android:textColorSecondary"
             android:textSize="13sp" />
-
-        <LinearLayout
-            android:id="@+id/ttsControls"
-            android:layout_width="match_parent"
-            android:layout_height="44dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:visibility="gone">
-
-            <TextView
-                android:id="@+id/ttsStatus"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:paddingStart="@dimen/app_reader_icon_inset"
-                android:paddingEnd="8dp"
-                android:text="@string/action_read_aloud"
-                android:textColor="@color/reader_chrome_text_muted"
-                android:textSize="12sp" />
-
-            <ImageButton
-                android:id="@+id/btnTtsPlayPause"
-                style="@style/EpubReaderIconButton"
-                android:contentDescription="@string/tts_play"
-                app:srcCompat="@drawable/ic_play" />
-
-            <ImageButton
-                android:id="@+id/btnTtsStop"
-                style="@style/EpubReaderIconButton"
-                android:contentDescription="@string/tts_stop"
-                app:srcCompat="@drawable/ic_stop" />
-        </LinearLayout>
     </LinearLayout>
 
     <!-- Bottom bar: chapter nav + progress + bold whole-book page X/Y -->
