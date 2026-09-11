@@ -271,6 +271,7 @@ class ReaderActivity : AppCompatActivity() {
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 updateTtsControlsUi(playing)
+                if (!playing) clearSpokenWordHighlight()
                 updateTtsServiceState()
             }
         }, {
@@ -763,17 +764,43 @@ class ReaderActivity : AppCompatActivity() {
         binding.webView.evaluateJavascript(
             """(function(){
                 try{
-                    var x=Math.max(10,Math.round(window.innerWidth/2));
-                    var y=Math.max(40,Math.round(window.innerHeight*0.3));
-                    var r=document.caretRangeFromPoint?document.caretRangeFromPoint(x,y):null;
-                    if(!r)return 0;
-                    var node=r.startContainer;
-                    var off=r.startOffset;
-                    var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);
-                    var acc=0;var found=false;
-                    while(w.nextNode()){var n=w.currentNode;if(n===node){acc+=off;found=true;break;}acc+=n.textContent.length;}
-                    if(!found)return 0;
-                    return Math.max(0,acc);
+                    // Find the first readable text actually visible on the
+                    // current paginated screen. The old implementation sampled
+                    // 30% down the viewport, which routinely landed two or three
+                    // lines below the user's visual starting point.
+                    var walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);
+                    var candidates=[];
+                    var acc=0;
+                    while(walker.nextNode()){
+                        var node=walker.currentNode;
+                        var raw=node.textContent||"";
+                        if(!raw.trim()){ acc += raw.length; continue; }
+                        var rects=node.getClientRects();
+                        for(var i=0;i<rects.length;i++){
+                            var r=rects[i];
+                            if(r.bottom>0 && r.top<window.innerHeight && r.width>0 && r.height>0){
+                                candidates.push({node:node,rect:r,base:acc});
+                            }
+                        }
+                        acc += raw.length;
+                    }
+                    if(!candidates.length)return 0;
+                    candidates.sort(function(a,b){
+                        var dy=a.rect.top-b.rect.top;
+                        if(Math.abs(dy)>1)return dy;
+                        return a.rect.left-b.rect.left;
+                    });
+                    var first=candidates[0];
+                    var range=null;
+                    if(document.caretRangeFromPoint){
+                        range=document.caretRangeFromPoint(
+                            Math.max(1,first.rect.left+1),
+                            Math.max(1,first.rect.top+1)
+                        );
+                    }
+                    var offset=(range && range.startContainer===first.node)
+                        ? range.startOffset : 0;
+                    return Math.max(0,first.base+offset);
                 }catch(e){return 0;}
             })();""",
         ) { result ->
@@ -1113,28 +1140,82 @@ class ReaderActivity : AppCompatActivity() {
                     cs.pointerEvents='none';cs.zIndex='2147483646';cs.overflow='hidden';body.appendChild(container);}
                 if(!sentence)return;
                 var nodes=[],all='';
-                // Collect text nodes and build a normalized concatenated string.
-                // Each node's text is whitespace-normalized individually so the
-                // concatenated `all` matches the TTS-extracted text.
-                function collect(){nodes=[];all='';var w=doc.createTreeWalker(body,NodeFilter.SHOW_TEXT,null,false);while(w.nextNode()){var t=w.currentNode.textContent.replace(/\s+/g,' ');if(t){nodes.push({node:w.currentNode,text:t,len:t.length});all+=t;}}}
-                function locate(off){var acc=0;for(var i=0;i<nodes.length;i++){if(off<acc+nodes[i].len)return [nodes[i].node,off-acc];acc+=nodes[i].len;}return null;}
-                function makeRange(a,b){try{var rng=doc.createRange();rng.setStart(a[0],a[1]);rng.setEnd(b[0],b[1]);return rng;}catch(e){return null;}}
+                // Build a normalized text stream while retaining a map back to
+                // each node's real DOM offsets. The previous implementation used
+                // normalized offsets directly as raw Text-node offsets, which
+                // could shift the range when an EPUB contained repeated spaces,
+                // tabs, or line breaks.
+                function normalizeNode(raw){
+                    var out='',map=[],lastWasSpace=false;
+                    for(var i=0;i<raw.length;i++){
+                        var ch=raw.charAt(i);
+                        if(/\s/.test(ch)){
+                            if(!lastWasSpace){out+=' ';map.push(i);lastWasSpace=true;}
+                        }else{
+                            out+=ch;map.push(i);lastWasSpace=false;
+                        }
+                    }
+                    return {text:out,map:map};
+                }
+                function collect(){
+                    nodes=[];all='';
+                    var w=doc.createTreeWalker(body,NodeFilter.SHOW_TEXT,null,false);
+                    while(w.nextNode()){
+                        var raw=w.currentNode.textContent||'';
+                        var n=normalizeNode(raw);
+                        if(n.text){nodes.push({node:w.currentNode,text:n.text,map:n.map,start:all.length,len:n.text.length});all+=n.text;}
+                    }
+                }
+                function locate(off){
+                    off=Math.max(0,off);
+                    for(var i=0;i<nodes.length;i++){
+                        var item=nodes[i];
+                        if(off<=item.start+item.len){
+                            var local=Math.max(0,Math.min(item.len,off-item.start));
+                            var rawOffset=local<item.map.length?item.map[local]:((item.node.textContent||'').length);
+                            return [item.node,rawOffset];
+                        }
+                    }
+                    if(nodes.length){
+                        var last=nodes[nodes.length-1];
+                        return [last.node,(last.node.textContent||'').length];
+                    }
+                    return null;
+                }
+                function makeRange(a,b){try{if(!a||!b)return null;var rng=doc.createRange();rng.setStart(a[0],a[1]);rng.setEnd(b[0],b[1]);return rng;}catch(e){return null;}}
                 function drawRects(rng,color){if(!rng)return null;var rects=rng.getClientRects();var last=null;for(var i=0;i<rects.length;i++){var rect=rects[i];var d=doc.createElement('div');var s=d.style;s.position='absolute';s.left=rect.left+'px';s.top=rect.top+'px';s.width=rect.width+'px';s.height=rect.height+'px';s.backgroundColor=color;s.borderRadius='2px';container.appendChild(d);}if(rects.length)last=rects[rects.length-1];return rng.getBoundingClientRect();}
                 collect();
                 // The concatenated `all` is already whitespace-normalized
                 // per-node in collect(), so it matches the TTS text.
                 var k=sentence.replace(/\s+/g,' ').trim();
                 if(k.length>60)k=k.substring(0,60);
-                var si=all.indexOf(k);
-                if(si<0){
-                    // Fallback: try case-insensitive search.
-                    si=all.toLowerCase().indexOf(k.toLowerCase());
-                }
-                if(si<0)return;
+                var lowerAll=all.toLowerCase(),lowerK=k.toLowerCase();
                 var sentenceNorm=sentence.replace(/\s+/g,' ').trim();
-                drawRects(makeRange(locate(si),locate(si+sentenceNorm.length)),sentenceColor);
-                // Word range uses the same offsets captured before drawing, so
-                // no re-collect is needed (the DOM was never mutated).
+                var sentenceLen=sentenceNorm.length;
+                var si=-1,searchFrom=0;
+                // Prefer an occurrence whose range is actually visible on the
+                // current page. This matters for repeated headers/sentences in
+                // paginated EPUB content.
+                while((si=lowerAll.indexOf(lowerK,searchFrom))>=0){
+                    var candidate=makeRange(locate(si),locate(si+sentenceLen));
+                    if(candidate){
+                        var rs=candidate.getClientRects(),visible=false;
+                        for(var ri=0;ri<rs.length;ri++){
+                            if(rs[ri].bottom>0 && rs[ri].top<window.innerHeight &&
+                               rs[ri].right>0 && rs[ri].left<window.innerWidth){visible=true;break;}
+                        }
+                        if(visible)break;
+                    }
+                    searchFrom=si+1;
+                }
+                if(si<0){
+                    si=all.indexOf(k);
+                    if(si<0)return;
+                }
+                var sentenceRange=makeRange(locate(si),locate(si+sentenceLen));
+                drawRects(sentenceRange,sentenceColor);
+                // Word range uses the same normalized-to-DOM mapping; the DOM
+                // is never mutated, so pagination cannot shift underneath us.
                 var a=locate(si+start),b=locate(si+end);
                 if(!a||!b)return;
                 var wordRect=drawRects(makeRange(a,b),wordColor);

@@ -131,55 +131,63 @@ class ReaderTtsController(
                 }
 
                 override fun onDone(utteranceId: String) {
-                    if (utteranceId.startsWith(WORD_LOOP_PREFIX)) {
-                        if (utteranceId != activeUtteranceId) return
-                        activeUtteranceId = null
-                        if (repeatMode == RepeatMode.WORD && state == State.PLAYING) {
-                            wordLoopText?.let { word -> mainHandler.post { beginWordLoop(word) } }
-                        } else {
-                            // Word loop ended: resume the interrupted sentence.
-                            wordLoopActive = false
-                            wordLoopText = null
-                            if (state == State.PLAYING && segments.isNotEmpty()) speakCurrentSegment()
+                    // TextToSpeech callbacks can arrive on a binder thread. All
+                    // queue/state transitions are serialized on the main thread
+                    // so a rapid skip/pause cannot race an old callback.
+                    mainHandler.post {
+                        if (utteranceId.startsWith(WORD_LOOP_PREFIX)) {
+                            if (utteranceId != activeUtteranceId) return@post
+                            activeUtteranceId = null
+                            if (repeatMode == RepeatMode.WORD && state == State.PLAYING) {
+                                wordLoopText?.let { word -> beginWordLoop(word) }
+                            } else {
+                                // Word loop ended: resume the interrupted sentence.
+                                wordLoopActive = false
+                                wordLoopText = null
+                                if (state == State.PLAYING && segments.isNotEmpty()) speakCurrentSegment()
+                            }
+                            return@post
                         }
-                        return
-                    }
-                    if (utteranceId != activeUtteranceId) return
-                    activeUtteranceId = null
 
-                    // Insert a natural pause after this segment if configured.
-                    val pauseMs = segments.getOrNull(segmentIndex)?.pauseAfterMs ?: 0
-                    if (pauseMs > 0 && state == State.PLAYING) {
-                        // Use a silent utterance to create a pause.
-                        val pauseId = PAUSE_PREFIX + UUID.randomUUID()
-                        activeUtteranceId = pauseId
-                        tts?.playSilentUtterance(pauseMs.toLong(), TextToSpeech.QUEUE_FLUSH, pauseId)
-                        return
-                    }
+                        // A silent pause is a transition marker, not another
+                        // segment. The previous implementation treated its
+                        // completion as a request to create the same pause again,
+                        // so playback stopped after the first spoken sentence.
+                        if (utteranceId.startsWith(PAUSE_PREFIX)) {
+                            if (utteranceId != activeUtteranceId) return@post
+                            activeUtteranceId = null
+                            advanceAfterSegment()
+                            return@post
+                        }
 
-                    if (repeatMode == RepeatMode.SENTENCE && segments.isNotEmpty()) {
-                        speakCurrentSegment()
-                        return
-                    }
-                    segmentIndex++
-                    if (segmentIndex < segments.size) {
-                        speakCurrentSegment()
-                    } else {
-                        state = State.READY
-                        releaseAudioFocus()
-                        onStateChanged(false)
-                        onChapterFinished()
+                        if (utteranceId != activeUtteranceId) return@post
+                        activeUtteranceId = null
+
+                        val pauseMs = segments.getOrNull(segmentIndex)?.pauseAfterMs ?: 0
+                        if (pauseMs > 0L && state == State.PLAYING) {
+                            val pauseId = PAUSE_PREFIX + UUID.randomUUID()
+                            activeUtteranceId = pauseId
+                            tts?.playSilentUtterance(
+                                pauseMs,
+                                TextToSpeech.QUEUE_FLUSH,
+                                pauseId,
+                            )
+                        } else {
+                            advanceAfterSegment()
+                        }
                     }
                 }
 
                 override fun onError(utteranceId: String) {
-                    if (utteranceId != activeUtteranceId) return
-                    activeUtteranceId = null
-                    wordLoopActive = false
-                    wordLoopText = null
-                    state = State.READY
-                    releaseAudioFocus()
-                    onStateChanged(false)
+                    mainHandler.post {
+                        if (utteranceId != activeUtteranceId) return@post
+                        activeUtteranceId = null
+                        wordLoopActive = false
+                        wordLoopText = null
+                        state = State.READY
+                        releaseAudioFocus()
+                        onStateChanged(false)
+                    }
                 }
             })
         }
@@ -289,6 +297,26 @@ class ReaderTtsController(
         state = if (initialized) State.READY else State.UNAVAILABLE
         releaseAudioFocus()
         onStateChanged(false)
+    }
+
+    /** Advance exactly once after a spoken segment (and any natural pause). */
+    private fun advanceAfterSegment() {
+        if (state != State.PLAYING || segments.isEmpty()) return
+
+        if (repeatMode == RepeatMode.SENTENCE) {
+            speakCurrentSegment()
+            return
+        }
+
+        segmentIndex++
+        if (segmentIndex < segments.size) {
+            speakCurrentSegment()
+        } else {
+            state = State.READY
+            releaseAudioFocus()
+            onStateChanged(false)
+            onChapterFinished()
+        }
     }
 
     private fun playInternal() {
