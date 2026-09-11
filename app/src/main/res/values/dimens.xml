@@ -67,4 +67,19 @@
          used asymmetric start/end values (e.g. 20dp/8dp, 18dp/14dp); they now
          all share this single value. -->
     <dimen name="app_row_content_padding_h">20dp</dimen>
+
+    <!-- Patch v37: spacing scale additions used by the stats/about screens,
+         the definition popup card, and the vocabulary list. -->
+    <!-- Vertical gap between sibling cards on a screen. -->
+    <dimen name="app_card_spacing">12dp</dimen>
+    <!-- Larger vertical gap between screen sections. -->
+    <dimen name="app_section_spacing">16dp</dimen>
+    <!-- Corner radius for every Material card in the app. -->
+    <dimen name="app_card_corner">14dp</dimen>
+    <!-- Definition popup card. -->
+    <dimen name="app_definition_card_max_width">320dp</dimen>
+    <dimen name="app_definition_card_elevation">8dp</dimen>
+    <dimen name="app_popup_screen_margin">12dp</dimen>
+    <!-- Dictionary entry rows inside the definition card. -->
+    <dimen name="app_definition_row_spacing">8dp</dimen>
 </resources>

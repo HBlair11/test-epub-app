@@ -7,18 +7,21 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.LayoutInflater
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ActionMode
-import android.view.Menu
 import android.view.MenuItem
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.util.TypedValue
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -38,7 +41,9 @@ import androidx.recyclerview.widget.RecyclerView
 import com.epubreader.app.data.AppDatabase
 import com.epubreader.app.data.BookEntity
 import com.epubreader.app.data.BookmarkEntity
+import com.epubreader.app.data.DictionaryHistoryEntity
 import com.epubreader.app.data.PrefsManager
+import com.epubreader.app.data.TtsSettingsEntity
 import com.epubreader.app.epub.ReaderSelectionBridge
 import com.epubreader.app.epub.ReaderSelectionLocator
 import com.epubreader.app.databinding.ActivityReaderBinding
@@ -48,6 +53,7 @@ import com.epubreader.app.epub.EpubResourceResolver
 import com.epubreader.app.epub.EpubSearchEngine
 import com.epubreader.app.epub.ReaderPageMapping
 import com.epubreader.app.epub.ReaderTtsController
+import com.epubreader.app.tts.ReaderTtsService
 import com.epubreader.app.ui.BookmarkAdapter
 import com.epubreader.app.ui.HighlightListAdapter
 import com.epubreader.app.ui.ReaderSettingsActivity
@@ -66,13 +72,23 @@ class ReaderActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityReaderBinding
     private lateinit var prefs: PrefsManager
-    private var lastSelection: ReaderSelectionLocator? = null
     private var pendingSelectionCallback: ((ReaderSelectionLocator?) -> Unit)? = null
-    private var selectionActionsSheet: BottomSheetDialog? = null
+    private var definitionPopup: PopupWindow? = null
     private var dictionaryLookup: com.epubreader.app.epub.DictionaryLookup? = null
     private var ttsController: ReaderTtsController? = null
     private var readingSessionStartedAt: Long? = null
     private var readingSessionLastInteractionAt: Long = 0L
+
+    /** Patch v37: POST_NOTIFICATIONS request for the read-aloud media notification. */
+    private val notificationPermissionLauncher =
+        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                updateTtsServiceState()
+            }
+        }
+
+    /** Debounced writer for per-book TTS settings. */
+    private val saveTtsSettingsRunnable = Runnable { saveTtsSettingsNow() }
     private var readingSessionActiveSeconds: Int = 0
     private var readingSessionStartSpine: Int = 0
     private var readingSessionStartPage: Int = 0
@@ -242,10 +258,8 @@ class ReaderActivity : AppCompatActivity() {
         ttsController = ReaderTtsController(applicationContext, { playing ->
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                binding.ttsControls.visibility = if (playing || (ttsController?.state == ReaderTtsController.State.PAUSED)) View.VISIBLE else View.GONE
-                binding.btnTtsPlayPause.setImageResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play)
-                binding.btnTtsPlayPause.contentDescription = getString(if (playing) R.string.tts_pause else R.string.tts_play)
-                binding.ttsStatus.text = getString(if (playing) R.string.tts_pause else R.string.action_read_aloud)
+                updateTtsControlsUi(playing)
+                updateTtsServiceState()
             }
         }, {
             runOnUiThread {
@@ -258,7 +272,22 @@ class ReaderActivity : AppCompatActivity() {
                     binding.ttsStatus.text = getString(R.string.action_read_aloud)
                 }
             }
+        }, { sentence, start, end ->
+            // Word-level range callback: highlight the spoken word in the page.
+            // Delivered on a binder thread; hop to the UI thread.
+            runOnUiThread { highlightSpokenWord(sentence, start, end) }
+        }, { remainingMs ->
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                binding.ttsStatus.text = getString(R.string.tts_sleep_remaining, (remainingMs / 60000L).toInt() + 1)
+            }
+        }, {
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                Snackbar.make(binding.root, R.string.tts_sleep_finished, Snackbar.LENGTH_SHORT).show()
+            }
         })
+        ReaderTtsService.attach(ttsController)
         setupChrome()
         setupOverlays()
         loadBook()
@@ -380,14 +409,10 @@ class ReaderActivity : AppCompatActivity() {
         binding.webView.webChromeClient = WebChromeClient()
         binding.webView.addJavascriptInterface(
             ReaderSelectionBridge { selection ->
-                lastSelection = selection
                 runOnUiThread {
                     val callback = pendingSelectionCallback
                     pendingSelectionCallback = null
                     callback?.invoke(selection)
-                    if (callback == null) {
-                        Snackbar.make(binding.root, R.string.selection_captured, Snackbar.LENGTH_SHORT).show()
-                    }
                 }
             },
             "LivreSelection"
@@ -406,8 +431,11 @@ class ReaderActivity : AppCompatActivity() {
         val href = epub?.spine?.getOrNull(spineIndex)?.href.orEmpty()
         if (href.isBlank()) return
         val escapedHref = org.json.JSONObject.quote(href)
+        // Patch v37: also reports the selection's bounding rect (WebView-local
+        // CSS pixels) so the definition card can anchor to it instead of a
+        // fixed-position bottom sheet.
         binding.webView.evaluateJavascript(
-            "(function(){var s=window.getSelection&&window.getSelection();if(!s||s.rangeCount===0||!s.toString().trim())return;var r=s.getRangeAt(0);function p(n){if(n&&n.nodeType!==1)n=n.parentNode;var a=[];while(n&&n.nodeType===1){var i=0,q=n.previousSibling;while(q){if(q.nodeType===n.nodeType&&q.nodeName===n.nodeName)i++;q=q.previousSibling;}a.unshift(n.nodeName.toLowerCase()+':'+i);n=n.parentNode;}return a.join('/');}var walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);var allText='',nodes=[];while(walker.nextNode()){nodes.push({node:walker.currentNode,start:allText.length});allText+=walker.currentNode.textContent;}var t=s.toString().trim();var selStart=0,selEnd=0;var sc=r.startContainer,ec=r.endContainer;for(var i=0;i<nodes.length;i++){if(nodes[i].node===sc)selStart=nodes[i].start+r.startOffset;if(nodes[i].node===ec){selEnd=nodes[i].start+r.endOffset;break;}}var prefix=allText.slice(Math.max(0,selStart-40),selStart);var suffix=allText.slice(selEnd,selEnd+40);LivreSelection.onSelectionPayload(t," + escapedHref + ",p(r.startContainer),r.startOffset,p(r.endContainer),r.endOffset,prefix,suffix);})();",
+            "(function(){var s=window.getSelection&&window.getSelection();if(!s||s.rangeCount===0||!s.toString().trim())return;var r=s.getRangeAt(0);var rect=r.getBoundingClientRect();function p(n){if(n&&n.nodeType!==1)n=n.parentNode;var a=[];while(n&&n.nodeType===1){var i=0,q=n.previousSibling;while(q){if(q.nodeType===n.nodeType&&q.nodeName===n.nodeName)i++;q=q.previousSibling;}a.unshift(n.nodeName.toLowerCase()+':'+i);n=n.parentNode;}return a.join('/');}var walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);var allText='',nodes=[];while(walker.nextNode()){nodes.push({node:walker.currentNode,start:allText.length});allText+=walker.currentNode.textContent;}var t=s.toString().trim();var selStart=0,selEnd=0;var sc=r.startContainer,ec=r.endContainer;for(var i=0;i<nodes.length;i++){if(nodes[i].node===sc)selStart=nodes[i].start+r.startOffset;if(nodes[i].node===ec){selEnd=nodes[i].start+r.endOffset;break;}}var prefix=allText.slice(Math.max(0,selStart-40),selStart);var suffix=allText.slice(selEnd,selEnd+40);LivreSelection.onSelectionPayload(t," + escapedHref + ",p(r.startContainer),r.startOffset,p(r.endContainer),r.endOffset,prefix,suffix,Math.round(rect.left),Math.round(rect.top),Math.round(rect.right),Math.round(rect.bottom));})();",
             null
         )
     }
@@ -695,7 +723,258 @@ class ReaderActivity : AppCompatActivity() {
             return
         }
         binding.ttsControls.visibility = View.VISIBLE
+        updateTtsServiceState(ttsController?.state == ReaderTtsController.State.PLAYING)
         lifecycleScope.launch { ttsController?.speakChapter(book.file, item.href) }
+        updateTtsSentencePosition()
+    }
+
+    // ------------------------------------------------------------- patch v37 tts
+
+    /** SeekBar progress -> engine speech rate (0.5 + N * 0.05). */
+    private fun ttsRateFor(progress: Int): Float = 0.5f + progress * 0.05f
+
+    /** SeekBar progress -> engine pitch (0.5 + N * 0.05). */
+    private fun ttsPitchFor(progress: Int): Float = 0.5f + progress * 0.05f
+
+    /** Transport row state: visibility, play/pause icon, status line. */
+    private fun updateTtsControlsUi(playing: Boolean) {
+        binding.ttsControls.visibility =
+            if (playing || ttsController?.state == ReaderTtsController.State.PAUSED) View.VISIBLE else View.GONE
+        binding.btnTtsPlayPause.setImageResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play)
+        binding.btnTtsPlayPause.contentDescription = getString(if (playing) R.string.tts_pause else R.string.tts_play)
+        binding.btnTtsRepeat.alpha =
+            if (ttsController?.repeatMode == null || ttsController?.repeatMode == ReaderTtsController.RepeatMode.OFF) 0.55f else 1f
+        if (playing) {
+            updateTtsSentencePosition()
+        } else {
+            val remaining = ttsController?.sleepTimerRemainingMs() ?: -1L
+            if (remaining <= 0L) binding.ttsStatus.text = getString(R.string.action_read_aloud)
+        }
+    }
+
+    private fun updateTtsSentencePosition() {
+        val position = ttsController?.sentencePosition() ?: return
+        binding.ttsStatus.text = getString(R.string.tts_sentence_position, position.first, position.second)
+    }
+
+    /** Starts/stops the keep-alive foreground service with the media
+     *  notification when background playback is enabled. The service stays
+     *  alive while paused so the notification can offer Resume. */
+    private fun updateTtsServiceState() {
+        val state = ttsController?.state ?: ReaderTtsController.State.INITIALIZING
+        val active = state == ReaderTtsController.State.PLAYING || state == ReaderTtsController.State.PAUSED
+        if (active && prefs.ttsBackgroundPlayback) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+            val title = epub?.metadata?.title ?: getString(R.string.app_name)
+            ReaderTtsService.start(this, bookId, title)
+        } else {
+            ReaderTtsService.stop(this)
+        }
+    }
+
+    private fun stopTtsCompletely() {
+        ttsController?.stop()
+        binding.ttsControls.visibility = View.GONE
+        clearSpokenWordHighlight()
+        ReaderTtsService.stop(this)
+        binding.ttsStatus.text = getString(R.string.action_read_aloud)
+    }
+
+    private fun showSleepTimerMenu() {
+        val minutes = intArrayOf(5, 10, 15, 30, 45, 60)
+        val labels = minutes.map { getString(R.string.tts_sleep_minutes, it) }.toTypedArray()
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.tts_sleep_timer)
+            .setSingleChoiceItems(labels, -1) { dialog, which ->
+                ttsController?.startSleepTimer(minutes[which])
+                dialog.dismiss()
+            }
+            .setNeutralButton(R.string.tts_sleep_off) { _, _ ->
+                ttsController?.cancelSleepTimer()
+                updateTtsSentencePosition()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    /** Bottom sheet with background-playback toggle and voice picker. */
+    private fun showTtsSettingsSheet() {
+        val controller = ttsController ?: return
+        val dialog = BottomSheetDialog(this)
+        val pad = (20 * resources.displayMetrics.density).roundToInt()
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+        }
+        root.addView(TextView(this).apply {
+            text = getString(R.string.tts_settings)
+            textSize = 16f
+            setTextColor(themeColor(android.R.attr.textColorPrimary))
+            setPadding(0, 0, 0, (12 * resources.displayMetrics.density).roundToInt())
+        })
+        val backgroundSwitch = com.google.android.material.switchmaterial.SwitchMaterial(this).apply {
+            text = getString(R.string.tts_background_playback)
+            isChecked = prefs.ttsBackgroundPlayback
+        }
+        root.addView(backgroundSwitch)
+        root.addView(TextView(this).apply {
+            text = getString(R.string.tts_background_playback_summary)
+            textSize = 12f
+            setTextColor(themeColor(android.R.attr.textColorSecondary))
+            setPadding(0, 0, 0, (12 * resources.displayMetrics.density).roundToInt())
+        })
+        backgroundSwitch.setOnCheckedChangeListener { _, checked ->
+            if (checked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+            prefs.ttsBackgroundPlayback = checked
+            updateTtsServiceState()
+        }
+        val voiceButton = com.google.android.material.button.MaterialButton(this).apply {
+            text = getString(R.string.tts_voice)
+            setOnClickListener { showVoicePicker() }
+        }
+        root.addView(voiceButton)
+        dialog.setContentView(root)
+        dialog.show()
+    }
+
+    /** Offline voices only (network-required voices are filtered out). */
+    private fun showVoicePicker() {
+        val controller = ttsController ?: return
+        val voices = controller.availableVoices()
+        val labels = mutableListOf(getString(R.string.tts_voice_default))
+        val values = mutableListOf<String?>(null)
+        voices.forEach { voice ->
+            labels += "${voice.locale.displayName} · ${voice.name}"
+            values += voice.name
+        }
+        val checked = values.indexOf(controller.voiceName).coerceAtLeast(0)
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.tts_voice)
+            .setSingleChoiceItems(labels.toTypedArray(), checked) { dialog, which ->
+                controller.voiceName = values[which]
+                scheduleTtsSettingsSave()
+                dialog.dismiss()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    /** Loads per-book rate/pitch/voice from Room (falls back to app prefs). */
+    private fun applyTtsSettings() {
+        val controller = ttsController ?: return
+        controller.bookLanguage = epub?.metadata?.language
+        lifecycleScope.launch(Dispatchers.IO) {
+            val saved = AppDatabase.get(applicationContext).ttsSettingsDao().getForBook(bookId)
+            withContext(Dispatchers.Main) {
+                if (isFinishing || isDestroyed) return@withContext
+                if (saved != null) {
+                    controller.speechRate = saved.speechRate
+                    controller.pitch = saved.pitch
+                    controller.voiceName = saved.voiceName
+                    binding.ttsSpeed.progress =
+                        (((saved.speechRate - 0.5f) / 0.05f).roundToInt()).coerceIn(0, PrefsManager.TTS_SPEED_MAX)
+                    binding.ttsPitch.progress =
+                        (((saved.pitch - 0.5f) / 0.05f).roundToInt()).coerceIn(0, PrefsManager.TTS_PITCH_MAX)
+                } else {
+                    controller.speechRate = ttsRateFor(prefs.ttsSpeedProgress)
+                    controller.pitch = ttsPitchFor(prefs.ttsPitchProgress)
+                    controller.voiceName = null
+                    binding.ttsSpeed.progress = prefs.ttsSpeedProgress
+                    binding.ttsPitch.progress = prefs.ttsPitchProgress
+                }
+                binding.ttsSpeedLabel.text = String.format(java.util.Locale.US, "%.2fx", controller.speechRate)
+                binding.ttsPitchLabel.text = String.format(java.util.Locale.US, "%.2fx", controller.pitch)
+            }
+        }
+    }
+
+    /** Debounced persist of per-book TTS settings after slider/voice changes. */
+    private fun scheduleTtsSettingsSave() {
+        handler.removeCallbacks(saveTtsSettingsRunnable)
+        handler.postDelayed(saveTtsSettingsRunnable, TTS_SETTINGS_SAVE_DELAY_MS)
+    }
+
+    private fun saveTtsSettingsNow() {
+        val controller = ttsController ?: return
+        if (bookId < 0L) return
+        val entity = TtsSettingsEntity(
+            bookId = bookId,
+            speechRate = controller.speechRate,
+            pitch = controller.pitch,
+            voiceName = controller.voiceName,
+            updatedAt = System.currentTimeMillis(),
+        )
+        lifecycleScope.launch(Dispatchers.IO) {
+            AppDatabase.get(applicationContext).ttsSettingsDao().upsert(entity)
+        }
+    }
+
+    /** Bimodal reading: tints the sentence being spoken and wraps the exact
+     *  word in a stronger span, auto-turning the page when the spoken word
+     *  moves off-page. */
+    private fun highlightSpokenWord(sentence: String, start: Int, end: Int) {
+        if (isFinishing || isDestroyed) return
+        val controller = ttsController ?: return
+        if (controller.state != ReaderTtsController.State.PLAYING) return
+        val color = getColor(R.color.tts_word_highlight)
+        val wordCss = String.format(
+            java.util.Locale.US, "rgba(%d,%d,%d,0.55)",
+            Color.red(color), Color.green(color), Color.blue(color),
+        )
+        val sentenceCss = String.format(
+            java.util.Locale.US, "rgba(%d,%d,%d,0.22)",
+            Color.red(color), Color.green(color), Color.blue(color),
+        )
+        // Full sentence: onRangeStart offsets are relative to the whole
+        // chunk, so the JS side must receive the complete text.
+        val key = org.json.JSONObject.quote(sentence)
+        binding.webView.evaluateJavascript(
+            """(function(){
+                var sentence=$key,start=$start,end=$end,wordColor='$wordCss',sentenceColor='$sentenceCss';
+                function unwrap(cls){var p=document.querySelector(cls);if(p){var q=p.parentNode;while(p.firstChild)q.insertBefore(p.firstChild,p);q.removeChild(p);}}
+                unwrap('.livre-tts-word');unwrap('.livre-tts-sentence');
+                if(!sentence)return;
+                var nodes=[],all='';
+                function collect(){nodes=[];all='';var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);while(w.nextNode()){nodes.push(w.currentNode);all+=w.currentNode.textContent;}}
+                function locate(off){var acc=0;for(var i=0;i<nodes.length;i++){var len=nodes[i].textContent.length;if(off<acc+len)return [nodes[i],off-acc];acc+=len;}return null;}
+                function wrap(a,b,cls,color){try{var r=document.createRange();r.setStart(a[0],a[1]);r.setEnd(b[0],b[1]);var s=document.createElement('span');s.className=cls;s.style.backgroundColor=color;r.surroundContents(s);return s;}catch(e){try{var r2=document.createRange();r2.setStart(a[0],a[1]);r2.setEnd(b[0],b[1]);var frag=r2.extractContents();var s2=document.createElement('span');s2.className=cls;s2.style.backgroundColor=color;s2.appendChild(frag);r2.insertNode(s2);return s2;}catch(e2){return null;}}}
+                collect();
+                var k=sentence.length>60?sentence.substring(0,60):sentence;
+                var si=all.indexOf(k);
+                if(si<0)return;
+                // Sentence-level tint first.
+                wrap(locate(si),locate(si+sentence.length),'livre-tts-sentence',sentenceColor);
+                // The DOM just changed; re-collect before wrapping the word.
+                collect();
+                var a=locate(si+start),b=locate(si+end);
+                if(!a||!b)return;
+                var span=wrap(a,b,'livre-tts-word',wordColor);
+                if(span&&window.Caesura){
+                    var rect=span.getBoundingClientRect();
+                    if(rect.left>=window.innerWidth-10){window.Caesura.nextPage();}
+                    else if(rect.right<=10){window.Caesura.prevPage();}
+                }
+            })();""",
+            null,
+        )
+    }
+
+    private fun clearSpokenWordHighlight() {
+        if (isFinishing || isDestroyed) return
+        binding.webView.evaluateJavascript(
+            "(function(){['livre-tts-word','livre-tts-sentence'].forEach(function(c){var p=document.querySelector('.'+c);if(p){var q=p.parentNode;while(p.firstChild)q.insertBefore(p.firstChild,p);q.removeChild(p);}});})();",
+            null,
+        )
     }
 
     private fun setupChrome() {
@@ -712,23 +991,76 @@ class ReaderActivity : AppCompatActivity() {
             }
         }
         binding.btnTtsPlayPause.setOnClickListener { ttsController?.togglePauseResume() }
-        binding.btnTtsStop.setOnClickListener { ttsController?.stop(); binding.ttsControls.visibility = View.GONE }
-        // TTS speed control: SeekBar maps 0-19 to 0.5x-1.5x (progress 8 = 0.9x default)
+        binding.btnTtsStop.setOnClickListener { stopTtsCompletely() }
+        binding.btnTtsSkipBack.setOnClickListener {
+            ttsController?.skipSentence(forward = false)
+            updateTtsSentencePosition()
+        }
+        binding.btnTtsSkipForward.setOnClickListener {
+            ttsController?.skipSentence(forward = true)
+            updateTtsSentencePosition()
+        }
+        binding.btnTtsRepeat.setOnClickListener {
+            val controller = ttsController ?: return@setOnClickListener
+            controller.repeatMode = when (controller.repeatMode) {
+                ReaderTtsController.RepeatMode.OFF -> ReaderTtsController.RepeatMode.SENTENCE
+                ReaderTtsController.RepeatMode.SENTENCE -> ReaderTtsController.RepeatMode.WORD
+                ReaderTtsController.RepeatMode.WORD -> ReaderTtsController.RepeatMode.OFF
+            }
+            binding.btnTtsRepeat.alpha = if (controller.repeatMode == ReaderTtsController.RepeatMode.OFF) 0.55f else 1f
+            val message = when (controller.repeatMode) {
+                ReaderTtsController.RepeatMode.OFF -> R.string.tts_repeat_off
+                ReaderTtsController.RepeatMode.SENTENCE -> R.string.tts_repeat_on
+                ReaderTtsController.RepeatMode.WORD -> R.string.tts_repeat_word
+            }
+            Snackbar.make(binding.root, message, Snackbar.LENGTH_SHORT).show()
+        }
+        binding.btnTtsRepeat.alpha = 0.55f
+        binding.btnTtsTimer.setOnClickListener { showSleepTimerMenu() }
+        binding.btnTtsSettings.setOnClickListener { showTtsSettingsSheet() }
+
+        // Patch v37: TTS speed + pitch sliders. Progress N maps to
+        // 0.5 + N * 0.05 engine units (speed 0..50 = 0.5x..3.0x, default 8 =
+        // 0.9x; pitch 0..30 = 0.5x..2.0x, default 10 = 1.0x). Actual applied
+        // values may come from per-book TTS settings (see applyTtsSettings).
         val savedProgress = prefs.ttsSpeedProgress
+        binding.ttsSpeed.max = PrefsManager.TTS_SPEED_MAX
         binding.ttsSpeed.progress = savedProgress
-        val savedRate = 0.5f + (savedProgress / 19.0f) * 1.0f
+        val savedRate = ttsRateFor(savedProgress)
         ttsController?.speechRate = savedRate
-        binding.ttsSpeedLabel.text = String.format(java.util.Locale.US, "%.1fx", savedRate)
+        binding.ttsSpeedLabel.text = String.format(java.util.Locale.US, "%.2fx", savedRate)
         binding.ttsSpeed.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (!fromUser) return
-                val rate = 0.5f + (progress / 19.0f) * 1.0f
+                val rate = ttsRateFor(progress)
                 ttsController?.speechRate = rate
-                binding.ttsSpeedLabel.text = String.format(java.util.Locale.US, "%.1fx", rate)
+                binding.ttsSpeedLabel.text = String.format(java.util.Locale.US, "%.2fx", rate)
+                scheduleTtsSettingsSave()
             }
             override fun onStartTrackingTouch(sb: SeekBar?) {}
             override fun onStopTrackingTouch(sb: SeekBar?) {
-                prefs.ttsSpeedProgress = sb?.progress ?: 8
+                prefs.ttsSpeedProgress = sb?.progress ?: PrefsManager.DEFAULT_TTS_SPEED_PROGRESS
+                scheduleTtsSettingsSave()
+            }
+        })
+        val savedPitchProgress = prefs.ttsPitchProgress
+        binding.ttsPitch.max = PrefsManager.TTS_PITCH_MAX
+        binding.ttsPitch.progress = savedPitchProgress
+        val savedPitch = ttsPitchFor(savedPitchProgress)
+        ttsController?.pitch = savedPitch
+        binding.ttsPitchLabel.text = String.format(java.util.Locale.US, "%.2fx", savedPitch)
+        binding.ttsPitch.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (!fromUser) return
+                val pitchValue = ttsPitchFor(progress)
+                ttsController?.pitch = pitchValue
+                binding.ttsPitchLabel.text = String.format(java.util.Locale.US, "%.2fx", pitchValue)
+                scheduleTtsSettingsSave()
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {
+                prefs.ttsPitchProgress = sb?.progress ?: PrefsManager.DEFAULT_TTS_PITCH_PROGRESS
+                scheduleTtsSettingsSave()
             }
         })
         binding.tvAddBookmark.setOnClickListener { addBookmark() }
@@ -1111,6 +1443,9 @@ class ReaderActivity : AppCompatActivity() {
 
             withContext(Dispatchers.Main) {
                 bindBookHeader(parsed)
+                // Patch v37: per-book read-aloud settings (rate/pitch/voice)
+                // plus the book's language for multilingual TTS + dictionary.
+                applyTtsSettings()
                 perPageSeekerActive = false
                 binding.seekChapter.max = (parsed.spine.size - 1).coerceAtLeast(0)
                 binding.seekChapter.progress = spineIndex
@@ -1456,7 +1791,7 @@ mark.livre-highlight {
         return """
 <style>
 body, body * { color:${ink} !important; }
-body * { background-color: transparent !important; }
+body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) { background-color: transparent !important; }
 </style>""".trimIndent()
     }
 
@@ -2152,10 +2487,24 @@ body * { background-color: transparent !important; }
             highlightRv = hlView.findViewById(R.id.recycler)
             highlightEmpty = hlView.findViewById(R.id.emptyText)
             highlightRv!!.layoutManager = LinearLayoutManager(this)
-            highlightRv!!.adapter = HighlightListAdapter { h ->
-                navigateToUrl("https://${EpubResourceResolver.VIRTUAL_HOST}/$bookId/${h.spineHref.trimStart('/')}")
-                hideOverlays()
-            }
+            highlightRv!!.adapter = HighlightListAdapter(
+                onClick = { h ->
+                    navigateToUrl("https://${EpubResourceResolver.VIRTUAL_HOST}/$bookId/${h.spineHref.trimStart('/')}")
+                    hideOverlays()
+                },
+                onDelete = { h ->
+                    // Patch v37: delete directly from the Highlights tab.
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        db.highlightDao().delete(h)
+                    }
+                    // Also unwrap the mark from the current page if visible.
+                    binding.webView.evaluateJavascript(
+                        "(function(){var m=document.querySelector('mark.livre-highlight[data-highlight-id=\"" + h.id + "\"]');if(m){var p=m.parentNode;while(m.firstChild)p.insertBefore(m.firstChild,m);p.removeChild(m);}})();",
+                        null,
+                    )
+                    Snackbar.make(binding.root, R.string.highlight_deleted, Snackbar.LENGTH_SHORT).show()
+                },
+            )
             root.addView(hlView)
         }
         val tocAdapter =
@@ -2483,8 +2832,15 @@ body * { background-color: transparent !important; }
     // ---------------------------------------------------------------- lifecycle
     override fun onPause() {
         recordReadingSession(System.currentTimeMillis())
-        ttsController?.stop()
-        binding.ttsControls.visibility = View.GONE
+        // Patch v37: keep read-aloud running when the user has enabled
+        // background playback; otherwise preserve the old stop-on-pause
+        // behavior.
+        if (!prefs.ttsBackgroundPlayback) {
+            ttsController?.stop()
+            binding.ttsControls.visibility = View.GONE
+        } else {
+            updateTtsServiceState()
+        }
         super.onPause()
         handler.removeCallbacks(progressPoller)
         handler.removeCallbacks(alphaFallback)
@@ -2526,6 +2882,11 @@ body * { background-color: transparent !important; }
         handler.removeCallbacks(progressPoller)
         handler.removeCallbacks(alphaFallback)
         resolver?.close()
+        definitionPopup?.dismiss()
+        definitionPopup = null
+        handler.removeCallbacks(saveTtsSettingsRunnable)
+        ReaderTtsService.attach(null)
+        ReaderTtsService.stop(applicationContext)
         binding.webView.destroy()
         binding.measureWebView.destroy()
         dictionaryLookup?.close()
@@ -2568,8 +2929,8 @@ body * { background-color: transparent !important; }
     companion object {
         private const val SESSION_IDLE_GAP_SECONDS = 300L
         const val EXTRA_BOOK_ID = "book_id"
-        private const val SELECTION_CAPTURE_ID = 0x4C56
         private const val HIGHLIGHT_ACTION_ID = 0x4C48
+        private const val TTS_SETTINGS_SAVE_DELAY_MS = 800L
 
         /** Patch 19 (Addition #1): slide duration for the page-turn snapshot.
          *  Longer than the old 220ms crossfade so the slide reads as a page turn
@@ -2595,25 +2956,20 @@ body * { background-color: transparent !important; }
 
     override fun onActionModeStarted(mode: ActionMode) {
         super.onActionModeStarted(mode)
+        // Patch v37: Define and Highlight live directly in the floating
+        // selection toolbar (the old auto-popup bottom sheet captured the
+        // selection too early — onActionModeStarted fires when the selection
+        // begins, often with only the first word — and its buttons then used
+        // that stale selection). Both actions below capture the selection at
+        // click time instead, which is what a standard reader does.
+        definitionPopup?.dismiss()
         val menu = mode.menu
-        // Define and Highlight are added with SHOW_AS_ACTION_ALWAYS as a fallback
-        // for devices that support custom action mode items. The primary UI is
-        // the selection bottom sheet shown via captureCurrentSelection below.
         val defineId = 0x4C59
         if (menu.findItem(defineId) == null) {
             val item = menu.add(0, defineId, 0, getString(R.string.selection_define))
             item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
             item.setOnMenuItemClickListener {
-                captureCurrentSelection { selection -> showDefinition(selection?.text) }
-                mode.finish()
-                true
-            }
-        }
-        if (menu.findItem(SELECTION_CAPTURE_ID) == null) {
-            val item = menu.add(0, SELECTION_CAPTURE_ID, 100, getString(R.string.selection_capture))
-            item.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
-            item.setOnMenuItemClickListener {
-                captureCurrentSelection()
+                captureCurrentSelection { selection -> showDefinition(selection) }
                 mode.finish()
                 true
             }
@@ -2627,121 +2983,172 @@ body * { background-color: transparent !important; }
                 true
             }
         }
-        // Show the selection actions bottom sheet as the primary UI for text
-        // selection. This works on all Android versions, unlike the floating
-        // action mode which may not show custom menu items.
-        captureCurrentSelection { selection ->
-            if (selection != null && selection.text.isNotBlank()) {
-                showSelectionActionsSheet(selection, mode)
-            }
-        }
     }
 
-    override fun onActionModeFinished(mode: ActionMode) {
-        super.onActionModeFinished(mode)
-        // Don't dismiss the selection actions sheet here — showing the sheet
-        // can itself cause the native ActionMode to finish, which would
-        // immediately dismiss our sheet. The sheet dismisses itself when the
-        // user picks an action.
-    }
-
-    /** Shows a bottom sheet with Define and Highlight actions for the
-     *  current text selection. This is the primary selection UI — it works on
-     *  all Android versions, unlike the floating action mode which may not
-     *  show custom menu items. */
-    private fun showSelectionActionsSheet(selection: ReaderSelectionLocator, mode: ActionMode) {
-        // Guard against duplicate sheets
-        selectionActionsSheet?.dismiss()
-        val dialog = BottomSheetDialog(this)
-        selectionActionsSheet = dialog
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val pad = (20 * resources.displayMetrics.density).roundToInt()
-            setPadding(pad, pad, pad, pad)
-        }
-        // Preview of selected text
-        root.addView(TextView(this).apply {
-            text = selection.text.take(80) + if (selection.text.length > 80) "…" else ""
-            textSize = 14f
-            setTextColor(themeColor(android.R.attr.textColorSecondary))
-            setPadding(0, 0, 0, (12 * resources.displayMetrics.density).roundToInt())
-        })
-        // Action buttons
-        val btnRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER
-        }
-        // Define button
-        btnRow.addView(com.google.android.material.button.MaterialButton(this).apply {
-            text = getString(R.string.selection_define)
-            setOnClickListener {
-                dialog.dismiss()
-                showDefinition(selection.text)
-                mode.finish()
-            }
-        })
-        // Highlight button
-        btnRow.addView(com.google.android.material.button.MaterialButton(this).apply {
-            text = getString(R.string.highlight_action)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply { setMargins((8 * resources.displayMetrics.density).roundToInt(), 0, (8 * resources.displayMetrics.density).roundToInt(), 0) }
-            setOnClickListener {
-                dialog.dismiss()
-                showHighlightColorPicker(selection)
-                mode.finish()
-            }
-        })
-        root.addView(btnRow)
-        dialog.setOnDismissListener { selectionActionsSheet = null }
-        dialog.setContentView(root)
-        dialog.show()
-    }
-
-    private fun showDefinition(raw: String?) {
-        val word = raw?.trim().orEmpty()
-        if (word.isBlank() || word.any { it.isWhitespace() }) {
-            Snackbar.make(binding.root, R.string.selection_single_word_required, Snackbar.LENGTH_SHORT).show()
+    private fun showDefinition(selection: ReaderSelectionLocator?) {
+        val raw = selection?.text?.trim().orEmpty()
+        if (raw.isBlank()) {
+            Snackbar.make(binding.root, R.string.selection_none, Snackbar.LENGTH_SHORT).show()
             return
         }
         lifecycleScope.launch(Dispatchers.IO) {
-            val lookup = dictionaryLookup ?: com.epubreader.app.epub.DictionaryLookup(applicationContext).also { dictionaryLookup = it }
-            val entries = lookup.lookup(word)
-            withContext(Dispatchers.Main) { showDefinitionSheet(word, entries) }
+            // Language follows the EPUB's dc:language so multi-language
+            // libraries switch dictionaries automatically (falls back to
+            // English when no matching dict/<lang>.db asset is bundled).
+            val lang = epub?.metadata?.language
+            val lookup = dictionaryLookup?.takeIf { it.matchesLanguage(lang) }
+                ?: com.epubreader.app.epub.DictionaryLookup(applicationContext, lang ?: com.epubreader.app.epub.DictionaryLookup.DEFAULT_LANGUAGE)
+                    .also { dictionaryLookup?.close(); dictionaryLookup = it }
+            val result = lookup.lookup(raw)
+            withContext(Dispatchers.Main) {
+                if (isFinishing || isDestroyed) return@withContext
+                showDefinitionCard(raw, result, selection)
+            }
         }
     }
 
-    private fun showDefinitionSheet(word: String, entries: List<com.epubreader.app.epub.DictionaryLookup.Entry>) {
-        val dialog = BottomSheetDialog(this)
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val pad = (20 * resources.displayMetrics.density).roundToInt()
-            setPadding(pad, pad, pad, pad)
-        }
-        root.addView(TextView(this).apply {
-            text = word
-            textSize = 20f
-            setTextColor(themeColor(android.R.attr.textColorPrimary))
-        })
-        if (entries.isEmpty()) {
-            root.addView(TextView(this).apply {
-                text = getString(R.string.dictionary_not_found)
-                textSize = 14f
-                setTextColor(themeColor(android.R.attr.textColorSecondary))
-            })
+    /**
+     * Patch v37: contextual definition card anchored near the selection.
+     *
+     * Positioned above the selection when there is room, otherwise below it,
+     * clamped to the screen so it never runs off either edge; falls back to a
+     * bottom-anchored card when no selection rect is available. Suggestions
+     * are re-lookable with a tap, and a hook hands the word off to any
+     * external dictionary app via ACTION_PROCESS_TEXT.
+     */
+    private fun showDefinitionCard(
+        raw: String,
+        result: com.epubreader.app.epub.DictionaryLookup.Result,
+        selection: ReaderSelectionLocator?,
+    ) {
+        definitionPopup?.dismiss()
+        val parent = binding.root as ViewGroup
+        val card = layoutInflater.inflate(R.layout.view_definition_card, parent, false)
+        val wordView = card.findViewById<TextView>(R.id.dictWord)
+        val noResult = card.findViewById<TextView>(R.id.dictNoResult)
+        val entriesBox = card.findViewById<LinearLayout>(R.id.dictEntries)
+        val suggestionsLabel = card.findViewById<TextView>(R.id.dictSuggestionsLabel)
+        val suggestionsBox = card.findViewById<LinearLayout>(R.id.dictSuggestions)
+        val externalButton = card.findViewById<com.google.android.material.button.MaterialButton>(R.id.dictExternalButton)
+
+        wordView.text = raw.trim()
+        val primary = themeColor(android.R.attr.textColorPrimary)
+        val accent = themeColor(com.google.android.material.R.attr.colorPrimary)
+
+        if (result.entries.isEmpty()) {
+            noResult.visibility = View.VISIBLE
         } else {
-            entries.forEach { entry ->
-                root.addView(TextView(this).apply {
-                    text = "${entry.partOfSpeech}  ${entry.definition}"
+            noResult.visibility = View.GONE
+            result.entries.forEach { entry ->
+                val line = android.text.SpannableString("${entry.partOfSpeech}  ${entry.definition}")
+                line.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, entry.partOfSpeech.length, 0)
+                entriesBox.addView(TextView(this).apply {
+                    text = line
                     textSize = 14f
-                    setTextColor(themeColor(android.R.attr.textColorPrimary))
-                    setPadding(0, (10 * resources.displayMetrics.density).roundToInt(), 0, 0)
+                    setTextColor(primary)
+                    setPadding(0, (4 * resources.displayMetrics.density).roundToInt(), 0, 0)
                 })
             }
         }
-        dialog.setContentView(root)
-        dialog.show()
+
+        if (result.suggestions.isNotEmpty()) {
+            suggestionsLabel.visibility = View.VISIBLE
+            result.suggestions.forEach { suggestion ->
+                suggestionsBox.addView(TextView(this).apply {
+                    text = suggestion
+                    textSize = 14f
+                    setTextColor(accent)
+                    setPadding(0, (2 * resources.displayMetrics.density).roundToInt(), 0, 0)
+                    setOnClickListener { showDefinition(ReaderSelectionLocator(suggestion, "", "", 0, "", 0)) }
+                })
+            }
+        } else {
+            suggestionsLabel.visibility = View.GONE
+        }
+
+        externalButton.visibility = View.VISIBLE
+        externalButton.setOnClickListener {
+            val intent = Intent(Intent.ACTION_PROCESS_TEXT).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_PROCESS_TEXT, raw)
+                putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true)
+            }
+            try {
+                startActivity(Intent.createChooser(intent, getString(R.string.dictionary_lookup_external)))
+            } catch (_: android.content.ActivityNotFoundException) {
+                Snackbar.make(binding.root, R.string.dictionary_external_none, Snackbar.LENGTH_SHORT).show()
+            }
+        }
+
+        // Persist the lookup in the offline vocabulary history (IO thread).
+        if (result.entries.isNotEmpty()) {
+            val bookId = bookId
+            lifecycleScope.launch(Dispatchers.IO) {
+                val db = AppDatabase.get(applicationContext)
+                val definition = result.entries.firstOrNull()?.definition
+                val partOfSpeech = result.entries.firstOrNull()?.partOfSpeech
+                // Prefer the dictionary's normalized match so punctuation
+                // variants don't create odd history entries.
+                val word = (result.matchedWord ?: raw).trim().lowercase(java.util.Locale.US)
+                if (word.isBlank()) return@launch
+                val existing = db.dictionaryHistoryDao().find(word)
+                if (existing == null) {
+                    db.dictionaryHistoryDao().insert(
+                        DictionaryHistoryEntity(
+                            word = word,
+                            definition = definition,
+                            partOfSpeech = partOfSpeech,
+                            bookId = bookId,
+                            lookedUpAt = System.currentTimeMillis(),
+                        )
+                    )
+                } else {
+                    // Re-lookups move the word back to the top of the list.
+                    db.dictionaryHistoryDao().refresh(
+                        existing.id, definition, partOfSpeech, bookId, System.currentTimeMillis(),
+                    )
+                }
+            }
+        }
+
+        val density = resources.displayMetrics.density
+        val popup = PopupWindow(card, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
+            isOutsideTouchable = true
+            elevation = resources.getDimension(R.dimen.app_definition_card_elevation)
+        }
+        definitionPopup = popup
+        card.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val cardW = card.measuredWidth.coerceAtMost(resources.displayMetrics.widthPixels)
+        val cardH = card.measuredHeight
+        val anchorLeft: Float
+        val anchorTop: Float
+        val anchorBottom: Float
+        if (selection != null && selection.hasRect) {
+            val loc = IntArray(2)
+            binding.webView.getLocationInWindow(loc)
+            anchorLeft = loc[0] + selection.rectLeft * density
+            anchorTop = loc[1] + selection.rectTop * density
+            anchorBottom = loc[1] + selection.rectBottom * density
+        } else {
+            anchorLeft = 0f
+            anchorTop = resources.displayMetrics.heightPixels.toFloat()
+            anchorBottom = resources.displayMetrics.heightPixels.toFloat()
+        }
+        val margin = resources.getDimension(R.dimen.app_popup_screen_margin)
+        val screenW = resources.displayMetrics.widthPixels
+        val screenH = resources.displayMetrics.heightPixels
+        val x = (anchorLeft - cardW / 2f).roundToInt().coerceIn(margin.toInt(), (screenW - cardW - margin).toInt().coerceAtLeast(margin.toInt()))
+        val y = if (anchorTop - cardH - margin >= 0) {
+            // Enough room above the selection.
+            (anchorTop - cardH - margin).roundToInt()
+        } else if (anchorBottom + cardH + margin <= screenH) {
+            // Room below.
+            (anchorBottom + margin).roundToInt()
+        } else {
+            // Center of the screen as a last resort.
+            ((screenH - cardH) / 2f).roundToInt()
+        }
+        popup.showAtLocation(binding.root, Gravity.NO_GRAVITY, x, y)
     }
 
     private fun themeColor(attr: Int): Int {
@@ -2763,7 +3170,7 @@ body * { background-color: transparent !important; }
     /** Shows a compact color picker bottom sheet for creating a highlight. */
     private fun showHighlightColorPicker(selection: ReaderSelectionLocator?) {
         if (selection == null || selection.text.isBlank()) {
-            Snackbar.make(binding.root, R.string.selection_single_word_required, Snackbar.LENGTH_SHORT).show()
+            Snackbar.make(binding.root, R.string.selection_none, Snackbar.LENGTH_SHORT).show()
             return
         }
         val colors = listOf(
@@ -2828,43 +3235,77 @@ body * { background-color: transparent !important; }
         lifecycleScope.launch(Dispatchers.IO) {
             val id = com.epubreader.app.data.BookRepository(applicationContext).addHighlight(highlight)
             withContext(Dispatchers.Main) {
-                injectHighlightIntoWebView(id, selection.text, selection.prefix, selection.suffix, color)
+                injectHighlightIntoWebView(id, selection.text, selection.prefix, selection.suffix, color, selection.startPath, selection.endPath)
                 Snackbar.make(binding.root, R.string.highlight_added, Snackbar.LENGTH_SHORT).show()
             }
         }
     }
 
-    /** Injects a single highlight into the WebView immediately after creation. */
-    private fun injectHighlightIntoWebView(id: Long, text: String, prefix: String, suffix: String, color: Int) {
+    /** Injects a single highlight into the WebView immediately after creation.
+     *
+     * Patch v37 anchoring strategy (most-specific first):
+     *  1. Resolve the stored start element path and search for the text
+     *     within that element only - this keeps a repeated phrase from
+     *     matching an earlier occurrence elsewhere in the chapter.
+     *  2. Prefix-anchored search across the whole chapter text.
+     *  3. Bare text search as the last resort.
+     */
+    private fun injectHighlightIntoWebView(
+        id: Long,
+        text: String,
+        prefix: String,
+        suffix: String,
+        color: Int,
+        startPath: String = "",
+        endPath: String = "",
+    ) {
         val cssColor = highlightCssColor(color)
         val safeText = org.json.JSONObject.quote(text)
         val safePrefix = org.json.JSONObject.quote(prefix)
         val safeSuffix = org.json.JSONObject.quote(suffix)
+        val safeStartPath = org.json.JSONObject.quote(startPath)
         binding.webView.evaluateJavascript(
             """(function(){
-                var text=$safeText,prefix=$safePrefix,suffix=$safeSuffix,color='$cssColor',id=$id;
+                var text=$safeText,prefix=$safePrefix,suffix=$safeSuffix,color='$cssColor',id=$id,sp=$safeStartPath;
                 if(document.querySelector('mark.livre-highlight[data-highlight-id="'+id+'"]'))return true;
-                var walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);
-                var allText='',nodes=[];
-                while(walker.nextNode()){nodes.push({node:walker.currentNode,start:allText.length});allText+=walker.currentNode.textContent;}
+                function textNodes(root){var w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,null,false);var a=[];while(w.nextNode())a.push(w.currentNode);return a;}
+                function locate(nodes,off){var acc=0;for(var i=0;i<nodes.length;i++){var len=nodes[i].textContent.length;if(off<=acc+len)return [nodes[i],off-acc];acc+=len;}return null;}
+                function markNodes(sn,so,en,eo){
+                    if(!sn||!en)return false;
+                    function make(){var m=document.createElement('mark');m.className='livre-highlight';m.style.backgroundColor=color;m.style.borderRadius='2px';m.dataset.highlightId=id;m.addEventListener('click',function(e){e.stopPropagation();LivreHighlight.onHighlightTap(id);});return m;}
+                    try{var r=document.createRange();r.setStart(sn,so);r.setEnd(en,eo);r.surroundContents(make());return true;}catch(e){}
+                    try{var r2=document.createRange();r2.setStart(sn,so);r2.setEnd(en,eo);var m2=make();m2.appendChild(r2.extractContents());r2.insertNode(m2);return true;}catch(e2){}
+                    return false;
+                }
+                function resolveEl(p){
+                    if(!p)return null;
+                    var parts=p.split('/');var node=document.body;var started=false;
+                    for(var i=0;i<parts.length;i++){
+                        var seg=parts[i].split(':');var tag=seg[0];var idx=parseInt(seg[1]||'0',10);
+                        if(tag==='body'){started=true;continue;}
+                        if(!started)continue;
+                        var kids=node.children,seen=0,found=null;
+                        for(var j=0;j<kids.length;j++){if(kids[j].tagName.toLowerCase()===tag){if(seen===idx){found=kids[j];break;}seen++;}}
+                        if(!found)return null;node=found;
+                    }
+                    return node;
+                }
+                var el=resolveEl(sp);
+                if(el){
+                    var nodes=textNodes(el);var all='';nodes.forEach(function(n){all+=n.textContent;});
+                    var pos=all.indexOf(text);
+                    if(pos>=0){var a=locate(nodes,pos);var b=locate(nodes,pos+text.length);
+                        if(a&&b&&markNodes(a[0],a[1],b[0],b[1]))return true;}
+                }
+                var dnodes=textNodes(document.body);var dall='';dnodes.forEach(function(n){dall+=n.textContent;});
                 var searchStart=0;
-                if(prefix&&prefix.length>0){var pp=allText.indexOf(prefix,searchStart);if(pp>=0)searchStart=pp+prefix.length;}
-                var tp=allText.indexOf(text,searchStart);
+                if(prefix&&prefix.length>0){var pp=dall.indexOf(prefix,searchStart);if(pp>=0)searchStart=pp+prefix.length;}
+                var tp=dall.indexOf(text,searchStart);
+                if(tp<0)tp=dall.indexOf(text);
                 if(tp<0)return false;
                 var ep=tp+text.length;
-                var sn=null,so=0,en=null,eo=0;
-                for(var i=0;i<nodes.length;i++){var ni=nodes[i],ne=ni.start+ni.node.textContent.length;
-                    if(sn===null&&tp<ne){sn=ni.node;so=tp-ni.start;}
-                    if(ep<=ne){en=ni.node;eo=ep-ni.start;break;}}
-                if(!sn||!en)return false;
-                var range=document.createRange();range.setStart(sn,so);range.setEnd(en,eo);
-                var mark=document.createElement('mark');
-                mark.className='livre-highlight';mark.style.backgroundColor=color;
-                mark.style.borderRadius='2px';
-                mark.dataset.highlightId=id;
-                mark.addEventListener('click',function(e){e.stopPropagation();LivreHighlight.onHighlightTap(id);});
-                try{range.surroundContents(mark);return true;}catch(e){
-                    try{var c=range.extractContents();mark.appendChild(c);range.insertNode(mark);return true;}catch(e2){return false;}}}
+                var a2=locate(dnodes,tp);var b2=locate(dnodes,ep);
+                return !!(a2&&b2&&markNodes(a2[0],a2[1],b2[0],b2[1]));
             })();""",
             null,
         )
@@ -2880,7 +3321,7 @@ body * { background-color: transparent !important; }
             if (highlights.isEmpty()) return@launch
             withContext(Dispatchers.Main) {
                 highlights.forEach { h ->
-                    injectHighlightIntoWebView(h.id, h.text, h.prefix, h.suffix, h.color)
+                    injectHighlightIntoWebView(h.id, h.text, h.prefix, h.suffix, h.color, h.startPath, h.endPath)
                 }
             }
         }

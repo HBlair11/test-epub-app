@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Patch v37: offline vocabulary list (dictionary lookup history) with
+     CSV / Markdown export for Anki-style study and per-word delete. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?android:colorBackground"
+    android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:title="@string/vocabulary_title"
+        android:titleTextColor="?android:textColorPrimary"
+        app:navigationIcon="@drawable/ic_arrow_back" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recycler"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingStart="@dimen/app_row_content_padding_h"
+        android:paddingTop="@dimen/app_card_spacing"
+        android:paddingEnd="@dimen/app_row_content_padding_h"
+        android:paddingBottom="@dimen/app_section_spacing" />
+
+    <TextView
+        android:id="@+id/emptyText"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:padding="@dimen/app_row_content_padding_h"
+        android:text="@string/vocabulary_empty"
+        android:textColor="?android:textColorSecondary"
+        android:textSize="14sp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/actionsRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/app_row_content_padding_h"
+        android:paddingTop="@dimen/app_card_spacing"
+        android:paddingEnd="@dimen/app_row_content_padding_h"
+        android:paddingBottom="@dimen/app_card_spacing">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnExportCsv"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/vocabulary_export_csv" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnExportMarkdown"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/vocabulary_export_markdown" />
+
+        <ImageButton
+            android:id="@+id/btnClearAll"
+            android:layout_width="@dimen/app_icon_button_size"
+            android:layout_height="@dimen/app_icon_button_size"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/vocabulary_clear_confirm"
+            android:src="@drawable/ic_delete"
+            app:tint="?android:textColorSecondary" />
+    </LinearLayout>
+
+</LinearLayout>

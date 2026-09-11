@@ -1,5 +1,7 @@
-The Livre Magicae — Offline Dictionary Seed
+The Livre Magicae — Offline Dictionary
 
-The bundled en.db contains a compact set of English dictionary entries whose definitions were authored for The Livre Magicae project for this offline reader feature. The seed text is dedicated to the public domain under CC0 1.0 Universal. No network access is used.
+The bundled en.db is derived from WordNet 3.1 (https://wordnet.princeton.edu), a large lexical database of English developed by the Cognitive Science Laboratory at Princeton University. Definitions were compacted for offline lookup (word, part of speech, definition) and are used under WordNet's permissive license — the full license text is preserved in WORDNET_LICENSE.txt in this folder.
 
-The application may expand or replace this seed database with a larger compatible dataset in a future update, provided the source license and attribution requirements are recorded here and in the app's About screen.
+The database also includes an irregular-lemma table (mice -> mouse, went -> go, ...) built from WordNet's exception lists so inflected forms resolve to their base entries.
+
+No network access is ever used; lookups run entirely against this local copy. Additional languages can be added later as dict/<lang>.db files using the same schema (words(word, pos, definition) + lemmas(word, base)).

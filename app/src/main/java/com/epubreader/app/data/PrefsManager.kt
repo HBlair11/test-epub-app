@@ -161,9 +161,23 @@ class PrefsManager(
 
     /** TTS speech rate, stored as an int 0-19 representing 0.5x to 1.5x. */
     var ttsSpeedProgress: Int
-        get() = prefs.getInt(KEY_TTS_SPEED, 8)
+        get() = prefs.getInt(KEY_TTS_SPEED, DEFAULT_TTS_SPEED_PROGRESS)
         set(value) {
-            prefs.edit().putInt(KEY_TTS_SPEED, value.coerceIn(0, 19)).apply()
+            prefs.edit().putInt(KEY_TTS_SPEED, value.coerceIn(0, TTS_SPEED_MAX)).apply()
+        }
+
+    /** Patch v37: pitch slider progress 0..30 mapping to 0.5x..2.0x. */
+    var ttsPitchProgress: Int
+        get() = prefs.getInt(KEY_TTS_PITCH, DEFAULT_TTS_PITCH_PROGRESS)
+        set(value) {
+            prefs.edit().putInt(KEY_TTS_PITCH, value.coerceIn(0, TTS_PITCH_MAX)).apply()
+        }
+
+    /** Patch v37: foreground-service read-aloud when the reader is backgrounded. */
+    var ttsBackgroundPlayback: Boolean
+        get() = prefs.getBoolean(KEY_TTS_BACKGROUND, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_TTS_BACKGROUND, value).apply()
         }
 
     companion object {
@@ -187,6 +201,16 @@ class PrefsManager(
         const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
         const val KEY_PAGE_TURN_ANIM = "page_turn_animation"
         const val KEY_TTS_SPEED = "tts_speed"
+        const val KEY_TTS_PITCH = "tts_pitch"
+        const val KEY_TTS_BACKGROUND = "tts_background"
+
+        // Patch v37 slider scales: progress N maps to 0.5 + N * 0.05 engine
+        // units. Speed 0..50 -> 0.5x..3.0x (default 8 = 0.9x); pitch 0..30 ->
+        // 0.5x..2.0x (default 10 = 1.0x).
+        const val TTS_SPEED_MAX = 50
+        const val TTS_PITCH_MAX = 30
+        const val DEFAULT_TTS_SPEED_PROGRESS = 8
+        const val DEFAULT_TTS_PITCH_PROGRESS = 10
 
         const val MIN_FONT_SIZE = 24
         const val MAX_FONT_SIZE = 56

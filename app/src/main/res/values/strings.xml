@@ -194,12 +194,13 @@
     <string name="reader_history_forward">%1$s &gt;</string>
     <string name="reader_history_clear">CLEAR</string>
     <string name="reader_search_hint">Search this book</string>
-    <string name="selection_capture">Use selection</string>
-    <string name="selection_captured">Selection captured for future reader tools</string>
     <string name="selection_define">Define</string>
-    <string name="selection_single_word_required">Select one word to define.</string>
+    <string name="selection_none">Select some text first.</string>
     <string name="dictionary_not_found">No local definition found.</string>
-    <string name="dictionary_attribution">Offline dictionary • project-authored local dataset</string>
+    <string name="dictionary_did_you_mean">Did you mean…</string>
+    <string name="dictionary_lookup_external">Look up in other apps</string>
+    <string name="dictionary_external_none">No external dictionary app is installed.</string>
+    <string name="dictionary_attribution">Offline dictionary • WordNet-derived local dataset</string>
     <string name="reader_search_empty">Enter a word or phrase to find matches across the book.</string>
     <string name="reader_margin">Margin</string>
     <string name="reader_alignment">Alignment</string>
@@ -281,9 +282,20 @@
     <string name="about_privacy_title">Privacy</string>
     <string name="about_privacy_body">The Livre Magicae is designed to work entirely offline.\n\n• No account\n• No tracking\n• No analytics\n• No cloud library\n• No advertising\n• No internet connection required\n\nYour books stay on your device.</string>
     <string name="about_app_title">About</string>
-    <string name="about_app_version">Version 1.35</string>
+    <string name="about_app_version">Version 1.36</string>
     <string name="about_app_description">The Livre Magicae · EPUB Reader\nA calm, offline-first reading companion.</string>
-    <string name="about_dictionary_attribution">Offline dictionary bundled with the app.\nSeed definitions are dedicated to the public domain (CC0 1.0).</string>
+    <string name="about_dictionary_attribution">Offline dictionary bundled with the app.\nEnglish definitions are derived from WordNet 3.1 (wordnet.princeton.edu), used under its permissive license.\nSee assets/dict/WORDNET_LICENSE.txt for details.</string>
+
+    <!-- Patch v37: Vocabulary (offline dictionary lookup history) -->
+    <string name="nav_vocabulary">Vocabulary</string>
+    <string name="vocabulary_title">Vocabulary</string>
+    <string name="vocabulary_empty">Words you look up with Define will be saved here.</string>
+    <string name="vocabulary_export_csv">Export as CSV</string>
+    <string name="vocabulary_export_markdown">Export as Markdown</string>
+    <string name="vocabulary_exported">Vocabulary exported</string>
+    <string name="vocabulary_cleared">Vocabulary cleared</string>
+    <string name="vocabulary_clear_confirm">Clear all looked-up words?</string>
+    <string name="vocabulary_delete_word">Delete word</string>
 
     <!-- Highlights -->
     <string name="highlight_action">Highlight</string>
@@ -300,5 +312,30 @@
     <string name="highlight_note_saved">Note saved</string>
     <string name="highlight_delete">Delete highlight</string>
     <string name="highlight_copied">Copied to clipboard</string>
+    <string name="highlight_deleted">Highlight deleted</string>
+
+    <!-- Patch v37: expanded Read Aloud (TTS) controls -->
+    <string name="tts_skip_back">Previous sentence</string>
+    <string name="tts_skip_forward">Next sentence</string>
+    <string name="tts_repeat">Repeat sentence</string>
+    <string name="tts_repeat_on">Repeating sentence</string>
+    <string name="tts_repeat_word">Repeating word</string>
+    <string name="tts_repeat_off">Repeat off</string>
+    <string name="tts_resume">Resume</string>
+    <string name="tts_sleep_timer">Sleep timer</string>
+    <string name="tts_sleep_off">Off</string>
+    <string name="tts_sleep_minutes">%1$d min</string>
+    <string name="tts_sleep_remaining">%1$d min left</string>
+    <string name="tts_sleep_finished">Sleep timer finished. Good night.</string>
+    <string name="tts_settings">Read aloud settings</string>
+    <string name="tts_speed">Speed</string>
+    <string name="tts_pitch">Pitch</string>
+    <string name="tts_voice">Voice</string>
+    <string name="tts_voice_default">Automatic (book language)</string>
+    <string name="tts_background_playback">Keep reading in background</string>
+    <string name="tts_background_playback_summary">Continue read-aloud when the screen is off or you switch apps</string>
+    <string name="tts_sentence_position">Sentence %1$d of %2$d</string>
+    <string name="tts_notification_title">Reading aloud</string>
+    <string name="tts_notification_channel">Read aloud playback</string>
 
 </resources>

@@ -1,7 +1,6 @@
 package com.epubreader.app
 
 import android.os.Bundle
-import android.widget.ImageButton
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -21,6 +20,8 @@ class AboutPrivacyActivity : AppCompatActivity() {
             insets
         }
         ViewCompat.requestApplyInsets(root)
-        findViewById<ImageButton>(R.id.aboutBack).setOnClickListener { finish() }
+        // Patch v37: standard MaterialToolbar back navigation.
+        findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.aboutToolbar)
+            .setNavigationOnClickListener { finish() }
     }
 }

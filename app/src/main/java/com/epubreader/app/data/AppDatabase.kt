@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [BookEntity::class, BookmarkEntity::class, HighlightEntity::class, CollectionEntity::class, BookCollectionRef::class, ReadingSessionEntity::class],
-    version = 13,
+    entities = [BookEntity::class, BookmarkEntity::class, HighlightEntity::class, CollectionEntity::class, BookCollectionRef::class, ReadingSessionEntity::class, DictionaryHistoryEntity::class, TtsSettingsEntity::class],
+    version = 14,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -22,6 +22,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun collectionDao(): CollectionDao
 
     abstract fun readingSessionDao(): ReadingSessionDao
+
+    abstract fun dictionaryHistoryDao(): DictionaryHistoryDao
+
+    abstract fun ttsSettingsDao(): TtsSettingsDao
 
     companion object {
         @Volatile
@@ -161,6 +165,36 @@ abstract class AppDatabase : RoomDatabase() {
                 }
             }
 
+        private val MIGRATION_13_14 =
+            object : Migration(13, 14) {
+                override fun migrate(database: SupportSQLiteDatabase) {
+                    // Patch v37: dictionary lookup history (vocabulary builder)
+                    // and per-book TTS audio settings. Real migration only —
+                    // existing records in every other table are untouched.
+                    database.execSQL("""
+                        CREATE TABLE IF NOT EXISTS dictionary_history (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            word TEXT NOT NULL,
+                            definition TEXT,
+                            part_of_speech TEXT,
+                            book_id INTEGER,
+                            looked_up_at INTEGER NOT NULL
+                        )
+                    """.trimIndent())
+                    database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_dictionary_history_word ON dictionary_history(word)")
+                    database.execSQL("""
+                        CREATE TABLE IF NOT EXISTS tts_settings (
+                            book_id INTEGER PRIMARY KEY NOT NULL,
+                            speech_rate REAL NOT NULL,
+                            pitch REAL NOT NULL,
+                            voice_name TEXT,
+                            updated_at INTEGER NOT NULL,
+                            FOREIGN KEY(book_id) REFERENCES books(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                        )
+                    """.trimIndent())
+                }
+            }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room
@@ -168,7 +202,7 @@ abstract class AppDatabase : RoomDatabase() {
                         context.applicationContext,
                         AppDatabase::class.java,
                         "epub.db",
-                    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
                     .build()
                     .also { INSTANCE = it }
             }

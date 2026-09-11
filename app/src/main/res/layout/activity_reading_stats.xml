@@ -12,35 +12,17 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <!-- Toolbar-style header matching app-wide layout -->
-        <LinearLayout
+        <!-- Patch v37: standard app MaterialToolbar header (same convention as
+             activity_metadata_refresh.xml / activity_search.xml). -->
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/statsToolbar"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="@dimen/app_row_content_padding_h"
-            android:paddingEnd="@dimen/app_row_content_padding_h"
-            android:background="?attr/colorSurface">
-
-            <ImageButton
-                android:id="@+id/statsBack"
-                android:layout_width="@dimen/app_icon_button_size"
-                android:layout_height="@dimen/app_icon_button_size"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/action_back"
-                android:src="@drawable/ic_arrow_back"
-                app:tint="?android:textColorPrimary" />
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="@dimen/app_text_row_padding_h"
-                android:text="@string/stats_title"
-                android:textColor="?android:textColorPrimary"
-                android:textSize="18sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+            android:layout_height="?attr/actionBarSize"
+            android:background="?attr/colorSurface"
+            android:title="@string/stats_title"
+            android:titleTextColor="?android:textColorPrimary"
+            app:navigationIcon="@drawable/ic_arrow_back"
+            app:navigationIconTint="?android:textColorPrimary" />
 
         <LinearLayout
             android:id="@+id/statsRoot"
@@ -64,7 +46,7 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="@dimen/app_section_spacing"
                 android:orientation="horizontal"
                 android:weightSum="2">
 
@@ -75,7 +57,7 @@
                     android:layout_weight="1"
                     android:layout_marginEnd="8dp"
                     app:cardBackgroundColor="?attr/colorSurface"
-                    app:cardCornerRadius="14dp"
+                    app:cardCornerRadius="@dimen/app_card_corner"
                     app:cardElevation="1dp">
 
                     <LinearLayout
@@ -109,7 +91,7 @@
                     android:layout_weight="1"
                     android:layout_marginStart="8dp"
                     app:cardBackgroundColor="?attr/colorSurface"
-                    app:cardCornerRadius="14dp"
+                    app:cardCornerRadius="@dimen/app_card_corner"
                     app:cardElevation="1dp">
 
                     <LinearLayout
@@ -141,7 +123,7 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="@dimen/app_card_spacing"
                 android:orientation="horizontal"
                 android:weightSum="2">
 
@@ -152,7 +134,7 @@
                     android:layout_weight="1"
                     android:layout_marginEnd="8dp"
                     app:cardBackgroundColor="?attr/colorSurface"
-                    app:cardCornerRadius="14dp"
+                    app:cardCornerRadius="@dimen/app_card_corner"
                     app:cardElevation="1dp">
 
                     <LinearLayout
@@ -186,7 +168,7 @@
                     android:layout_weight="1"
                     android:layout_marginStart="8dp"
                     app:cardBackgroundColor="?attr/colorSurface"
-                    app:cardCornerRadius="14dp"
+                    app:cardCornerRadius="@dimen/app_card_corner"
                     app:cardElevation="1dp">
 
                     <LinearLayout
@@ -218,9 +200,9 @@
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="@dimen/app_card_spacing"
                 app:cardBackgroundColor="?attr/colorSurface"
-                app:cardCornerRadius="14dp"
+                app:cardCornerRadius="@dimen/app_card_corner"
                 app:cardElevation="1dp">
 
                 <LinearLayout
@@ -250,9 +232,9 @@
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="@dimen/app_card_spacing"
                 app:cardBackgroundColor="?attr/colorSurface"
-                app:cardCornerRadius="14dp"
+                app:cardCornerRadius="@dimen/app_card_corner"
                 app:cardElevation="1dp">
 
                 <LinearLayout

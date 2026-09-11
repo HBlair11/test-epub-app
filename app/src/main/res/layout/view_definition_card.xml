@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Patch v37: contextual dictionary card shown near the text selection.
+     Anchored above/below the selection with smart screen-boundary
+     positioning (see ReaderActivity.showDefinitionCard). -->
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_margin="@dimen/app_popup_screen_margin"
+    app:cardBackgroundColor="?attr/colorSurface"
+    app:cardCornerRadius="@dimen/app_card_corner"
+    app:cardElevation="@dimen/app_definition_card_elevation"
+    app:contentPadding="@dimen/app_card_padding">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <ScrollView
+            android:id="@+id/dictScroll"
+            android:layout_width="@dimen/app_definition_card_max_width"
+            android:layout_height="wrap_content"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/dictWord"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="?android:textColorPrimary"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/dictNoResult"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/app_definition_row_spacing"
+                    android:text="@string/dictionary_not_found"
+                    android:textColor="?android:textColorSecondary"
+                    android:textSize="14sp"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:id="@+id/dictEntries"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/app_definition_row_spacing"
+                    android:orientation="vertical" />
+
+                <TextView
+                    android:id="@+id/dictSuggestionsLabel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/app_definition_row_spacing"
+                    android:text="@string/dictionary_did_you_mean"
+                    android:textColor="?android:textColorSecondary"
+                    android:textSize="12sp"
+                    android:textStyle="italic"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:id="@+id/dictSuggestions"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="@dimen/app_definition_row_spacing" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/dictExternalButton"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/app_definition_row_spacing"
+                    android:text="@string/dictionary_lookup_external"
+                    android:visibility="gone" />
+            </LinearLayout>
+        </ScrollView>
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

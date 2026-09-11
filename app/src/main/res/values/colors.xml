@@ -84,4 +84,8 @@
 
     <!-- Patch 18 (Addition #1): fast-scroll thumb (muted slate, 55% opacity) -->
     <color name="reader_history_surface">#00000000</color>
+
+    <!-- Patch v37: Read-aloud word highlight in the reader content area
+         (slate at 50% alpha — readable on light, sepia and dark themes). -->
+    <color name="tts_word_highlight">#8095ADBE</color>
 </resources>

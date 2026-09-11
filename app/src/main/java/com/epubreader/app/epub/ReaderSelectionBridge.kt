@@ -16,6 +16,10 @@ class ReaderSelectionBridge(
         endOffset: Int,
         prefix: String,
         suffix: String,
+        rectLeft: Int,
+        rectTop: Int,
+        rectRight: Int,
+        rectBottom: Int,
     ) {
         if (text.isBlank() || spineHref.isBlank()) return
         onSelection(
@@ -28,6 +32,10 @@ class ReaderSelectionBridge(
                 endOffset = endOffset,
                 prefix = prefix,
                 suffix = suffix,
+                rectLeft = rectLeft,
+                rectTop = rectTop,
+                rectRight = rectRight,
+                rectBottom = rectBottom,
             )
         )
     }

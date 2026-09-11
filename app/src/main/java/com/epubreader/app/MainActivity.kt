@@ -443,6 +443,7 @@ class MainActivity : AppCompatActivity() {
                 isDivider = true,
             ),
             DrawerItem(getString(R.string.nav_reading_stats), R.drawable.ic_menu_book, launchActivity = ReadingStatsActivity::class.java),
+            DrawerItem(getString(R.string.nav_vocabulary), R.drawable.ic_vocabulary, launchActivity = com.epubreader.app.ui.VocabularyActivity::class.java),
             DrawerItem(getString(R.string.nav_folders), R.drawable.ic_folder, view = ShelfView.Folders),
             DrawerItem(
                 getString(R.string.nav_settings),

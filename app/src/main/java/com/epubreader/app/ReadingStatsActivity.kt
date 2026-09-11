@@ -29,7 +29,9 @@ class ReadingStatsActivity : AppCompatActivity() {
         }
         ViewCompat.requestApplyInsets(root)
         val content = findViewById<LinearLayout>(R.id.statsRoot)
-        findViewById<android.widget.ImageButton>(R.id.statsBack).setOnClickListener { finish() }
+        // Patch v37: standard MaterialToolbar back navigation.
+        findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.statsToolbar)
+            .setNavigationOnClickListener { finish() }
         val now = System.currentTimeMillis()
         val weekStart = Calendar.getInstance().apply {
             firstDayOfWeek = Calendar.MONDAY

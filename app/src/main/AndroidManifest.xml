@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Patch v37: read-aloud background playback. FOREGROUND_SERVICE +
+         FOREGROUND_SERVICE_MEDIA_PLAYBACK keep the reader process alive
+         while the engine speaks; POST_NOTIFICATIONS shows the media
+         notification on Android 13+ (requested at runtime). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:name=".EpubApp"
         android:allowBackup="true"
@@ -76,12 +84,25 @@
             android:exported="false"
             android:theme="@style/Theme.EpubReader" />
 
+        <!-- Patch v37: offline vocabulary (dictionary lookup history). -->
+        <activity
+            android:name=".ui.VocabularyActivity"
+            android:exported="false"
+            android:theme="@style/Theme.EpubReader" />
+
         <activity
             android:name=".SearchActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.EpubReader" />
+
+        <!-- Patch v37: foreground keep-alive for read-aloud so playback
+             survives backgrounding/screen-off when enabled in settings. -->
+        <service
+            android:name=".tts.ReaderTtsService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
