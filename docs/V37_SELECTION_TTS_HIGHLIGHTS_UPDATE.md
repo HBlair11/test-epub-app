@@ -11,11 +11,15 @@ chrome, word-highlight rendering, and highlight-list row layout are touched.
 - The Define and Highlight actions now appear directly in Android's floating
   text-selection toolbar (the one that already shows Copy / Translate / Select
   all / Share / Web search). No extra bottom sheet is shown for these.
-- Implemented via `WebView.setCustomSelectionActionModeCallback`, which adds the
-  items in `onPrepareActionMode` — the last point before the toolbar renders —
-  so they survive the WebView's menu rebuild (the previous `onActionModeStarted`
-  hook was too early and the items were dropped). The menu is never cleared, so
-  every default action stays alongside ours.
+- `TextView` exposes `setCustomSelectionActionModeCallback` for this, but `WebView`
+  does not — a WebView builds its selection toolbar from a private Chromium
+  callback that clears and repopulates the menu in `onPrepareActionMode`, so
+  items added from the Activity-level `onActionModeStarted` hook get wiped.
+  The reliable interception point is `startActionMode` itself, so the reading
+  WebView is now a `LivreWebView` subclass that overrides `startActionMode`,
+  wraps the WebView's own callback, and (re)adds our items in
+  `onPrepareActionMode` after the WebView rebuilds its menu. The menu is never
+  cleared, so every default action stays alongside ours.
 - Both actions capture the live selection at click time (not when the toolbar
   appeared) and only finish the ActionMode after the selection text is read
   back, so finishing early can't wipe the selection before it's captured.
@@ -68,8 +72,13 @@ chrome, word-highlight rendering, and highlight-list row layout are touched.
   - Rewrote `highlightSpokenWord` (non-mutating overlay rects) and
     `clearSpokenWordHighlight`.
   - Updated `onPause` and back-press to use the new overlay.
+- `app/src/main/java/com/epubreader/app/ui/LivreWebView.kt` (new)
+  - Custom `WebView` subclass that overrides `startActionMode` to wrap the
+    WebView's own selection callback and (re)add the Define/Highlight items in
+    `onPrepareActionMode`, after the WebView rebuilds its menu.
 - `app/src/main/res/layout/activity_reader.xml`
-  - Removed the old `ttsControls` block; added the full-screen `ttsOverlay`
+  - Switched the reading `<WebView>` to `<com.epubreader.app.ui.LivreWebView>`;
+    removed the old `ttsControls` block; added the full-screen `ttsOverlay`
     (header + book title + section + status + transport row).
 - `app/src/main/java/com/epubreader/app/ui/HighlightListAdapter.kt`
   - Explicit `MATCH_PARENT` width on the highlight text `TextView`.

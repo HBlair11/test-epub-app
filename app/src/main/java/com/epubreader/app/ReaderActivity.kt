@@ -431,14 +431,17 @@ class ReaderActivity : AppCompatActivity() {
 
         // Patch v37: add Define + Highlight to the native floating selection
         // toolbar (the same one that shows Copy / Translate / Select all /
-        // Share / Web search). The previous attempt added the items in the
-        // Activity-level onActionModeStarted hook, but the WebView rebuilds its
-        // selection menu in onPrepareActionMode afterwards, which dropped them.
-        // Registering a custom selection ActionMode callback lets us add the
-        // items in onPrepareActionMode (the last point before the toolbar is
-        // rendered) so they survive — and we never call menu.clear(), so every
-        // default action the user expects stays alongside ours.
-        binding.webView.setCustomSelectionActionModeCallback(selectionActionCallback)
+        // Share / Web search). TextView exposes setCustomSelectionActionModeCallback
+        // for this, but WebView does not — a WebView builds its selection toolbar
+        // from a private Chromium callback that clears and repopulates the menu in
+        // onPrepareActionMode, so items added from the Activity-level
+        // onActionModeStarted hook get wiped. The only reliable interception point
+        // is startActionMode itself, so the reading WebView is our LivreWebView
+        // subclass (see ui/LivreWebView.kt) which wraps the WebView's own callback.
+        // The decorator below is idempotent and runs in onPrepareActionMode —
+        // after the WebView rebuilds its menu — so our items survive and every
+        // default action stays alongside ours. We never call menu.clear().
+        binding.webView.selectionMenuDecorator = { menu -> addSelectionActionItems(menu) }
     }
 
     private fun captureCurrentSelection(onCaptured: ((ReaderSelectionLocator?) -> Unit)? = null) {
@@ -3062,11 +3065,11 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         // Patch v37: Define and Highlight live directly in the floating
         // selection toolbar. onActionModeStarted fires once when a selection
         // begins; we store the mode reference (so it can be dismissed on
-        // navigation / touch) and add our items here as a backup path. The
-        // primary, reliable path is the custom selection callback's
-        // onPrepareActionMode (see selectionActionCallback) — that one survives
-        // the WebView's menu rebuild — but adding here too is idempotent and
-        // covers devices that don't reach onPrepareActionMode.
+        // navigation / touch). The primary, reliable path that keeps the items
+        // visible is LivreWebView.startActionMode wrapping the WebView's own
+        // callback (see ui/LivreWebView.kt) — it re-adds the items in
+        // onPrepareActionMode after the WebView rebuilds its menu. Adding here
+        // too is idempotent and covers any path that doesn't reach the wrapper.
         currentSelectionActionMode = mode
         definitionPopup?.dismiss()
         addSelectionActionItems(mode.menu)
@@ -3106,33 +3109,6 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 }
                 true
             }
-        }
-    }
-
-    /** Custom WebView selection ActionMode callback. The reliable home for the
-     *  Define + Highlight items: onPrepareActionMode is the last chance to add
-     *  menu items before the floating toolbar renders, so items added here are
-     *  not dropped by a later rebuild. Returns true from onCreate/onPrepare so
-     *  the menu is shown; onActionItemClicked returns false because each item
-     *  has its own click listener set in [addSelectionActionItems]. */
-    private val selectionActionCallback = object : ActionMode.Callback {
-        override fun onCreateActionMode(mode: ActionMode, menu: android.view.Menu): Boolean {
-            currentSelectionActionMode = mode
-            definitionPopup?.dismiss()
-            addSelectionActionItems(menu)
-            return true
-        }
-
-        override fun onPrepareActionMode(mode: ActionMode, menu: android.view.Menu): Boolean {
-            currentSelectionActionMode = mode
-            addSelectionActionItems(menu)
-            return true
-        }
-
-        override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean = false
-
-        override fun onDestroyActionMode(mode: ActionMode) {
-            if (currentSelectionActionMode === mode) currentSelectionActionMode = null
         }
     }
 
