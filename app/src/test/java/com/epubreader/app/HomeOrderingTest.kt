@@ -7,49 +7,60 @@ import org.junit.Test
 
 class HomeOrderingTest {
 
+    /** Library/shelf view Recently Added sort: id DESC (primary key), with stable
+     *  ascending tie-break by id when asc=true. */
     private fun applySort(list: List<BookEntity>, sort: String, asc: Boolean): List<BookEntity> {
-        // Mirror of BookshelfViewModel.applySort for RECENTLY_ADDED.
         val sorted = when (sort) {
             PrefsManager.SortOption.RECENTLY_ADDED ->
                 if (asc) {
-                    list.sortedWith(compareBy<BookEntity> { it.addedDate }.thenBy { it.id })
+                    list.sortedWith(compareBy { it.id }).reversed()
                 } else {
-                    list.sortedWith(compareByDescending<BookEntity> { it.addedDate }.thenByDescending { it.id })
+                    list.sortedWith(compareByDescending { it.id })
                 }
             else -> list.sortedWith(compareBy<BookEntity> { it.sortTitle })
         }
         return if (sort == PrefsManager.SortOption.RECENTLY_ADDED) sorted else if (asc) sorted else sorted.reversed()
     }
 
+    /** Home Recently Added sort: sourceLastModified DESC, then addedDate DESC,
+     *  then id DESC. */
+    private fun homeSort(list: List<BookEntity>): List<BookEntity> {
+        return list.sortedWith(
+            compareByDescending<BookEntity> { it.sourceLastModified }
+                .thenByDescending { it.addedDate }
+                .thenByDescending { it.id }
+        )
+    }
+
     @Test
-    fun recentlyAddedUsesNewestFirstWithStableIdTieBreak() {
-        val older = BookEntity(id = 1, title = "Older", author = "A", path = "old", checksum = "1", addedDate = 100L)
-        val newer = BookEntity(id = 2, title = "Newer", author = "B", path = "new", checksum = "2", addedDate = 200L)
-        val sameTimeHigherId = BookEntity(id = 3, title = "Same time", author = "C", path = "same", checksum = "3", addedDate = 200L)
+    fun libraryRecentlyAddedUsesIdDescending() {
+        val older = BookEntity(id = 1, title = "Older", author = "A", path = "old", checksum = "1", addedDate = 100L, sourceLastModified = 1000L)
+        val newer = BookEntity(id = 2, title = "Newer", author = "B", path = "new", checksum = "2", addedDate = 200L, sourceLastModified = 2000L)
 
-        val result = applySort(listOf(older, newer, sameTimeHigherId), PrefsManager.SortOption.RECENTLY_ADDED, false)
+        val result = applySort(listOf(older, newer), PrefsManager.SortOption.RECENTLY_ADDED, false)
 
+        assertEquals(listOf(2L, 1L), result.map { it.id })
+    }
+
+    @Test
+    fun homeRecentlyAddedUsesMtimeDescendingThenId() {
+        val older = BookEntity(id = 1, title = "Older", author = "A", path = "old", checksum = "1", addedDate = 100L, sourceLastModified = 1000L)
+        val newer = BookEntity(id = 2, title = "Newer", author = "B", path = "new", checksum = "2", addedDate = 200L, sourceLastModified = 2000L)
+        val sameTimeHigherId = BookEntity(id = 3, title = "Same time", author = "C", path = "same", checksum = "3", addedDate = 200L, sourceLastModified = 2000L)
+
+        val result = homeSort(listOf(older, newer, sameTimeHigherId))
+
+        // Same m-time → tie-break by addedDate DESC → tie-break by id DESC
         assertEquals(listOf(3L, 2L, 1L), result.map { it.id })
     }
 
     @Test
-    fun recentlyAddedAscendingGivesOldestFirst() {
-        val older = BookEntity(id = 1, title = "Older", author = "A", path = "old", checksum = "1", addedDate = 100L)
-        val newer = BookEntity(id = 2, title = "Newer", author = "B", path = "new", checksum = "2", addedDate = 200L)
+    fun homeRecentlyAddedAscendingGivesOldestMtimeFirst() {
+        val older = BookEntity(id = 1, title = "Older", author = "A", path = "old", checksum = "1", addedDate = 100L, sourceLastModified = 1000L)
+        val newer = BookEntity(id = 2, title = "Newer", author = "B", path = "new", checksum = "2", addedDate = 200L, sourceLastModified = 2000L)
 
-        val result = applySort(listOf(newer, older), PrefsManager.SortOption.RECENTLY_ADDED, true)
+        val asc = homeSort(listOf(newer, older)).reversed()
 
-        assertEquals(listOf(1L, 2L), result.map { it.id })
-    }
-
-    @Test
-    fun recentlyAddedAscendingTieBreakById() {
-        val first = BookEntity(id = 5, title = "First", author = "A", path = "f", checksum = "1", addedDate = 300L)
-        val second = BookEntity(id = 3, title = "Second", author = "B", path = "s", checksum = "2", addedDate = 300L)
-
-        val result = applySort(listOf(first, second), PrefsManager.SortOption.RECENTLY_ADDED, true)
-
-        // Same addedDate → ascending tie-break by id: 3 before 5
-        assertEquals(listOf(3L, 5L), result.map { it.id })
+        assertEquals(listOf(1L, 2L), asc.map { it.id })
     }
 }

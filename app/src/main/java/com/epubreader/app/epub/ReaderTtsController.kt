@@ -34,6 +34,11 @@ class ReaderTtsController(
     private var activeUtteranceId: String? = null
     var state: State = State.UNAVAILABLE
         private set
+    var speechRate: Float = 0.9f
+        set(value) {
+            field = value.coerceIn(0.1f, 3.0f)
+            tts?.setSpeechRate(field)
+        }
 
     init {
         tts = TextToSpeech(appContext) { status ->
@@ -110,6 +115,7 @@ class ReaderTtsController(
     private fun playInternal() {
         if (!initialized || chunks.isEmpty()) return
         audioManager?.requestAudioFocus(audioFocusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+        tts?.setSpeechRate(speechRate)
         state = State.PLAYING
         onStateChanged(true)
         speakCurrentChunk()

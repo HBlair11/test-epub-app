@@ -485,14 +485,14 @@ class MainActivity : AppCompatActivity() {
             return
         }
         item.view?.let {
-            // Navigating to any shelf view via the drawer should land at the
-            // top of that list (title-ascending by default) rather than
-            // preserving the scroll position of the previous view. This is the
-            // Patch 10 clean-refresh-on-nav-switch path and must NOT be affected
-            // by Patch 11 scroll restoration.
+            // If already on this view (e.g. Home), just scroll to top.
+            if (viewModel.view.value == it && it is ShelfView.Home) {
+                binding.homeContent.homeScroll.post {
+                    binding.homeContent.homeScroll.scrollTo(0, 0)
+                }
+                return
+            }
             scrollToTopOnNextContent = true
-            // Switching sections invalidates any pending restore — the user is
-            // intentionally leaving the previous view, so we don't restore it.
             pendingRestoreKey = null
             pendingReadingTopReset = false
             viewModel.setView(it)
@@ -691,6 +691,7 @@ class MainActivity : AppCompatActivity() {
         drawerToggle.syncState()
         binding.toolbar.title = titleFor(view)
         drawerAdapter.setSelected(view)
+        invalidateOptionsMenu()
         binding.homeContent.root.visibility = if (view is ShelfView.Home) View.VISIBLE else View.GONE
         if (view is ShelfView.Home) {
             binding.recycler.visibility = View.GONE
@@ -698,6 +699,10 @@ class MainActivity : AppCompatActivity() {
             // Re-render the cached Home content so Continue Reading reflects the
             // latest DB state even if the LiveData emitted while Home was hidden.
             lastHomeContent?.let { renderHome(it) }
+            // Always scroll Home to the top so Continue Reading is visible.
+            binding.homeContent.homeScroll.post {
+                binding.homeContent.homeScroll.scrollTo(0, 0)
+            }
         }
         updateFab(view)
         binding.refresh.isEnabled = true // Patch 12: keep the refresh layout always
@@ -1051,8 +1056,12 @@ class MainActivity : AppCompatActivity() {
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
         val view = viewModel.view.value ?: ShelfView.Library
         val bookView = isBookView(view)
+        val isSettings = view is ShelfView.Settings
+        val isReading = view is ShelfView.Reading
         menu.findItem(R.id.action_view_mode)?.isVisible = bookView
-        menu.findItem(R.id.action_sort)?.isVisible = bookView
+        menu.findItem(R.id.action_sort)?.isVisible = bookView && !isReading
+        menu.findItem(R.id.action_search)?.isVisible = !isSettings
+        menu.findItem(R.id.action_import)?.isVisible = !isSettings
         menu.findItem(R.id.action_view_mode)?.setIcon(
             if (viewModel.viewModeGrid.value == true) R.drawable.ic_list else R.drawable.ic_grid,
         )

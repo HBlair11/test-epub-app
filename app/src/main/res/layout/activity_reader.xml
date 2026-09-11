@@ -165,6 +165,22 @@
                 android:textColor="@color/reader_chrome_text_muted"
                 android:textSize="12sp" />
 
+            <TextView
+                android:id="@+id/ttsSpeedLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingEnd="4dp"
+                android:text="0.9x"
+                android:textColor="@color/reader_chrome_text_muted"
+                android:textSize="12sp" />
+
+            <SeekBar
+                android:id="@+id/ttsSpeed"
+                android:layout_width="80dp"
+                android:layout_height="wrap_content"
+                android:max="19"
+                android:progress="8" />
+
             <ImageButton
                 android:id="@+id/btnTtsPlayPause"
                 style="@style/EpubReaderIconButton"
@@ -394,6 +410,12 @@
                     android:layout_width="0dp"
                     android:layout_weight="1"
                     android:text="@string/reader_tab_bookmarks" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnTabHighlights"
+                    style="@style/ReaderToggleBtn"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:text="@string/reader_tab_highlights" />
             </com.google.android.material.button.MaterialButtonToggleGroup>
 
             <FrameLayout

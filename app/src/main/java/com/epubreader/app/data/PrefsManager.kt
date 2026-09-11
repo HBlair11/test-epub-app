@@ -159,6 +159,13 @@ class PrefsManager(
             prefs.edit().putBoolean(KEY_PAGE_TURN_ANIM, value).apply()
         }
 
+    /** TTS speech rate, stored as an int 0-19 representing 0.5x to 1.5x. */
+    var ttsSpeedProgress: Int
+        get() = prefs.getInt(KEY_TTS_SPEED, 8)
+        set(value) {
+            prefs.edit().putInt(KEY_TTS_SPEED, value.coerceIn(0, 19)).apply()
+        }
+
     companion object {
         const val KEY_GRID = "view_grid"
         const val KEY_GRID_COLS = "grid_columns"
@@ -179,6 +186,7 @@ class PrefsManager(
         const val KEY_FOLDER = "selected_folder_uri"
         const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
         const val KEY_PAGE_TURN_ANIM = "page_turn_animation"
+        const val KEY_TTS_SPEED = "tts_speed"
 
         const val MIN_FONT_SIZE = 24
         const val MAX_FONT_SIZE = 56

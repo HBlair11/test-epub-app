@@ -5,8 +5,11 @@ import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import com.epubreader.app.data.AppDatabase
+import com.epubreader.app.util.SystemBarController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -17,7 +20,15 @@ class ReadingStatsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_reading_stats)
-        val root = findViewById<LinearLayout>(R.id.statsRoot)
+        SystemBarController.apply(this)
+        val root = findViewById<android.view.View>(R.id.statsRootLayout)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(v.paddingLeft, bars.top, v.paddingRight, bars.bottom)
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
+        val content = findViewById<LinearLayout>(R.id.statsRoot)
         findViewById<android.widget.ImageButton>(R.id.statsBack).setOnClickListener { finish() }
         val now = System.currentTimeMillis()
         val weekStart = Calendar.getInstance().apply {

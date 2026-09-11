@@ -49,6 +49,7 @@ import com.epubreader.app.epub.EpubSearchEngine
 import com.epubreader.app.epub.ReaderPageMapping
 import com.epubreader.app.epub.ReaderTtsController
 import com.epubreader.app.ui.BookmarkAdapter
+import com.epubreader.app.ui.HighlightListAdapter
 import com.epubreader.app.ui.ReaderSettingsActivity
 import com.epubreader.app.ui.ReaderTheme
 import com.epubreader.app.ui.SearchResultAdapter
@@ -67,6 +68,7 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var prefs: PrefsManager
     private var lastSelection: ReaderSelectionLocator? = null
     private var pendingSelectionCallback: ((ReaderSelectionLocator?) -> Unit)? = null
+    private var selectionActionsSheet: BottomSheetDialog? = null
     private var dictionaryLookup: com.epubreader.app.epub.DictionaryLookup? = null
     private var ttsController: ReaderTtsController? = null
     private var readingSessionStartedAt: Long? = null
@@ -711,6 +713,24 @@ class ReaderActivity : AppCompatActivity() {
         }
         binding.btnTtsPlayPause.setOnClickListener { ttsController?.togglePauseResume() }
         binding.btnTtsStop.setOnClickListener { ttsController?.stop(); binding.ttsControls.visibility = View.GONE }
+        // TTS speed control: SeekBar maps 0-19 to 0.5x-1.5x (progress 8 = 0.9x default)
+        val savedProgress = prefs.ttsSpeedProgress
+        binding.ttsSpeed.progress = savedProgress
+        val savedRate = 0.5f + (savedProgress / 19.0f) * 1.0f
+        ttsController?.speechRate = savedRate
+        binding.ttsSpeedLabel.text = String.format(java.util.Locale.US, "%.1fx", savedRate)
+        binding.ttsSpeed.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (!fromUser) return
+                val rate = 0.5f + (progress / 19.0f) * 1.0f
+                ttsController?.speechRate = rate
+                binding.ttsSpeedLabel.text = String.format(java.util.Locale.US, "%.1fx", rate)
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {
+                prefs.ttsSpeedProgress = sb?.progress ?: 8
+            }
+        })
         binding.tvAddBookmark.setOnClickListener { addBookmark() }
         binding.readerHistoryBack.setOnClickListener { goBackInReaderHistory() }
         binding.readerHistoryForward.setOnClickListener { goForwardInReaderHistory() }
@@ -2093,6 +2113,10 @@ body * { background-color: transparent !important; }
     private var bookmarkEmpty: TextView? = null
     private var bookmarkAdapter: BookmarkAdapter? = null
     private var bookmarkObserverStarted = false
+    private var highlightRv: RecyclerView? = null
+    private var highlightEmpty: TextView? = null
+    private var highlightObserverStarted = false
+    private var activeOverlayTab: Int = 0
 
     /** Whether the Bookmarks tab is currently shown in the TOC overlay. The
      *  bookmark DB observer fires refreshBookmarkList asynchronously; without
@@ -2122,6 +2146,17 @@ body * { background-color: transparent !important; }
             ) { b -> goToBookmark(b); hideOverlays() }
             bookmarkRv!!.adapter = bookmarkAdapter
             root.addView(bmView)
+
+            // Highlights list
+            val hlView = LayoutInflater.from(this).inflate(R.layout.overlay_list, root, false)
+            highlightRv = hlView.findViewById(R.id.recycler)
+            highlightEmpty = hlView.findViewById(R.id.emptyText)
+            highlightRv!!.layoutManager = LinearLayoutManager(this)
+            highlightRv!!.adapter = HighlightListAdapter { h ->
+                navigateToUrl("https://${EpubResourceResolver.VIRTUAL_HOST}/$bookId/${h.spineHref.trimStart('/')}")
+                hideOverlays()
+            }
+            root.addView(hlView)
         }
         val tocAdapter =
             tocRv!!.adapter as TocAdapter
@@ -2148,6 +2183,16 @@ body * { background-color: transparent !important; }
                 refreshBookmarkList()
             }
         }
+        if (!highlightObserverStarted) {
+            highlightObserverStarted = true
+            db.highlightDao().observeForBook(bookId).asLiveData().observe(this) { list ->
+                (highlightRv?.adapter as? HighlightListAdapter)?.submitList(list)
+                if (activeOverlayTab == binding.btnTabHighlights.id) {
+                    highlightEmpty?.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
+                }
+            }
+        }
+        highlightEmpty?.text = getString(R.string.reader_highlights_empty)
 
         binding.overlayTabGroup.check(if (selectBookmarks) binding.btnTabBookmarks.id else binding.btnTabContents.id)
         applyOverlayTab(if (selectBookmarks) binding.btnTabBookmarks.id else binding.btnTabContents.id)
@@ -2170,18 +2215,32 @@ body * { background-color: transparent !important; }
     }
 
     private fun applyOverlayTab(checkedId: Int) {
+        activeOverlayTab = checkedId
         val isBookmarks = checkedId == binding.btnTabBookmarks.id
+        val isHighlights = checkedId == binding.btnTabHighlights.id
         bookmarksTabActive = isBookmarks
         val tocEmpty = epub?.toc.isNullOrEmpty()
         if (isBookmarks) {
             tocRv?.visibility = View.GONE
             this.tocEmpty?.visibility = View.GONE
+            highlightRv?.visibility = View.GONE
+            highlightEmpty?.visibility = View.GONE
             bookmarkRv?.visibility = View.VISIBLE
             val bmEmpty = (bookmarkAdapter?.currentList?.isEmpty() != false)
             this.bookmarkEmpty?.visibility = if (bmEmpty) View.VISIBLE else View.GONE
+        } else if (isHighlights) {
+            tocRv?.visibility = View.GONE
+            this.tocEmpty?.visibility = View.GONE
+            bookmarkRv?.visibility = View.GONE
+            this.bookmarkEmpty?.visibility = View.GONE
+            highlightRv?.visibility = View.VISIBLE
+            val hlEmpty = ((highlightRv?.adapter as? HighlightListAdapter)?.currentList?.isEmpty() != false)
+            highlightEmpty?.visibility = if (hlEmpty) View.VISIBLE else View.GONE
         } else {
             bookmarkRv?.visibility = View.GONE
             this.bookmarkEmpty?.visibility = View.GONE
+            highlightRv?.visibility = View.GONE
+            highlightEmpty?.visibility = View.GONE
             tocRv?.visibility = View.VISIBLE
             this.tocEmpty?.visibility = if (tocEmpty) View.VISIBLE else View.GONE
         }
@@ -2537,12 +2596,13 @@ body * { background-color: transparent !important; }
     override fun onActionModeStarted(mode: ActionMode) {
         super.onActionModeStarted(mode)
         val menu = mode.menu
-        // Define appears first (primary action) so the user sees it immediately
-        // in the selection toolbar rather than buried in the overflow menu.
+        // Define and Highlight are added with SHOW_AS_ACTION_ALWAYS as a fallback
+        // for devices that support custom action mode items. The primary UI is
+        // the selection bottom sheet shown via captureCurrentSelection below.
         val defineId = 0x4C59
         if (menu.findItem(defineId) == null) {
             val item = menu.add(0, defineId, 0, getString(R.string.selection_define))
-            item.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+            item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
             item.setOnMenuItemClickListener {
                 captureCurrentSelection { selection -> showDefinition(selection?.text) }
                 mode.finish()
@@ -2558,17 +2618,85 @@ body * { background-color: transparent !important; }
                 true
             }
         }
-        // Highlight action: shows a color picker bottom sheet for creating highlights.
         if (menu.findItem(HIGHLIGHT_ACTION_ID) == null) {
             val item = menu.add(0, HIGHLIGHT_ACTION_ID, 1, getString(R.string.highlight_action))
-            item.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+            item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
             item.setOnMenuItemClickListener {
                 captureCurrentSelection { selection -> showHighlightColorPicker(selection) }
                 mode.finish()
                 true
             }
         }
-        captureCurrentSelection()
+        // Show the selection actions bottom sheet as the primary UI for text
+        // selection. This works on all Android versions, unlike the floating
+        // action mode which may not show custom menu items.
+        captureCurrentSelection { selection ->
+            if (selection != null && selection.text.isNotBlank()) {
+                showSelectionActionsSheet(selection, mode)
+            }
+        }
+    }
+
+    override fun onActionModeFinished(mode: ActionMode) {
+        super.onActionModeFinished(mode)
+        // Don't dismiss the selection actions sheet here — showing the sheet
+        // can itself cause the native ActionMode to finish, which would
+        // immediately dismiss our sheet. The sheet dismisses itself when the
+        // user picks an action.
+    }
+
+    /** Shows a bottom sheet with Define and Highlight actions for the
+     *  current text selection. This is the primary selection UI — it works on
+     *  all Android versions, unlike the floating action mode which may not
+     *  show custom menu items. */
+    private fun showSelectionActionsSheet(selection: ReaderSelectionLocator, mode: ActionMode) {
+        // Guard against duplicate sheets
+        selectionActionsSheet?.dismiss()
+        val dialog = BottomSheetDialog(this)
+        selectionActionsSheet = dialog
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (20 * resources.displayMetrics.density).roundToInt()
+            setPadding(pad, pad, pad, pad)
+        }
+        // Preview of selected text
+        root.addView(TextView(this).apply {
+            text = selection.text.take(80) + if (selection.text.length > 80) "…" else ""
+            textSize = 14f
+            setTextColor(themeColor(android.R.attr.textColorSecondary))
+            setPadding(0, 0, 0, (12 * resources.displayMetrics.density).roundToInt())
+        })
+        // Action buttons
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+        }
+        // Define button
+        btnRow.addView(com.google.android.material.button.MaterialButton(this).apply {
+            text = getString(R.string.selection_define)
+            setOnClickListener {
+                dialog.dismiss()
+                showDefinition(selection.text)
+                mode.finish()
+            }
+        })
+        // Highlight button
+        btnRow.addView(com.google.android.material.button.MaterialButton(this).apply {
+            text = getString(R.string.highlight_action)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { setMargins((8 * resources.displayMetrics.density).roundToInt(), 0, (8 * resources.displayMetrics.density).roundToInt(), 0) }
+            setOnClickListener {
+                dialog.dismiss()
+                showHighlightColorPicker(selection)
+                mode.finish()
+            }
+        })
+        root.addView(btnRow)
+        dialog.setOnDismissListener { selectionActionsSheet = null }
+        dialog.setContentView(root)
+        dialog.show()
     }
 
     private fun showDefinition(raw: String?) {

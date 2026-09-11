@@ -230,6 +230,13 @@ class BookshelfViewModel(
     }
 
     private fun applySortFor(view: ShelfView) {
+        // Currently Reading always uses Recently Opened sort — the user should
+        // not be able to change the sort for this view.
+        if (view is ShelfView.Reading) {
+            sort.value = PrefsManager.SortOption.RECENTLY_READ
+            sortAscending.value = false
+            return
+        }
         val (s, a) = sessionSorts[sortKeyFor(view)] ?: defaultSortFor(view)
         sort.value = s
         sortAscending.value = a
@@ -252,8 +259,15 @@ class BookshelfViewModel(
     }
 
     private fun buildHomeContent(books: List<BookEntity>, currentlyReading: List<BookEntity>): HomeContent {
-        // This intentionally mirrors applySort(..., RECENTLY_ADDED, false): newest first.
-        val newest = applySort(books, PrefsManager.SortOption.RECENTLY_ADDED, false).take(6)
+        // Home Recently Added: sort by file m-time (sourceLastModified) descending,
+        // then by import date (addedDate) descending, then by id descending.
+        // This matches the user's expectation: the most recently added/modified
+        // books appear first, same as the Library "Recently Added" sort.
+        val newest = books.sortedWith(
+            compareByDescending<BookEntity> { it.sourceLastModified }
+                .thenByDescending { it.addedDate }
+                .thenByDescending { it.id }
+        ).take(6)
         val favorites = books
             .filter { it.isFavorite }
             .sortedWith(compareByDescending<BookEntity> { it.lastOpenedDate ?: 0L }.thenBy { it.sortTitle })
@@ -305,12 +319,14 @@ class BookshelfViewModel(
         // of sort-then-reverse so the secondary tie-breaker (id) keeps the same
         // direction as the primary key (addedDate). This matches the DAO query
         // observeHomeRecentlyAdded() (ORDER BY id DESC) and the HomeOrderingTest.
+        // Note: Home Recently Added uses its own m-time-based sort in
+        // buildHomeContent(); this sort applies to Library and other shelf views.
         val sorted = when (sort) {
             PrefsManager.SortOption.RECENTLY_ADDED ->
                 if (asc) {
-                    list.sortedWith(compareBy<BookEntity> { it.addedDate }.thenBy { it.id })
+                    list.sortedWith(compareBy { it.id }).reversed()
                 } else {
-                    list.sortedWith(compareByDescending<BookEntity> { it.addedDate }.thenByDescending { it.id })
+                    list.sortedWith(compareByDescending { it.id })
                 }
 
             PrefsManager.SortOption.RECENTLY_READ ->

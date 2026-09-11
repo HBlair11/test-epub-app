@@ -187,7 +187,9 @@
     <string name="reader_page_measuring">%1$d / …</string>
     <string name="reader_tab_contents">Contents</string>
     <string name="reader_tab_bookmarks">Bookmarks</string>
+    <string name="reader_tab_highlights">Highlights</string>
     <string name="reader_bookmarks_empty">To add a bookmark, tap the Add bookmark button on the bottom menu options.</string>
+    <string name="reader_highlights_empty">Select text in the reader and tap Highlight to save highlights here.</string>
     <string name="reader_history_back">&lt; %1$s</string>
     <string name="reader_history_forward">%1$s &gt;</string>
     <string name="reader_history_clear">CLEAR</string>
