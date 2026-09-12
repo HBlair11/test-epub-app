@@ -162,6 +162,10 @@ class ReaderActivity : AppCompatActivity() {
     private val backHistory = ArrayDeque<ReaderLocation>()
     private val forwardHistory = ArrayDeque<ReaderLocation>()
     private var restoringHistoryLocation = false
+    /** Location associated with the current history cursor. Normal page turns never update this. */
+    private var historyCursorLocation: ReaderLocation? = null
+    /** Set only by explicit navigation that will resolve its final page after a chapter load. */
+    private var pendingHistoryCursorAfterRestore = false
     private var manualSeekTouch = false
     private var manualSeekFinished = false
     /** Exact page requested by the user. A stale WebView poll must not overwrite this
@@ -1512,8 +1516,9 @@ class ReaderActivity : AppCompatActivity() {
     private fun goBackInReaderHistory() {
         if (backHistory.isEmpty()) return
         val target = backHistory.removeLast()
-        val current = captureReaderLocation()
+        val current = historyCursorLocation ?: captureReaderLocation()
         if (current != null) forwardHistory.addLast(current)
+        historyCursorLocation = target
         restoringHistoryLocation = true
         updateHistoryUi()
         navigateToReaderLocation(target)
@@ -1522,8 +1527,9 @@ class ReaderActivity : AppCompatActivity() {
     private fun goForwardInReaderHistory() {
         if (forwardHistory.isEmpty()) return
         val target = forwardHistory.removeLast()
-        val current = captureReaderLocation()
+        val current = historyCursorLocation ?: captureReaderLocation()
         if (current != null) backHistory.addLast(current)
+        historyCursorLocation = target
         restoringHistoryLocation = true
         updateHistoryUi()
         navigateToReaderLocation(target)
@@ -1539,6 +1545,8 @@ class ReaderActivity : AppCompatActivity() {
         val count = chapterPageCounts?.getOrNull(location.spineIndex)?.coerceAtLeast(1) ?: 1
         val ratio = if (count > 1) location.pageInChapter.coerceIn(0, count - 1) / (count - 1).toFloat() else location.ratio
         restoreRatio = ratio.coerceIn(0f, 1f)
+        historyCursorLocation = location
+        pendingHistoryCursorAfterRestore = false
         if (location.spineIndex == spineIndex) {
             binding.webView.evaluateJavascript(
                 "if(window.Caesura){window.Caesura.gotoPage(${location.pageInChapter.coerceAtLeast(0)},false);}"
@@ -2334,6 +2342,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 pendingFragment = frag
                 pendingTargetPageInChapter = null
                 restoreRatio = null
+                pendingHistoryCursorAfterRestore = true
                 loadChapter(idx)
                 return@evaluateJavascript
             }
@@ -2363,14 +2372,27 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                     pendingFragment = frag
                     pendingTargetPageInChapter = null
                     restoreRatio = null
+                    pendingHistoryCursorAfterRestore = true
                     binding.webView.evaluateJavascript(
                         "if(window.Caesura){window.Caesura.gotoElementById('$frag');}"
                     ) {
-                        handler.postDelayed({ pollProgress() }, 80L)
+                        binding.webView.evaluateJavascript(
+                            "if(window.Caesura){window.Caesura.currentPage()+','+window.Caesura.ratio();}"
+                        ) { targetLocationResult ->
+                            val targetValues = targetLocationResult?.trim()?.removeSurrounding("\"")?.split(',')
+                            val targetActualPage = targetValues?.getOrNull(0)?.toIntOrNull()
+                            val targetActualRatio = targetValues?.getOrNull(1)?.toFloatOrNull()
+                            if (pendingHistoryCursorAfterRestore && targetActualPage != null) {
+                                historyCursorLocation = ReaderLocation(spineIndex, targetActualPage, targetActualRatio ?: 0f)
+                                pendingHistoryCursorAfterRestore = false
+                            }
+                            handler.postDelayed({ pollProgress() }, 80L)
+                        }
                     }
                 } else {
                     pendingFragment = null
                     pendingTargetPageInChapter = targetPage
+                    pendingHistoryCursorAfterRestore = true
                     capturePageSnapshot(forward = false)
                     applyPendingFragmentOrRestore()
                 }
@@ -2550,6 +2572,19 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             ) {
                 binding.webView.alpha = 1f
                 dismissPageSnapshot()
+                if (pendingHistoryCursorAfterRestore) {
+                    binding.webView.evaluateJavascript(
+                        "if(window.Caesura){window.Caesura.currentPage()+','+window.Caesura.ratio();}"
+                    ) { result ->
+                        val values = result?.trim()?.removeSurrounding("\"")?.split(',')
+                        val page = values?.getOrNull(0)?.toIntOrNull()
+                        val ratio = values?.getOrNull(1)?.toFloatOrNull()
+                        if (page != null) {
+                            historyCursorLocation = ReaderLocation(spineIndex, page, ratio ?: 0f)
+                            pendingHistoryCursorAfterRestore = false
+                        }
+                    }
+                }
                 // Refresh indicator + seeker right away so they reflect the
                 // restored page instead of waiting for the next 1.5s poll.
                 restoringHistoryLocation = false
@@ -2562,6 +2597,14 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             ) {
                 binding.webView.alpha = 1f
                 dismissPageSnapshot()
+                if (pendingHistoryCursorAfterRestore) {
+                    historyCursorLocation = ReaderLocation(
+                        spineIndex,
+                        targetPage.coerceAtLeast(0),
+                        if (pagesInChapter > 1) targetPage.coerceAtLeast(0) / (pagesInChapter - 1).toFloat() else 0f
+                    )
+                    pendingHistoryCursorAfterRestore = false
+                }
                 restoreRatio = null
                 restoringHistoryLocation = false
                 updateHistoryUi()
@@ -3049,6 +3092,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 pendingFragment = null
                 pendingTargetPageInChapter = null
                 restoreRatio = b.scrollRatio
+                pendingHistoryCursorAfterRestore = true
                 loadChapter(b.spineIndex)
                 return@evaluateJavascript
             }
@@ -3067,6 +3111,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             pendingFragment = null
             pendingTargetPageInChapter = targetPage
             restoreRatio = null
+            pendingHistoryCursorAfterRestore = true
             capturePageSnapshot(forward = false)
             applyPendingFragmentOrRestore()
         }
@@ -4057,6 +4102,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                         current.copy(pageInChapter = actualPage, ratio = actualRatio ?: current.ratio)
                     } else current)
                 }
+                pendingHistoryCursorAfterRestore = true
                 loadChapter(targetIndex)
             }
             return
@@ -4079,10 +4125,22 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             }
 
             if (targetPage != null && targetPage >= 0) {
+                pendingHistoryCursorAfterRestore = true
                 binding.webView.evaluateJavascript(
                     "if(window.Caesura){window.Caesura.gotoHighlightById(${highlight.id});}"
                 ) {
-                    handler.postDelayed({ pollProgress() }, 80L)
+                    binding.webView.evaluateJavascript(
+                        "if(window.Caesura){window.Caesura.currentPage()+','+window.Caesura.ratio();}"
+                    ) { targetLocationResult ->
+                        val targetValues = targetLocationResult?.trim()?.removeSurrounding("\"")?.split(',')
+                        val targetActualPage = targetValues?.getOrNull(0)?.toIntOrNull()
+                        val targetActualRatio = targetValues?.getOrNull(1)?.toFloatOrNull()
+                        if (pendingHistoryCursorAfterRestore && targetActualPage != null) {
+                            historyCursorLocation = ReaderLocation(spineIndex, targetActualPage, targetActualRatio ?: 0f)
+                            pendingHistoryCursorAfterRestore = false
+                        }
+                        handler.postDelayed({ pollProgress() }, 80L)
+                    }
                 }
             }
         }
