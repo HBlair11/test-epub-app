@@ -445,17 +445,29 @@ class ReaderActivity : AppCompatActivity() {
         )
         binding.webView.setOnLongClickListener { false }
 
-        // Patch v37: add Define + Highlight to the native floating selection
-        // toolbar (the same one that shows Copy / Translate / Select all /
-        // Share / Web search). TextView exposes setCustomSelectionActionModeCallback
-        // for this, but WebView does not — a WebView builds its selection toolbar
-        // from a private Chromium callback that clears and repopulates the menu in
-        // onPrepareActionMode, so items added from the Activity-level
-        // onActionModeStarted hook get wiped. The only reliable interception point
-        // is startActionMode itself, so the reading WebView is our LivreWebView
-        // Patch v37 follow-up: the LivreWebView startActionMode override was
-        // removed (Play Protect). Selection items are now added in
-        // onActionModeStarted via Handler.post. No decorator wiring needed.
+        // Keep the platform/Chromium text-selection ActionMode intact while
+        // registering our two app actions through the public View API. This is
+        // deliberately scoped to selection ActionMode only; it does not override
+        // WebView.startActionMode or intercept any private Chromium callbacks.
+        binding.webView.customSelectionActionModeCallback = object : ActionMode.Callback {
+            override fun onCreateActionMode(mode: ActionMode, menu: android.view.Menu): Boolean {
+                addSelectionActionItems(menu)
+                return true
+            }
+
+            override fun onPrepareActionMode(mode: ActionMode, menu: android.view.Menu): Boolean {
+                addSelectionActionItems(menu)
+                return false
+            }
+
+            override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
+                return false
+            }
+
+            override fun onDestroyActionMode(mode: ActionMode) {
+                if (currentSelectionActionMode === mode) currentSelectionActionMode = null
+            }
+        }
     }
 
     private fun captureCurrentSelection(onCaptured: ((ReaderSelectionLocator?) -> Unit)? = null) {
@@ -3240,16 +3252,8 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
 
     override fun onActionModeStarted(mode: ActionMode) {
         super.onActionModeStarted(mode)
-        // Patch v37 follow-up: the LivreWebView startActionMode override was
-        // removed (Play Protect flagged it). We now re-add our Define/Highlight
-        // items here via Handler.post — the WebView's own onPrepareActionMode
-        // clears and rebuilds the menu synchronously during startActionMode,
-        // so a post (which runs after the current loop iteration) lands after
-        // that rebuild. A second postDelayed catches any async menu refresh.
         currentSelectionActionMode = mode
         definitionPopup?.dismiss()
-        binding.webView.post { addSelectionActionItems(mode.menu) }
-        binding.webView.postDelayed({ addSelectionActionItems(mode.menu) }, 100)
     }
 
     override fun onActionModeFinished(mode: ActionMode) {
