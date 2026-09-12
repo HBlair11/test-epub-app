@@ -735,8 +735,8 @@ class MainActivity : AppCompatActivity() {
                             val book = books[pos]
                             viewModel.clearCurrentlyReading(book.id)
                             Snackbar
-                                .make(binding.root, R.string.option_remove_reading, Snackbar.LENGTH_SHORT)
-                                .setAction(R.string.cancel) { bookAdapter?.notifyDataSetChanged() }
+                                .make(binding.root, R.string.currently_reading_removed, Snackbar.LENGTH_LONG)
+                                .setAction(R.string.undo) { viewModel.setCurrentlyReading(book.id) }
                                 .show()
                         }
                     }

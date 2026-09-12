@@ -7,6 +7,8 @@ import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
+import android.view.inputmethod.InputMethodManager
+import android.content.Context
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -41,12 +43,19 @@ class SearchActivity : AppCompatActivity() {
         setContentView(binding.root)
         SystemBarController.apply(this)
         setSupportActionBar(binding.searchToolbar)
-        binding.searchToolbar.setNavigationOnClickListener { finish() }
+        binding.searchToolbar.setNavigationOnClickListener {
+            dismissSearchKeyboard()
+            finish()
+        }
 
         binding.searchRecycler.layoutManager = LinearLayoutManager(this)
         binding.searchRecycler.adapter = adapter
 
         binding.searchEdit.requestFocus()
+        binding.searchEdit.setOnEditorActionListener { _, _, _ ->
+            dismissSearchKeyboard()
+            false
+        }
         binding.searchEdit.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -70,13 +79,20 @@ class SearchActivity : AppCompatActivity() {
             binding.searchEmpty.visibility = View.VISIBLE
             binding.searchEmptyText.text =
                 if (query.value.isBlank()) getString(R.string.search_hint)
-                else getString(R.string.empty_library)
+                else getString(R.string.search_no_matches)
         } else {
             binding.searchEmpty.visibility = View.GONE
         }
     }
 
+    private fun dismissSearchKeyboard() {
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(binding.searchEdit.windowToken, 0)
+        binding.searchEdit.clearFocus()
+    }
+
     private fun openBook(book: BookEntity) {
+        dismissSearchKeyboard()
         lifecycleScope.launch { repo.markOpened(book.id) }
         startActivity(Intent(this, ReaderActivity::class.java).putExtra(ReaderActivity.EXTRA_BOOK_ID, book.id))
     }

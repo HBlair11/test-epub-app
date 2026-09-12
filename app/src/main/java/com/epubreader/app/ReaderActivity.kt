@@ -2898,7 +2898,21 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             bookmarkEmpty = bmView.findViewById(R.id.emptyText)
             bookmarkRv!!.layoutManager = LinearLayoutManager(this)
             bookmarkAdapter = BookmarkAdapter(
-                onDelete = { lifecycleScope.launch(Dispatchers.IO) { db.bookmarkDao().delete(it) } }
+                onDelete = { bookmark ->
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        db.bookmarkDao().delete(bookmark)
+                        withContext(Dispatchers.Main) {
+                            Snackbar
+                                .make(binding.root, R.string.bookmark_deleted, Snackbar.LENGTH_LONG)
+                                .setAction(R.string.undo) {
+                                    lifecycleScope.launch(Dispatchers.IO) {
+                                        db.bookmarkDao().insert(bookmark)
+                                    }
+                                }
+                                .show()
+                        }
+                    }
+                }
             ) { b -> goToBookmark(b); hideOverlays() }
             bookmarkRv!!.adapter = bookmarkAdapter
             root.addView(bmView)
@@ -2914,16 +2928,30 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                     hideOverlays()
                 },
                 onDelete = { h ->
-                    // Patch v37: delete directly from the Highlights tab.
                     lifecycleScope.launch(Dispatchers.IO) {
                         db.highlightDao().delete(h)
+                        withContext(Dispatchers.Main) {
+                            // Also unwrap the mark from the current page if visible.
+                            binding.webView.evaluateJavascript(
+                                "(function(){var m=document.querySelector('mark.livre-highlight[data-highlight-id=\"" + h.id + "\"]');if(m){var p=m.parentNode;while(m.firstChild)p.insertBefore(m.firstChild,m);p.removeChild(m);}})();",
+                                null,
+                            )
+                            Snackbar
+                                .make(binding.root, R.string.highlight_deleted, Snackbar.LENGTH_LONG)
+                                .setAction(R.string.undo) {
+                                    lifecycleScope.launch(Dispatchers.IO) {
+                                        db.highlightDao().insert(h)
+                                        withContext(Dispatchers.Main) {
+                                            val currentHref = epub?.spine?.getOrNull(spineIndex)?.href
+                                            if (currentHref == h.spineHref) {
+                                                injectHighlightIntoWebView(h.id, h.text, h.prefix, h.suffix, h.color, h.startPath, h.endPath)
+                                            }
+                                        }
+                                    }
+                                }
+                                .show()
+                        }
                     }
-                    // Also unwrap the mark from the current page if visible.
-                    binding.webView.evaluateJavascript(
-                        "(function(){var m=document.querySelector('mark.livre-highlight[data-highlight-id=\"" + h.id + "\"]');if(m){var p=m.parentNode;while(m.firstChild)p.insertBefore(m.firstChild,m);p.removeChild(m);}})();",
-                        null,
-                    )
-                    Snackbar.make(binding.root, R.string.highlight_deleted, Snackbar.LENGTH_SHORT).show()
                 },
             )
             root.addView(hlView)
@@ -4274,12 +4302,28 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                         dialog.dismiss()
                         lifecycleScope.launch(Dispatchers.IO) {
                             repo.deleteHighlight(highlight)
+                            withContext(Dispatchers.Main) {
+                                // Remove the highlight from the WebView.
+                                binding.webView.evaluateJavascript(
+                                    """(function(){var m=document.querySelector('mark.livre-highlight[data-highlight-id="$highlightId"]');if(m){var p=m.parentNode;while(m.firstChild)p.insertBefore(m.firstChild,m);p.removeChild(m);}})();""",
+                                    null,
+                                )
+                                Snackbar
+                                    .make(binding.root, R.string.highlight_deleted, Snackbar.LENGTH_LONG)
+                                    .setAction(R.string.undo) {
+                                        lifecycleScope.launch(Dispatchers.IO) {
+                                            repo.addHighlight(highlight)
+                                            withContext(Dispatchers.Main) {
+                                                val currentHref = epub?.spine?.getOrNull(spineIndex)?.href
+                                                if (currentHref == highlight.spineHref) {
+                                                    injectHighlightIntoWebView(highlight.id, highlight.text, highlight.prefix, highlight.suffix, highlight.color, highlight.startPath, highlight.endPath)
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .show()
+                            }
                         }
-                        // Remove the highlight from the WebView
-                        binding.webView.evaluateJavascript(
-                            """(function(){var m=document.querySelector('mark.livre-highlight[data-highlight-id="$highlightId"]');if(m){var p=m.parentNode;while(m.firstChild)p.insertBefore(m.firstChild,m);p.removeChild(m);}})();""",
-                            null,
-                        )
                     }
                 })
                 btnRow.addView(com.google.android.material.button.MaterialButton(this@ReaderActivity).apply {

@@ -246,6 +246,10 @@ class BookshelfViewModel(
         viewModelScope.launch { repo.clearCurrentlyReading(bookId) }
     }
 
+    fun setCurrentlyReading(bookId: Long) {
+        viewModelScope.launch { repo.setCurrentlyReading(bookId) }
+    }
+
     fun toggleFavorite(book: BookEntity) {
         viewModelScope.launch { repo.setFavorite(book.id, !book.isFavorite) }
     }

@@ -52,7 +52,7 @@
     <string name="settings_keep_screen_on_summary">Keep the screen on for 10 minutes longer than your current system setting.</string>
 
     <string name="search_books_hint">Search books…</string>
-    <string name="search_in_book_hint">Find a book…</string>
+    <string name="search_in_book_hint">Search this book</string>
 
     <string name="tab_reading">Reading</string>
     <string name="tab_library">Library</string>
@@ -106,6 +106,7 @@
     <string name="empty_placeholder">This section is coming soon.</string>
 
     <string name="empty_library">No books yet</string>
+    <string name="search_no_matches">No matching books</string>
 
     <string name="sort_recently_added">Recently Added</string>
     <string name="sort_recently_read">Recently Opened</string>
@@ -139,6 +140,8 @@
     <string name="option_details">Book details</string>
     <string name="option_favorite">Favorite</string>
     <string name="option_remove_reading">Remove from Reading</string>
+    <string name="currently_reading_removed">Removed from Currently Reading</string>
+    <string name="undo">Undo</string>
     <string name="option_remove">Remove from library</string>
 
     <string name="cancel">Cancel</string>
@@ -320,6 +323,7 @@
     <string name="highlight_delete">Delete highlight</string>
     <string name="highlight_copied">Copied to clipboard</string>
     <string name="highlight_deleted">Highlight deleted</string>
+    <string name="bookmark_deleted">Bookmark deleted</string>
 
     <!-- Patch v37: expanded Read Aloud (TTS) controls -->
     <string name="tts_skip_back">Previous sentence</string>

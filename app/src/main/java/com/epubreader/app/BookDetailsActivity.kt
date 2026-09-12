@@ -298,9 +298,13 @@ class BookDetailsActivity : AppCompatActivity() {
 
             Snackbar.make(
                 binding.root,
-                R.string.option_remove_reading,
-                Snackbar.LENGTH_SHORT
-            ).show()
+                R.string.currently_reading_removed,
+                Snackbar.LENGTH_LONG
+            ).setAction(R.string.undo) {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    BookRepository(applicationContext).setCurrentlyReading(book.id)
+                }
+            }.show()
         }
 
 
