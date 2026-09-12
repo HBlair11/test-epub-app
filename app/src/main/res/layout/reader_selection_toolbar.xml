@@ -30,14 +30,8 @@
 
         <TextView
             android:id="@+id/selection_toolbar_more"
-            style="@style/ReaderSelectionToolbarAction"
+            style="@style/ReaderSelectionToolbarMoreAction"
             android:contentDescription="@string/selection_more"
-            android:text="@string/selection_more" />
-
-        <TextView
-            android:id="@+id/selection_toolbar_drag_handle"
-            style="@style/ReaderSelectionToolbarDragHandle"
-            android:contentDescription="@string/selection_move_toolbar"
-            android:text="⋮⋮" />
+            android:text="⋮" />
     </LinearLayout>
 </HorizontalScrollView>

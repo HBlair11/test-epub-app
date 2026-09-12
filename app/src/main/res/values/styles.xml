@@ -98,12 +98,12 @@
         <item name="android:focusable">true</item>
     </style>
 
-    <style name="ReaderSelectionToolbarDragHandle" parent="android:style/Widget.TextView">
-        <item name="android:layout_width">@dimen/app_selection_toolbar_drag_handle_width</item>
+    <style name="ReaderSelectionToolbarMoreAction" parent="android:style/Widget.TextView">
+        <item name="android:layout_width">@dimen/app_selection_toolbar_more_width</item>
         <item name="android:layout_height">match_parent</item>
         <item name="android:gravity">center</item>
         <item name="android:textColor">@color/reader_chrome_text</item>
-        <item name="android:textSize">@dimen/app_selection_toolbar_drag_handle_text_size</item>
+        <item name="android:textSize">@dimen/app_selection_toolbar_more_text_size</item>
         <item name="android:paddingStart">@dimen/app_selection_toolbar_action_padding_h</item>
         <item name="android:paddingEnd">@dimen/app_selection_toolbar_action_padding_h</item>
         <item name="android:clickable">true</item>

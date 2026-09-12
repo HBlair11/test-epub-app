@@ -20,6 +20,7 @@ import android.view.View
 import android.view.ActionMode
 import android.view.MenuItem
 import android.view.ViewGroup
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.util.TypedValue
 import android.widget.LinearLayout
@@ -3242,10 +3243,8 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         currentSelectionActionMode = mode
         definitionPopup?.dismiss()
         // WebView/Chromium owns the native selection ActionMode. Keep that mode
-        // available for the actual selection/handles, but continuously hide its
-        // floating action toolbar while our custom toolbar is visible. A single
-        // hide() is not sufficient on all Android/WebView versions because the
-        // native menu can be re-laid out after selection changes.
+        // alive for the selection handles, but keep its floating action toolbar
+        // suppressed for the entire lifetime of the selection.
         hideNativeSelectionToolbar(mode)
         binding.webView.postDelayed({ showReaderSelectionToolbar() }, 50L)
     }
@@ -3253,14 +3252,14 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
     private fun hideNativeSelectionToolbar(mode: ActionMode) {
         selectionActionModeHideRunnable?.let(binding.webView::removeCallbacks)
         val runnable = object : Runnable {
-            var attempts = 0
             override fun run() {
                 if (currentSelectionActionMode !== mode) return
                 mode.hide(0L)
-                attempts++
-                if (attempts < 15) {
-                    binding.webView.postDelayed(this, 80L)
-                }
+                // Android/Chromium can recreate or re-show the floating toolbar
+                // after selection-handle movement. Keep suppressing it until the
+                // ActionMode actually finishes instead of stopping after a short
+                // fixed number of attempts.
+                binding.webView.postDelayed(this, 50L)
             }
         }
         selectionActionModeHideRunnable = runnable
@@ -3286,7 +3285,6 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             val define = content.findViewById<TextView>(R.id.selection_toolbar_define)
             val highlight = content.findViewById<TextView>(R.id.selection_toolbar_highlight)
             val more = content.findViewById<TextView>(R.id.selection_toolbar_more)
-            val dragHandle = content.findViewById<TextView>(R.id.selection_toolbar_drag_handle)
 
             copy.setOnClickListener { copySelectedText() }
             define.setOnClickListener {
@@ -3312,48 +3310,103 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 elevation = resources.getDimension(R.dimen.app_definition_card_elevation)
                 setBackgroundDrawable(androidx.core.content.ContextCompat.getDrawable(this@ReaderActivity, R.drawable.reader_selection_toolbar_bg))
             }
-            installSelectionToolbarDragHandle(dragHandle, popup)
+
             selectionToolbarPopup?.dismiss()
             selectionToolbarPopup = popup
-            positionSelectionToolbar(popup, selection)
+            installSelectionToolbarDrag(content, popup)
             popup.showAtLocation(binding.root, Gravity.TOP or Gravity.START, toolbarX(selection), toolbarY(selection))
+            positionSelectionToolbar(popup, selection)
         }
     }
 
-    private fun installSelectionToolbarDragHandle(handle: View, popup: PopupWindow) {
-        var lastX = 0f
-        var lastY = 0f
+    /**
+     * Makes the entire custom toolbar behave like a floating selection toolbar:
+     * a normal tap activates the action, while a long-press anywhere on the
+     * toolbar switches that same gesture into free two-dimensional dragging.
+     * The position is clamped to the app's existing popup edge margin.
+     */
+    private fun installSelectionToolbarDrag(content: View, popup: PopupWindow) {
+        val longPressDelay = ViewConfiguration.getLongPressTimeout().toLong()
+        val touchSlop = ViewConfiguration.get(content.context).scaledTouchSlop
+        var downRawX = 0f
+        var downRawY = 0f
+        var lastRawX = 0f
+        var lastRawY = 0f
         var dragging = false
-        handle.setOnTouchListener { view, event ->
+        var longPressRunnable: Runnable? = null
+        var popupX = 0
+        var popupY = 0
+
+        fun refreshPopupPosition() {
+            val popupWidth = popup.contentView.measuredWidth
+            val popupHeight = popup.contentView.measuredHeight
+            val margin = resources.getDimensionPixelSize(R.dimen.app_popup_screen_margin)
+            val maxX = (binding.root.width - popupWidth - margin).coerceAtLeast(margin)
+            val maxY = (binding.root.height - popupHeight - margin).coerceAtLeast(margin)
+            popupX = popupX.coerceIn(margin, maxX)
+            popupY = popupY.coerceIn(margin, maxY)
+            popup.update(popupX, popupY, -1, -1)
+        }
+
+        fun beginDrag() {
+            if (selectionToolbarPopup !== popup) return
+            dragging = true
+            content.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            content.parent?.requestDisallowInterceptTouchEvent(true)
+        }
+
+        val touchListener = View.OnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    lastX = event.rawX
-                    lastY = event.rawY
-                    dragging = true
-                    view.parent?.requestDisallowInterceptTouchEvent(true)
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    lastRawX = event.rawX
+                    lastRawY = event.rawY
+                    val rootLocation = IntArray(2)
+                    val viewLocation = IntArray(2)
+                    binding.root.getLocationOnScreen(rootLocation)
+                    popup.contentView.getLocationOnScreen(viewLocation)
+                    popupX = viewLocation[0] - rootLocation[0]
+                    popupY = viewLocation[1] - rootLocation[1]
+                    dragging = false
+                    longPressRunnable?.let(view::removeCallbacks)
+                    val runnable = Runnable { beginDrag() }
+                    longPressRunnable = runnable
+                    view.postDelayed(runnable, longPressDelay)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (!dragging) return@setOnTouchListener true
-                    val dx = (event.rawX - lastX).roundToInt()
-                    val dy = (event.rawY - lastY).roundToInt()
-                    if (dx != 0 || dy != 0) {
-                        val location = IntArray(2)
-                        val rootLocation = IntArray(2)
-                        view.getLocationOnScreen(location)
-                        binding.root.getLocationOnScreen(rootLocation)
-                        popup.update(
-                            location[0] - rootLocation[0] + dx,
-                            location[1] - rootLocation[1] + dy,
-                            -1,
-                            -1,
-                        )
-                        lastX = event.rawX
-                        lastY = event.rawY
+                    val movedX = kotlin.math.abs(event.rawX - downRawX)
+                    val movedY = kotlin.math.abs(event.rawY - downRawY)
+                    if (!dragging && (movedX > touchSlop || movedY > touchSlop)) {
+                        longPressRunnable?.let(view::removeCallbacks)
+                        longPressRunnable = null
+                    }
+                    if (dragging) {
+                        popupX += (event.rawX - lastRawX).roundToInt()
+                        popupY += (event.rawY - lastRawY).roundToInt()
+                        refreshPopupPosition()
+                        lastRawX = event.rawX
+                        lastRawY = event.rawY
+                        true
+                    } else {
+                        true
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    longPressRunnable?.let(view::removeCallbacks)
+                    longPressRunnable = null
+                    val wasDragging = dragging
+                    dragging = false
+                    view.parent?.requestDisallowInterceptTouchEvent(false)
+                    if (!wasDragging) {
+                        view.performClick()
                     }
                     true
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                MotionEvent.ACTION_CANCEL -> {
+                    longPressRunnable?.let(view::removeCallbacks)
+                    longPressRunnable = null
                     dragging = false
                     view.parent?.requestDisallowInterceptTouchEvent(false)
                     true
@@ -3361,14 +3414,27 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 else -> true
             }
         }
+
+        fun installRecursively(view: View) {
+            view.setOnTouchListener(touchListener)
+            if (view is ViewGroup) {
+                for (index in 0 until view.childCount) {
+                    installRecursively(view.getChildAt(index))
+                }
+            }
+        }
+        installRecursively(content)
     }
 
     private fun positionSelectionToolbar(popup: PopupWindow, selection: ReaderSelectionLocator) {
         // Positioning is recalculated immediately after layout so measured width
-        // is available; the first show uses the same coordinates as a safe fallback.
+        // is available. All later movement uses the same root-relative coordinate
+        // system and is clamped to the existing app popup edge margin.
         binding.root.post {
             if (selectionToolbarPopup !== popup) return@post
-            popup.update(toolbarX(selection), toolbarY(selection), -1, -1)
+            val x = toolbarX(selection)
+            val y = toolbarY(selection)
+            popup.update(x, y, -1, -1)
         }
     }
 
