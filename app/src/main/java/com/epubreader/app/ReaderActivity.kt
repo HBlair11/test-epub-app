@@ -3411,13 +3411,20 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             }
         }
 
-        // The root handles its own padding/background. The inner container
-        // handles the spaces between actions. Action views themselves retain
-        // their existing click listeners and therefore remain tappable.
-        content.setOnTouchListener(touchListener)
-        if (content is ViewGroup && content.childCount > 0) {
-            content.getChildAt(0).setOnTouchListener(touchListener)
+        // Install the same gesture interceptor on every toolbar view, including
+        // each action view. Returning true here prevents the child from handling
+        // the touch itself until ACTION_UP; a stationary tap is then forwarded
+        // with performClick(), while a moved gesture remains a toolbar drag.
+        fun installRecursively(view: View) {
+            view.setOnTouchListener(touchListener)
+            if (view is ViewGroup) {
+                for (index in 0 until view.childCount) {
+                    installRecursively(view.getChildAt(index))
+                }
+            }
         }
+
+        installRecursively(content)
     }
 
     private fun positionSelectionToolbar(popup: PopupWindow, selection: ReaderSelectionLocator) {
