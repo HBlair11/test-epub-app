@@ -3317,6 +3317,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         var longPressRunnable: Runnable? = null
         var popupX = 0
         var popupY = 0
+        var positionInitialized = false
 
         fun refreshPopupPosition() {
             val popupWidth = popup.contentView.measuredWidth
@@ -3328,11 +3329,20 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             val maxY = (rootHeight - popupHeight - margin).coerceAtLeast(margin)
             popupX = popupX.coerceIn(margin, maxX)
             popupY = popupY.coerceIn(margin, maxY)
-            popup.update(popupX, popupY, -1, -1)
+            popup.update(Gravity.TOP or Gravity.START, popupX, popupY, -1, -1)
+        }
+
+        fun initializePositionIfNeeded() {
+            if (positionInitialized) return
+            val selection = currentReaderSelection ?: return
+            popupX = toolbarX(selection)
+            popupY = toolbarY(selection)
+            positionInitialized = true
         }
 
         fun beginDrag() {
             if (selectionToolbarPopup !== popup) return
+            initializePositionIfNeeded()
             dragging = true
             content.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
             content.parent?.requestDisallowInterceptTouchEvent(true)
@@ -3345,25 +3355,15 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                     downRawY = event.rawY
                     lastRawX = event.rawX
                     lastRawY = event.rawY
-                    // PopupWindow coordinates use the same TOP|START window-relative
-                    // coordinate system as toolbarX()/toolbarY(). Starting from the
-                    // requested position avoids the first-move jump seen when screen
-                    // coordinates are mixed with window coordinates.
-                    val selection = currentReaderSelection
-                    if (selection == null) {
-                        longPressRunnable = null
-                        false
-                    } else {
-                        popupX = toolbarX(selection)
-                        popupY = toolbarY(selection)
-                        dragging = false
-                        longPressRunnable?.let(view::removeCallbacks)
-                        val runnable = Runnable { beginDrag() }
-                        longPressRunnable = runnable
-                        view.postDelayed(runnable, longPressDelay)
-                        true
-                    }
+                    initializePositionIfNeeded()
+                    dragging = false
+                    longPressRunnable?.let(view::removeCallbacks)
+                    val runnable = Runnable { beginDrag() }
+                    longPressRunnable = runnable
+                    view.postDelayed(runnable, longPressDelay)
+                    true
                 }
+
                 MotionEvent.ACTION_MOVE -> {
                     val movedX = kotlin.math.abs(event.rawX - downRawX)
                     val movedY = kotlin.math.abs(event.rawY - downRawY)
@@ -3380,15 +3380,19 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                     }
                     true
                 }
+
                 MotionEvent.ACTION_UP -> {
                     longPressRunnable?.let(view::removeCallbacks)
                     longPressRunnable = null
                     val wasDragging = dragging
                     dragging = false
                     view.parent?.requestDisallowInterceptTouchEvent(false)
-                    if (!wasDragging) view.performClick()
+                    if (!wasDragging) {
+                        view.performClick()
+                    }
                     true
                 }
+
                 MotionEvent.ACTION_CANCEL -> {
                     longPressRunnable?.let(view::removeCallbacks)
                     longPressRunnable = null
@@ -3396,6 +3400,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                     view.parent?.requestDisallowInterceptTouchEvent(false)
                     true
                 }
+
                 else -> true
             }
         }
@@ -3408,6 +3413,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 }
             }
         }
+
         installRecursively(content)
     }
 

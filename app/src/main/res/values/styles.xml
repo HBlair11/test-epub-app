@@ -104,6 +104,9 @@
         <item name="android:gravity">center</item>
         <item name="android:paddingStart">@dimen/app_selection_toolbar_action_padding_h</item>
         <item name="android:paddingEnd">@dimen/app_selection_toolbar_action_padding_h</item>
+        <item name="android:layout_marginStart">@dimen/app_selection_toolbar_action_margin_h</item>
+        <item name="android:layout_marginEnd">@dimen/app_selection_toolbar_action_margin_h</item>
+        <item name="android:minWidth">@dimen/app_selection_toolbar_action_min_width</item>
         <item name="android:background">?android:attr/selectableItemBackgroundBorderless</item>
         <item name="android:tint">@color/reader_chrome_text</item>
         <item name="android:clickable">true</item>

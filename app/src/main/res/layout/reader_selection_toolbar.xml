@@ -3,8 +3,7 @@
     android:layout_width="wrap_content"
     android:layout_height="@dimen/app_selection_toolbar_height"
     android:background="@drawable/reader_selection_toolbar_bg"
-    android:paddingStart="@dimen/app_selection_toolbar_padding"
-    android:paddingEnd="@dimen/app_selection_toolbar_padding"
+    android:padding="@dimen/app_selection_toolbar_padding"
     android:scrollbars="none">
 
     <LinearLayout
