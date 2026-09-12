@@ -3392,7 +3392,6 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 var anchor=(block.textContent||'').slice(left,right).replace(/\\s+/g,' ').trim();
                 return JSON.stringify({text:anchor,page:window.Caesura.currentPage()});
             })();""",
-            )
         ) { result ->
             val raw = runCatching { org.json.JSONTokener(result?.trim().orEmpty()).nextValue() as? String }.getOrNull()
             val json = runCatching { raw?.let { org.json.JSONObject(it) } }.getOrNull()
