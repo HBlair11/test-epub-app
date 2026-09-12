@@ -23,6 +23,8 @@ data class BookmarkEntity(
     @ColumnInfo(name = "book_id") val bookId: Long,
     @ColumnInfo(name = "spine_index") val spineIndex: Int,
     @ColumnInfo(name = "scroll_ratio") val scrollRatio: Float,
+    /** Exact rendered page when the bookmark was created; -1 for legacy bookmarks. */
+    @ColumnInfo(name = "page_in_chapter") val pageInChapter: Int = -1,
     @ColumnInfo(name = "chapter_title") val chapterTitle: String,
     @ColumnInfo(name = "snippet") val snippet: String,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis()

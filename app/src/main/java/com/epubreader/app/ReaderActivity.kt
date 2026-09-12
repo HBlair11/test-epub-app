@@ -166,6 +166,14 @@ class ReaderActivity : AppCompatActivity() {
     private var historyCursorLocation: ReaderLocation? = null
     /** Set only by explicit navigation that will resolve its final page after a chapter load. */
     private var pendingHistoryCursorAfterRestore = false
+
+    /** Temporary semantic anchor used only while reader settings reflow the current chapter. */
+    private data class ReflowAnchor(
+        val text: String,
+        val fallbackPage: Int,
+    )
+
+    private var pendingReflowAnchor: ReflowAnchor? = null
     private var manualSeekTouch = false
     private var manualSeekFinished = false
     /** Exact page requested by the user. A stale WebView poll must not overwrite this
@@ -2262,6 +2270,32 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             body.style.setProperty('-webkit-column-fill', 'auto', 'important');
           }
 
+          function pageForTextAnchor(anchor, fallbackPage) {
+            if (!anchor) return fallbackPage || 0;
+            var wanted = String(anchor).replace(/\\s+/g,' ').trim().toLowerCase();
+            if (!wanted) return fallbackPage || 0;
+            var blocks = document.body.querySelectorAll('p,li,blockquote,h1,h2,h3,h4,h5,h6,div,td,th');
+            var best = null, bestLen = Infinity;
+            for (var i=0;i<blocks.length;i++) {
+              var text = (blocks[i].textContent || '').replace(/\\s+/g,' ').trim();
+              if (!text) continue;
+              var lower = text.toLowerCase();
+              if (lower.indexOf(wanted) >= 0 && text.length < bestLen) { best = blocks[i]; bestLen = text.length; }
+            }
+            if (!best) {
+              for (var j=0;j<blocks.length;j++) {
+                var candidate=(blocks[j].textContent||'').replace(/\\s+/g,' ').trim().toLowerCase();
+                if (candidate && (candidate.indexOf(wanted.slice(0,Math.min(40,wanted.length)))>=0 || wanted.indexOf(candidate.slice(0,Math.min(40,candidate.length)))>=0)) { best=blocks[j]; break; }
+              }
+            }
+            if (best) {
+              var x=0, node=best;
+              while(node){ x += node.offsetLeft || 0; node=node.offsetParent; }
+              return Math.floor(x / advance());
+            }
+            return fallbackPage || 0;
+          }
+
           function init() {
             body = document.body;
 
@@ -2282,6 +2316,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
               ratio: ratio,
               gotoElementById: gotoElementById,
               pageForElementById: pageForElementById,
+              pageForTextAnchor: pageForTextAnchor,
               highlightPageById: highlightPageById,
               gotoHighlightById: gotoHighlightById
             };
@@ -2569,7 +2604,27 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         pendingFragment = null
         val targetPage = pendingTargetPageInChapter
         pendingTargetPageInChapter = null
-        if (frag != null) {
+        val reflowAnchor = pendingReflowAnchor
+        pendingReflowAnchor = null
+        if (reflowAnchor != null) {
+            val safeText = org.json.JSONObject.quote(reflowAnchor.text)
+            binding.webView.evaluateJavascript(
+                "if(window.Caesura){window.Caesura.pageForTextAnchor($safeText,${reflowAnchor.fallbackPage});}"
+            ) { result ->
+                val page = result?.trim()?.removeSurrounding(""")?.toIntOrNull()
+                    ?: reflowAnchor.fallbackPage
+                binding.webView.evaluateJavascript(
+                    "if(window.Caesura){window.Caesura.gotoPage(${page.coerceAtLeast(0)},false);}"
+                ) {
+                    binding.webView.alpha = 1f
+                    dismissPageSnapshot()
+                    restoreRatio = null
+                    restoringHistoryLocation = false
+                    updateHistoryUi()
+                    handler.post { pollProgress() }
+                }
+            }
+        } else if (frag != null) {
             val safe = frag.replace("'", "")
             binding.webView.evaluateJavascript(
                 "if(window.Caesura){window.Caesura.gotoElementById('$safe');}"
@@ -3160,7 +3215,9 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             }
 
             val count = pageCount ?: pagesInChapter.coerceAtLeast(1)
-            val targetPage = if (count > 1) {
+            val targetPage = if (b.pageInChapter >= 0) {
+                b.pageInChapter.coerceIn(0, count - 1)
+            } else if (count > 1) {
                 kotlin.math.round(b.scrollRatio.coerceIn(0f, 1f) * (count - 1)).toInt()
             } else 0
 
@@ -3180,10 +3237,15 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
     }
 
     private fun addBookmark() {
-        val ratio = currentScrollRatio
         val idx = spineIndex
         val title = sectionLabel()
-        lifecycleScope.launch(Dispatchers.IO) {
+        binding.webView.evaluateJavascript(
+            "(function(){if(!window.Caesura) return '';return window.Caesura.currentPage()+','+window.Caesura.ratio();})();"
+        ) { result ->
+            val values = result?.trim()?.removeSurrounding("\"")?.split(',')
+            val page = values?.getOrNull(0)?.toIntOrNull()?.coerceAtLeast(0) ?: currentPageInChapter
+            val ratio = values?.getOrNull(1)?.toFloatOrNull()?.coerceIn(0f, 1f) ?: currentScrollRatio
+            lifecycleScope.launch(Dispatchers.IO) {
             if (db.bookmarkDao().existsNear(bookId, idx, ratio)) {
                 db.bookmarkDao().deleteNear(bookId, idx, ratio)
                 withContext(Dispatchers.Main) {
@@ -3206,6 +3268,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                                 bookId = bookId,
                                 spineIndex = idx,
                                 scrollRatio = ratio,
+                                pageInChapter = page,
                                 chapterTitle = title,
                                 snippet = snippet
                             )
@@ -3219,6 +3282,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -3292,9 +3356,51 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
         ) { result ->
             if (result.resultCode == android.app.Activity.RESULT_OK) {
-                applySettingsAndReload()
+                captureReflowAnchor { anchor ->
+                    pendingReflowAnchor = anchor
+                    applySettingsAndReload()
+                }
             }
         }
+
+    private fun captureReflowAnchor(onCaptured: (ReflowAnchor?) -> Unit) {
+        val fallbackPage = currentPageInChapter
+        binding.webView.evaluateJavascript(
+            """(function(){
+                if(!window.Caesura) return '';
+                var x=(window.innerWidth||1)*0.25, y=(window.innerHeight||1)*0.5;
+                var range=null;
+                if(document.caretRangeFromPoint) range=document.caretRangeFromPoint(x,y);
+                else if(document.caretPositionFromPoint){
+                    var pos=document.caretPositionFromPoint(x,y);
+                    if(pos){range=document.createRange();range.setStart(pos.offsetNode,pos.offset);range.collapse(true);}
+                }
+                if(!range) return JSON.stringify({text:'',page:window.Caesura.currentPage()});
+                var node=range.startContainer;
+                if(node&&node.nodeType!==3) node=node.firstChild;
+                var block=node&&node.parentElement?node.parentElement:null;
+                while(block&&block!==document.body&&!/^(P|LI|BLOCKQUOTE|H1|H2|H3|H4|H5|H6|DIV|TD|TH)$/i.test(block.tagName)) block=block.parentElement;
+                if(!block) return JSON.stringify({text:'',page:window.Caesura.currentPage()});
+                var walker=document.createTreeWalker(block,NodeFilter.SHOW_TEXT,null,false), offset=0, found=false;
+                while(walker.nextNode()){
+                    if(walker.currentNode===range.startContainer){offset+=range.startOffset;found=true;break;}
+                    offset+=walker.currentNode.textContent.length;
+                }
+                var text=(block.textContent||'').replace(/\\s+/g,' ').trim();
+                if(!found||!text) return JSON.stringify({text:'',page:window.Caesura.currentPage()});
+                var left=Math.max(0,offset-55), right=Math.min((block.textContent||'').length,offset+65);
+                var anchor=(block.textContent||'').slice(left,right).replace(/\\s+/g,' ').trim();
+                return JSON.stringify({text:anchor,page:window.Caesura.currentPage()});
+            })();""",
+            )
+        ) { result ->
+            val raw = runCatching { org.json.JSONTokener(result?.trim().orEmpty()).nextValue() as? String }.getOrNull()
+            val json = runCatching { raw?.let { org.json.JSONObject(it) } }.getOrNull()
+            val text = json?.optString("text").orEmpty()
+            val page = json?.optInt("page", fallbackPage) ?: fallbackPage
+            onCaptured(text.takeIf { it.isNotBlank() }?.let { ReflowAnchor(it, page.coerceAtLeast(0)) })
+        }
+    }
 
     private fun applySettingsAndReload() {
         applyWindowTheme()
@@ -3314,7 +3420,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             binding.seekChapter.max = (spineSize - 1).coerceAtLeast(0)
             binding.seekChapter.progress = spineIndex.coerceIn(0, spineSize - 1)
         }
-        restoreRatio = currentScrollRatio
+        restoreRatio = if (pendingReflowAnchor == null) currentScrollRatio else null
         loadChapter(spineIndex, resetRatio = false)
         binding.webView.post {
             val entity = bookEntity
