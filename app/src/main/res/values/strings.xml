@@ -197,6 +197,12 @@
     <string name="reader_search_hint">Search this book</string>
     <string name="selection_define">Define</string>
     <string name="selection_none">Select some text first.</string>
+    <string name="selection_copy">Copy</string>
+    <string name="selection_translate">Translate</string>
+    <string name="selection_web_search">Web Search</string>
+    <string name="selection_more">More</string>
+    <string name="selection_share">Share</string>
+    <string name="selection_select_all">Select all</string>
     <string name="dictionary_not_found">No local definition found.</string>
     <string name="dictionary_did_you_mean">Did you mean…</string>
     <string name="dictionary_lookup_external">Look up in other apps</string>

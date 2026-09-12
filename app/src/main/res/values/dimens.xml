@@ -82,4 +82,9 @@
     <dimen name="app_popup_screen_margin">12dp</dimen>
     <!-- Dictionary entry rows inside the definition card. -->
     <dimen name="app_definition_row_spacing">8dp</dimen>
+    <dimen name="app_selection_toolbar_height">48dp</dimen>
+    <dimen name="app_selection_toolbar_padding">4dp</dimen>
+    <dimen name="app_selection_toolbar_estimated_width">320dp</dimen>
+    <dimen name="app_selection_toolbar_action_padding_h">12dp</dimen>
+    <dimen name="app_selection_toolbar_text_size">14sp</dimen>
 </resources>

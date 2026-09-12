@@ -7,9 +7,8 @@ import android.webkit.WebView
 /**
  * WebView subclass retained as the reader's custom view type.
  *
- * Text-selection actions are registered from ReaderActivity through the public
- * View customSelectionActionModeCallback API. This class intentionally does not
- * override startActionMode or intercept private Chromium selection callbacks.
+ * ReaderActivity owns the reader selection toolbar while this WebView continues
+ * to provide the real Android/Chromium text selection and selection handles.
  */
 class LivreWebView @JvmOverloads constructor(
     context: Context,

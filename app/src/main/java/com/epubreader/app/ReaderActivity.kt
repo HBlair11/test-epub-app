@@ -4,6 +4,8 @@ import com.epubreader.app.util.SystemBarController
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -78,6 +80,8 @@ class ReaderActivity : AppCompatActivity() {
      *  Held so it can be dismissed when the user navigates away or taps the
      *  page. Patch v37. */
     private var currentSelectionActionMode: ActionMode? = null
+    private var selectionToolbarPopup: PopupWindow? = null
+    private var currentReaderSelection: ReaderSelectionLocator? = null
     /** Time-based guard: a tap that should NOT turn the page or toggle chrome
      *  (e.g. it landed on a highlight, or dismissed a text selection) sets this
      *  so the GestureDetector's onSingleTapConfirmed is ignored. Patch v37. */
@@ -3204,8 +3208,6 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
     companion object {
         private const val SESSION_IDLE_GAP_SECONDS = 300L
         const val EXTRA_BOOK_ID = "book_id"
-        private const val HIGHLIGHT_ACTION_ID = 0x4C48
-        private const val SELECTION_DEFINE_ID = 0x4C59
         private const val TTS_SETTINGS_SAVE_DELAY_MS = 800L
 
         /** Patch 19 (Addition #1): slide duration for the page-turn snapshot.
@@ -3234,43 +3236,157 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         super.onActionModeStarted(mode)
         currentSelectionActionMode = mode
         definitionPopup?.dismiss()
+        // Keep WebView/Chromium responsible for the real selection and handles,
+        // but hide its floating menu. Our reader toolbar is the single visible
+        // selection action surface.
+        mode.hide()
+        binding.webView.postDelayed({ showReaderSelectionToolbar() }, 50L)
     }
 
     override fun onActionModeFinished(mode: ActionMode) {
         super.onActionModeFinished(mode)
         if (currentSelectionActionMode === mode) currentSelectionActionMode = null
+        selectionToolbarPopup?.dismiss()
+        selectionToolbarPopup = null
+        currentReaderSelection = null
     }
 
-    /** Adds the Define + Highlight items to the floating selection toolbar.
-     *  Idempotent (skips items already present) and never clears the menu, so
-     *  Android's default Copy / Translate / Select all / Share / Web search
-     *  actions stay alongside ours. Both actions capture the live selection at
-     *  click time (not when the toolbar appeared) and only finish the ActionMode
-     *  after the selection text has been read back, so finishing early can't
-     *  wipe the selection before it's captured. */
-    private fun addSelectionActionItems(menu: android.view.Menu) {
-        if (menu.findItem(SELECTION_DEFINE_ID) == null) {
-            val item = menu.add(0, SELECTION_DEFINE_ID, 0, getString(R.string.selection_define))
-            item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
-            item.setOnMenuItemClickListener {
-                captureCurrentSelection { selection ->
-                    currentSelectionActionMode?.finish()
-                    showDefinition(selection)
-                }
-                true
+    private fun showReaderSelectionToolbar() {
+        captureCurrentSelection { selection ->
+            if (selection == null || selection.text.isBlank()) return@captureCurrentSelection
+            currentReaderSelection = selection
+            val content = LayoutInflater.from(this).inflate(R.layout.reader_selection_toolbar, null, false)
+            val copy = content.findViewById<TextView>(R.id.selection_toolbar_copy)
+            val define = content.findViewById<TextView>(R.id.selection_toolbar_define)
+            val highlight = content.findViewById<TextView>(R.id.selection_toolbar_highlight)
+            val more = content.findViewById<TextView>(R.id.selection_toolbar_more)
+
+            copy.setOnClickListener { copySelectedText() }
+            define.setOnClickListener {
+                val selected = currentReaderSelection ?: return@setOnClickListener
+                dismissReaderSelectionToolbar(true)
+                showDefinition(selected)
             }
-        }
-        if (menu.findItem(HIGHLIGHT_ACTION_ID) == null) {
-            val item = menu.add(0, HIGHLIGHT_ACTION_ID, 1, getString(R.string.highlight_action))
-            item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
-            item.setOnMenuItemClickListener {
-                captureCurrentSelection { selection ->
-                    currentSelectionActionMode?.finish()
-                    showHighlightColorPicker(selection)
-                }
-                true
+            highlight.setOnClickListener {
+                val selected = currentReaderSelection ?: return@setOnClickListener
+                dismissReaderSelectionToolbar(true)
+                showHighlightColorPicker(selected)
             }
+            more.setOnClickListener { showSelectionMoreMenu(more, currentReaderSelection) }
+
+            val popup = PopupWindow(
+                content,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                true,
+            ).apply {
+                isOutsideTouchable = false
+                isFocusable = false
+                elevation = resources.getDimension(R.dimen.app_definition_card_elevation)
+                setBackgroundDrawable(androidx.core.content.ContextCompat.getDrawable(context, R.drawable.reader_selection_toolbar_bg))
+            }
+            selectionToolbarPopup?.dismiss()
+            selectionToolbarPopup = popup
+            positionSelectionToolbar(popup, selection)
+            popup.showAtLocation(binding.root, Gravity.TOP or Gravity.START, toolbarX(selection), toolbarY(selection))
         }
+    }
+
+    private fun positionSelectionToolbar(popup: PopupWindow, selection: ReaderSelectionLocator) {
+        // Positioning is recalculated immediately after layout so measured width
+        // is available; the first show uses the same coordinates as a safe fallback.
+        binding.root.post {
+            if (selectionToolbarPopup !== popup) return@post
+            popup.update(toolbarX(selection), toolbarY(selection), -1, -1)
+        }
+    }
+
+    private fun toolbarX(selection: ReaderSelectionLocator): Int {
+        val rootLocation = IntArray(2)
+        val webViewLocation = IntArray(2)
+        binding.root.getLocationOnScreen(rootLocation)
+        binding.webView.getLocationOnScreen(webViewLocation)
+        val scale = binding.webView.scale
+        val center = ((selection.rectLeft + selection.rectRight) / 2f) * scale
+        val widthEstimate = resources.getDimensionPixelSize(R.dimen.app_selection_toolbar_estimated_width)
+        val margin = resources.getDimensionPixelSize(R.dimen.app_popup_screen_margin)
+        return (webViewLocation[0] + center - widthEstimate / 2f - rootLocation[0]).roundToInt()
+            .coerceAtLeast(margin)
+    }
+
+    private fun toolbarY(selection: ReaderSelectionLocator): Int {
+        val rootLocation = IntArray(2)
+        val webViewLocation = IntArray(2)
+        binding.root.getLocationOnScreen(rootLocation)
+        binding.webView.getLocationOnScreen(webViewLocation)
+        val scale = binding.webView.scale
+        val top = webViewLocation[1] + selection.rectTop * scale
+        val toolbarHeight = resources.getDimensionPixelSize(R.dimen.app_selection_toolbar_height)
+        val margin = resources.getDimensionPixelSize(R.dimen.app_popup_screen_margin)
+        return (top - toolbarHeight - margin - rootLocation[1]).roundToInt().coerceAtLeast(margin)
+    }
+
+    private fun dismissReaderSelectionToolbar(finishActionMode: Boolean) {
+        selectionToolbarPopup?.dismiss()
+        selectionToolbarPopup = null
+        currentReaderSelection = null
+        if (finishActionMode) {
+            currentSelectionActionMode?.finish()
+            currentSelectionActionMode = null
+        }
+    }
+
+    private fun copySelectedText() {
+        val text = currentReaderSelection?.text?.trim().orEmpty()
+        if (text.isBlank()) return
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.selection_copy), text))
+        dismissReaderSelectionToolbar(true)
+    }
+
+    private fun processSelectedText(action: String) {
+        val text = currentReaderSelection?.text?.trim().orEmpty()
+        if (text.isBlank()) return
+        val intent = Intent(action).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_PROCESS_TEXT, text)
+            putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true)
+        }
+        if (intent.resolveActivity(packageManager) != null) startActivity(Intent.createChooser(intent, getString(R.string.selection_translate)))
+    }
+
+    private fun webSearchSelectedText() {
+        val text = currentReaderSelection?.text?.trim().orEmpty()
+        if (text.isBlank()) return
+        val intent = Intent(Intent.ACTION_WEB_SEARCH).apply { putExtra("query", text) }
+        if (intent.resolveActivity(packageManager) != null) startActivity(intent)
+        dismissReaderSelectionToolbar(true)
+    }
+
+    private fun showSelectionMoreMenu(anchor: View, selection: ReaderSelectionLocator?) {
+        val popup = android.widget.PopupMenu(this, anchor)
+        popup.menu.add(getString(R.string.selection_web_search)).setOnMenuItemClickListener {
+            webSearchSelectedText()
+            true
+        }
+        popup.menu.add(getString(R.string.selection_translate)).setOnMenuItemClickListener {
+            processSelectedText(Intent.ACTION_PROCESS_TEXT)
+            true
+        }
+        popup.menu.add(getString(R.string.selection_share)).setOnMenuItemClickListener {
+            val text = selection?.text?.trim().orEmpty()
+            if (text.isNotBlank()) {
+                startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text) }, getString(R.string.selection_share)))
+            }
+            dismissReaderSelectionToolbar(true)
+            true
+        }
+        popup.menu.add(getString(R.string.selection_select_all)).setOnMenuItemClickListener {
+            binding.webView.evaluateJavascript("if(window.getSelection){var s=window.getSelection();s.selectAllChildren(document.body);}", null)
+            popup.dismiss()
+            true
+        }
+        popup.show()
     }
 
     /** Dismisses the active text-selection ActionMode (the floating toolbar with
@@ -3279,6 +3395,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
      *  Highlights / Search / Settings / TTS overlay / chapter change) and on a
      *  fresh tap on the page, so the selection toolbar never lingers. */
     private fun clearReaderSelection() {
+        dismissReaderSelectionToolbar(false)
         currentSelectionActionMode?.finish()
         currentSelectionActionMode = null
         binding.webView.evaluateJavascript(

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HorizontalScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="@dimen/app_selection_toolbar_height"
+    android:background="@drawable/reader_selection_toolbar_bg"
+    android:paddingStart="@dimen/app_selection_toolbar_padding"
+    android:paddingEnd="@dimen/app_selection_toolbar_padding"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/selection_toolbar_copy"
+            style="@style/ReaderSelectionToolbarAction"
+            android:text="@string/selection_copy" />
+
+        <TextView
+            android:id="@+id/selection_toolbar_define"
+            style="@style/ReaderSelectionToolbarAction"
+            android:text="@string/selection_define" />
+
+        <TextView
+            android:id="@+id/selection_toolbar_highlight"
+            style="@style/ReaderSelectionToolbarAction"
+            android:text="@string/highlight_action" />
+
+        <TextView
+            android:id="@+id/selection_toolbar_more"
+            style="@style/ReaderSelectionToolbarAction"
+            android:contentDescription="@string/selection_more"
+            android:text="@string/selection_more" />
+    </LinearLayout>
+</HorizontalScrollView>
