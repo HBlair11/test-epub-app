@@ -336,9 +336,9 @@ class ReaderTtsController(
         }
         val tag = bookLanguage
         val locale = if (!tag.isNullOrBlank()) Locale.forLanguageTag(tag) else Locale.getDefault()
-        val result = runCatching { engine.language = locale }.getOrNull()
+        val result = runCatching { engine.setLanguage(locale) }.getOrNull()
         if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-            engine.language = Locale.getDefault()
+            engine.setLanguage(Locale.getDefault())
         }
     }
 
