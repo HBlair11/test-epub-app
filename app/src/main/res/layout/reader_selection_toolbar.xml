@@ -28,10 +28,10 @@
             style="@style/ReaderSelectionToolbarAction"
             android:text="@string/highlight_action" />
 
-        <TextView
+        <ImageButton
             android:id="@+id/selection_toolbar_more"
             style="@style/ReaderSelectionToolbarMoreAction"
             android:contentDescription="@string/selection_more"
-            android:text="⋮" />
+            android:src="@drawable/ic_more_vert" />
     </LinearLayout>
 </HorizontalScrollView>

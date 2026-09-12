@@ -3254,15 +3254,18 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         val runnable = object : Runnable {
             override fun run() {
                 if (currentSelectionActionMode !== mode) return
+                // Keep the WebView/Chromium ActionMode alive so its native selection
+                // handles continue to work, but remove every native action so the
+                // platform floating toolbar has nothing to display. Chromium may
+                // repopulate the menu after selection-handle movement, so this is
+                // repeated for the entire lifetime of the selection.
+                mode.menu.clear()
                 mode.hide(0L)
-                // Android/Chromium can recreate or re-show the floating toolbar
-                // after selection-handle movement. Keep suppressing it until the
-                // ActionMode actually finishes instead of stopping after a short
-                // fixed number of attempts.
                 binding.webView.postDelayed(this, 50L)
             }
         }
         selectionActionModeHideRunnable = runnable
+        mode.menu.clear()
         binding.webView.post(runnable)
     }
 
@@ -3340,9 +3343,11 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         fun refreshPopupPosition() {
             val popupWidth = popup.contentView.measuredWidth
             val popupHeight = popup.contentView.measuredHeight
-            val margin = resources.getDimensionPixelSize(R.dimen.app_popup_screen_margin)
-            val maxX = (binding.root.width - popupWidth - margin).coerceAtLeast(margin)
-            val maxY = (binding.root.height - popupHeight - margin).coerceAtLeast(margin)
+            val margin = resources.getDimensionPixelSize(R.dimen.app_screen_edge_h)
+            val rootWidth = binding.root.width
+            val rootHeight = binding.root.height
+            val maxX = (rootWidth - popupWidth - margin).coerceAtLeast(margin)
+            val maxY = (rootHeight - popupHeight - margin).coerceAtLeast(margin)
             popupX = popupX.coerceIn(margin, maxX)
             popupY = popupY.coerceIn(margin, maxY)
             popup.update(popupX, popupY, -1, -1)
@@ -3362,12 +3367,12 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                     downRawY = event.rawY
                     lastRawX = event.rawX
                     lastRawY = event.rawY
-                    val rootLocation = IntArray(2)
-                    val viewLocation = IntArray(2)
-                    binding.root.getLocationOnScreen(rootLocation)
-                    popup.contentView.getLocationOnScreen(viewLocation)
-                    popupX = viewLocation[0] - rootLocation[0]
-                    popupY = viewLocation[1] - rootLocation[1]
+                    // PopupWindow coordinates use the same TOP|START window-relative
+                    // coordinate system as toolbarX()/toolbarY(). Starting from the
+                    // requested position avoids the first-move jump seen when screen
+                    // coordinates are mixed with window coordinates.
+                    popupX = toolbarX(currentReaderSelection ?: return@setOnTouchListener false)
+                    popupY = toolbarY(currentReaderSelection ?: return@setOnTouchListener false)
                     dragging = false
                     longPressRunnable?.let(view::removeCallbacks)
                     val runnable = Runnable { beginDrag() }
@@ -3388,10 +3393,8 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                         refreshPopupPosition()
                         lastRawX = event.rawX
                         lastRawY = event.rawY
-                        true
-                    } else {
-                        true
                     }
+                    true
                 }
                 MotionEvent.ACTION_UP -> {
                     longPressRunnable?.let(view::removeCallbacks)
@@ -3399,9 +3402,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                     val wasDragging = dragging
                     dragging = false
                     view.parent?.requestDisallowInterceptTouchEvent(false)
-                    if (!wasDragging) {
-                        view.performClick()
-                    }
+                    if (!wasDragging) view.performClick()
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
@@ -3446,7 +3447,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         val scale = binding.webView.scale
         val center = ((selection.rectLeft + selection.rectRight) / 2f) * scale
         val widthEstimate = resources.getDimensionPixelSize(R.dimen.app_selection_toolbar_estimated_width)
-        val margin = resources.getDimensionPixelSize(R.dimen.app_popup_screen_margin)
+        val margin = resources.getDimensionPixelSize(R.dimen.app_screen_edge_h)
         return (webViewLocation[0] + center - widthEstimate / 2f - rootLocation[0]).roundToInt()
             .coerceAtLeast(margin)
     }
@@ -3459,7 +3460,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         val scale = binding.webView.scale
         val top = webViewLocation[1] + selection.rectTop * scale
         val toolbarHeight = resources.getDimensionPixelSize(R.dimen.app_selection_toolbar_height)
-        val margin = resources.getDimensionPixelSize(R.dimen.app_popup_screen_margin)
+        val margin = resources.getDimensionPixelSize(R.dimen.app_screen_edge_h)
         return (top - toolbarHeight - margin - rootLocation[1]).roundToInt().coerceAtLeast(margin)
     }
 
