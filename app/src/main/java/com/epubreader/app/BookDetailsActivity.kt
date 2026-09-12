@@ -17,6 +17,7 @@ import com.epubreader.app.data.AppDatabase
 import com.epubreader.app.data.BookEntity
 import com.epubreader.app.data.BookRepository
 import com.epubreader.app.epub.EpubImporter
+import com.epubreader.app.util.CurrentlyReadingUndoSnackbar
 import com.epubreader.app.databinding.ActivityBookDetailsBinding
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
@@ -287,24 +288,13 @@ class BookDetailsActivity : AppCompatActivity() {
         binding.btnEditDetails.setOnClickListener { showEditDialog(book) }
 
         binding.btnRemoveReading.setOnClickListener {
-
             lifecycleScope.launch(Dispatchers.IO) {
-
                 AppDatabase
                     .get(applicationContext)
                     .bookDao()
                     .clearCurrentlyReading(book.id)
             }
-
-            Snackbar.make(
-                binding.root,
-                R.string.currently_reading_removed,
-                Snackbar.LENGTH_LONG
-            ).setAction(R.string.undo) {
-                lifecycleScope.launch(Dispatchers.IO) {
-                    BookRepository(applicationContext).setCurrentlyReading(book.id)
-                }
-            }.show()
+            CurrentlyReadingUndoSnackbar.show(this@BookDetailsActivity, binding.root, book.id)
         }
 
 
@@ -444,6 +434,9 @@ class BookDetailsActivity : AppCompatActivity() {
         if (shouldRefreshOnResume) {
             shouldRefreshOnResume = false
             load()
+        }
+        binding.root.post {
+            CurrentlyReadingUndoSnackbar.showPending(this, binding.root)
         }
     }
 

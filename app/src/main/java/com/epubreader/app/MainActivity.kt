@@ -41,6 +41,7 @@ import com.epubreader.app.ui.DrawerItem
 import com.epubreader.app.ui.HomeBookAdapter
 import com.epubreader.app.ui.HomeContent
 import com.epubreader.app.ui.RowAdapter
+import com.epubreader.app.util.CurrentlyReadingUndoSnackbar
 import com.epubreader.app.ui.ShelfView
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
@@ -397,6 +398,9 @@ class MainActivity : AppCompatActivity() {
         if (pendingRestoreKey != null) {
             binding.recycler.post { tryRestoreScroll() }
         }
+        binding.root.post {
+            CurrentlyReadingUndoSnackbar.showPending(this, binding.root)
+        }
     }
 
     override fun onPause() {
@@ -734,10 +738,7 @@ class MainActivity : AppCompatActivity() {
                         if (pos in books.indices) {
                             val book = books[pos]
                             viewModel.clearCurrentlyReading(book.id)
-                            Snackbar
-                                .make(binding.root, R.string.currently_reading_removed, Snackbar.LENGTH_LONG)
-                                .setAction(R.string.undo) { viewModel.setCurrentlyReading(book.id) }
-                                .show()
+                            CurrentlyReadingUndoSnackbar.show(this@MainActivity, binding.root, book.id)
                         }
                     }
                 }
