@@ -1454,15 +1454,19 @@ class ReaderActivity : AppCompatActivity() {
         }
 
         val current = captureReaderLocation()
-        if (!restoringHistoryLocation && current != null) {
-            val targetLocation = locationForAbsolutePage(resolved)
-            if (targetLocation == null || !sameLocation(current, targetLocation)) {
+        val targetLocation = locationForAbsolutePage(resolved)
+        if (!restoringHistoryLocation && current != null && targetLocation != null) {
+            if (!sameLocation(current, targetLocation)) {
                 pushHistory(current)
+                // A seek-bar jump is an explicit navigation jump. Keep the history
+                // cursor on the selected destination so ordinary page swipes after
+                // the jump do not replace it with the later live page.
+                historyCursorLocation = targetLocation
             }
         }
 
         if (perPageSeekerActive) {
-            pendingExactSeekLocation = locationForAbsolutePage(resolved)
+            pendingExactSeekLocation = targetLocation
             exactSeekUiLocation = pendingExactSeekLocation
             exactSeekUiLocation?.let { target ->
                 currentPageInChapter = target.pageInChapter
