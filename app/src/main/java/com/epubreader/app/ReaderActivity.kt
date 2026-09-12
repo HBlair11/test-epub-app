@@ -1456,7 +1456,7 @@ class ReaderActivity : AppCompatActivity() {
         val current = captureReaderLocation()
         val targetLocation = locationForAbsolutePage(resolved)
         if (!restoringHistoryLocation && current != null && targetLocation != null) {
-            if (!sameRenderedPage(current, targetLocation)) {
+            if (!sameLocation(current, targetLocation)) {
                 pushHistory(current)
                 // A seek-bar jump is an explicit navigation jump. Keep the history
                 // cursor on the selected destination so ordinary page swipes after
@@ -1511,7 +1511,7 @@ class ReaderActivity : AppCompatActivity() {
 
     private fun pushHistory(location: ReaderLocation) {
         val last = backHistory.lastOrNull()
-        if (last != null && sameRenderedPage(last, location)) return
+        if (last != null && sameLocation(last, location)) return
         backHistory.addLast(location)
         forwardHistory.clear()
         updateHistoryUi()
