@@ -2195,21 +2195,24 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             return true;
           }
 
-          function gotoHighlightById(id) {
+          function highlightPageById(id) {
             var marks = document.querySelectorAll('mark.livre-highlight[data-highlight-id="' + id + '"]');
-            if (!marks.length) return false;
-
+            if (!marks.length) return -1;
             var element = marks[0];
             var x = 0;
             var node = element;
-
             while (node) {
               x += node.offsetLeft || 0;
               node = node.offsetParent;
             }
+            return Math.floor(x / advance());
+          }
 
-            gotoPage(Math.floor(x / advance()), false);
-            return true;
+          function gotoHighlightById(id) {
+            var page = highlightPageById(id);
+            if (page < 0) return -1;
+            gotoPage(page, false);
+            return page;
           }
 
           function apply() {
@@ -2260,6 +2263,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
               prevPage: prevPage,
               ratio: ratio,
               gotoElementById: gotoElementById,
+              highlightPageById: highlightPageById,
               gotoHighlightById: gotoHighlightById
             };
           }
@@ -3961,23 +3965,29 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             return
         }
 
+        // Resolve the target page without changing the WebView first. This makes
+        // same-chapter history deterministic: the page being left is recorded
+        // before gotoPage() changes the rendered page.
         binding.webView.evaluateJavascript(
-            "if(window.Caesura){window.Caesura.currentPage() + '|' + window.Caesura.gotoHighlightById(${highlight.id});}"
+            "if(window.Caesura){window.Caesura.currentPage() + '|' + window.Caesura.highlightPageById(${highlight.id});}"
         ) { result ->
             val values = result?.trim()?.removeSurrounding("\"")?.split('|')
             val currentPage = values?.getOrNull(0)?.toIntOrNull()
             val targetPage = values?.getOrNull(1)?.toIntOrNull()
 
-            if (targetPage != null && targetPage >= 0 && !restoringHistoryLocation && current != null &&
-                currentPage != null && targetPage != currentPage
+            if (targetPage != null && targetPage >= 0 && currentPage != null &&
+                targetPage != currentPage && !restoringHistoryLocation && current != null
             ) {
-                // Compare against the WebView's actual rendered page, rather than
-                // currentPageInChapter, which can lag behind a direct JS navigation.
-                // This guarantees that a Highlight click to another page records
-                // the page the user was actually viewing.
                 pushHistory(current.copy(pageInChapter = currentPage))
             }
-            handler.postDelayed({ pollProgress() }, 80L)
+
+            if (targetPage != null && targetPage >= 0) {
+                binding.webView.evaluateJavascript(
+                    "if(window.Caesura){window.Caesura.gotoHighlightById(${highlight.id});}"
+                ) {
+                    handler.postDelayed({ pollProgress() }, 80L)
+                }
+            }
         }
     }
 
