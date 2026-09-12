@@ -2619,6 +2619,19 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 ) {
                     binding.webView.alpha = 1f
                     dismissPageSnapshot()
+                    if (pendingHistoryCursorAfterRestore) {
+                        binding.webView.evaluateJavascript(
+                            "if(window.Caesura){window.Caesura.currentPage()+','+window.Caesura.ratio();}"
+                        ) { result ->
+                            val values = result?.trim()?.removeSurrounding("\"")?.split(',')
+                            val page = values?.getOrNull(0)?.toIntOrNull()
+                            val ratioValue = values?.getOrNull(1)?.toFloatOrNull()
+                            if (page != null) {
+                                historyCursorLocation = ReaderLocation(spineIndex, page, ratioValue ?: 0f)
+                            }
+                            pendingHistoryCursorAfterRestore = false
+                        }
+                    }
                     restoringHistoryLocation = false
                     updateHistoryUi()
                     handler.post { pollProgress() }
@@ -2626,6 +2639,23 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             } else {
                 binding.webView.alpha = 1f
                 dismissPageSnapshot()
+                // A cross-chapter explicit navigation without a fragment or
+                // exact page still needs to establish the history cursor.
+                // Otherwise Back can fall back to the previous cursor and
+                // incorrectly create a Forward entry for the page we just left.
+                if (pendingHistoryCursorAfterRestore) {
+                    binding.webView.evaluateJavascript(
+                        "if(window.Caesura){window.Caesura.currentPage()+','+window.Caesura.ratio();}"
+                    ) { result ->
+                        val values = result?.trim()?.removeSurrounding("\"")?.split(',')
+                        val page = values?.getOrNull(0)?.toIntOrNull()
+                        val ratioValue = values?.getOrNull(1)?.toFloatOrNull()
+                        if (page != null) {
+                            historyCursorLocation = ReaderLocation(spineIndex, page, ratioValue ?: 0f)
+                        }
+                        pendingHistoryCursorAfterRestore = false
+                    }
+                }
                 restoringHistoryLocation = false
                 updateHistoryUi()
                 handler.post { pollProgress() }
@@ -4166,7 +4196,21 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                         binding.webView.evaluateJavascript(
                             "if(window.Caesura){window.Caesura.gotoHighlightById($targetId);}",
                         ) {
-                            handler.postDelayed({ pollProgress() }, 80L)
+                            // Cross-chapter highlight navigation resolves its
+                            // exact rendered page only after the highlights have
+                            // been injected. Keep that page as the history cursor
+                            // so Back/Forward preserve the explicit destination.
+                            binding.webView.evaluateJavascript(
+                                "if(window.Caesura){window.Caesura.currentPage()+','+window.Caesura.ratio();}"
+                            ) { result ->
+                                val values = result?.trim()?.removeSurrounding("\"")?.split(',')
+                                val page = values?.getOrNull(0)?.toIntOrNull()
+                                val ratio = values?.getOrNull(1)?.toFloatOrNull()
+                                if (page != null) {
+                                    historyCursorLocation = ReaderLocation(spineIndex, page, ratio ?: 0f)
+                                }
+                                handler.postDelayed({ pollProgress() }, 80L)
+                            }
                         }
                     }, 120L)
                 }
