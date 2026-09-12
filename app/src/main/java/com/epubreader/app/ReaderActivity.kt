@@ -3949,20 +3949,33 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             pendingFragment = null
             pendingTargetPageInChapter = null
             restoreRatio = null
-            loadChapter(targetIndex)
+            binding.webView.evaluateJavascript(
+                "if(window.Caesura){window.Caesura.currentPage();}"
+            ) { result ->
+                val actualPage = result?.trim()?.removeSurrounding("\"")?.toIntOrNull()
+                if (!restoringHistoryLocation && current != null) {
+                    pushHistory(if (actualPage != null && actualPage >= 0) current.copy(pageInChapter = actualPage) else current)
+                }
+                loadChapter(targetIndex)
+            }
             return
         }
 
         binding.webView.evaluateJavascript(
-            "if(window.Caesura){window.Caesura.gotoHighlightById(${highlight.id});}"
+            "if(window.Caesura){window.Caesura.currentPage() + '|' + window.Caesura.gotoHighlightById(${highlight.id});}"
         ) { result ->
-            val targetPage = result?.trim()?.removeSurrounding("\"")?.toIntOrNull()
-            if (targetPage != null && !restoringHistoryLocation && current != null &&
-                targetPage != current.pageInChapter
+            val values = result?.trim()?.removeSurrounding("\"")?.split('|')
+            val currentPage = values?.getOrNull(0)?.toIntOrNull()
+            val targetPage = values?.getOrNull(1)?.toIntOrNull()
+
+            if (targetPage != null && targetPage >= 0 && !restoringHistoryLocation && current != null &&
+                currentPage != null && targetPage != currentPage
             ) {
-                // The tab navigation is a real reader navigation, so preserve the
-                // prior location only when the highlight actually moves us.
-                pushHistory(current)
+                // Compare against the WebView's actual rendered page, rather than
+                // currentPageInChapter, which can lag behind a direct JS navigation.
+                // This guarantees that a Highlight click to another page records
+                // the page the user was actually viewing.
+                pushHistory(current.copy(pageInChapter = currentPage))
             }
             handler.postDelayed({ pollProgress() }, 80L)
         }
