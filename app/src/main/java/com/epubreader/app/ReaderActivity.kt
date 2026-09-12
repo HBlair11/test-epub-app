@@ -1408,10 +1408,10 @@ class ReaderActivity : AppCompatActivity() {
                 }
             })
         binding.webView.setOnTouchListener { _, event ->
-            // Keep Android/Chromium's native floating selection menu hidden while
-            // our custom reader toolbar is active. Do not consume the event so
-            // normal text selection and handle dragging continue to work.
-            currentSelectionActionMode?.hide(0L)
+            // Do not call ActionMode.hide() from WebView touch dispatch. The native
+            // ActionMode is owned by Chromium and hiding it during a selection touch
+            // can crash on some Android versions. The Activity-level menu suppression
+            // above keeps its action toolbar empty without disturbing selection.
             // Patch v37: a fresh tap that lands while a text selection is active
             // dismisses the selection. The entire gesture is consumed (never
             // reaches the GestureDetector) so it does NOT also turn the page or
@@ -3243,25 +3243,24 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         currentSelectionActionMode = mode
         definitionPopup?.dismiss()
         // WebView/Chromium owns the native selection ActionMode. Keep that mode
-        // alive for the selection handles, but keep its floating action toolbar
-        // suppressed for the entire lifetime of the selection.
-        hideNativeSelectionToolbar(mode)
+        // alive for the selection handles, but remove its menu items. Do not call
+        // ActionMode.hide() here: Chromium can dispatch selection/touch callbacks
+        // while the ActionMode is being transitioned, and repeatedly hiding the
+        // platform mode from those callbacks can crash on some Android builds.
+        suppressNativeSelectionMenu(mode)
         binding.webView.postDelayed({ showReaderSelectionToolbar() }, 50L)
     }
 
-    private fun hideNativeSelectionToolbar(mode: ActionMode) {
+    private fun suppressNativeSelectionMenu(mode: ActionMode) {
         selectionActionModeHideRunnable?.let(binding.webView::removeCallbacks)
         val runnable = object : Runnable {
             override fun run() {
                 if (currentSelectionActionMode !== mode) return
-                // Keep the WebView/Chromium ActionMode alive so its native selection
-                // handles continue to work, but remove every native action so the
-                // platform floating toolbar has nothing to display. Chromium may
-                // repopulate the menu after selection-handle movement, so this is
-                // repeated for the entire lifetime of the selection.
+                // Chromium can repopulate its ActionMode menu after selection-handle
+                // movement. Clearing the menu keeps the native action toolbar empty
+                // while preserving the ActionMode and native selection handles.
                 mode.menu.clear()
-                mode.hide(0L)
-                binding.webView.postDelayed(this, 50L)
+                binding.webView.postDelayed(this, 75L)
             }
         }
         selectionActionModeHideRunnable = runnable
