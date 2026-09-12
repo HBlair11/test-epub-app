@@ -41,4 +41,7 @@ data class ReaderTtsSegment(
     val rawStart: Int,
     val rawEnd: Int,
     val blockIndex: Int,
+    /** Normalized text offsets within the owning structural block. */
+    val blockTextStart: Int = 0,
+    val blockTextEnd: Int = text.length,
 )

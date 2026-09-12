@@ -117,7 +117,7 @@ class ReaderTtsController(
                     if (utteranceId != activeUtteranceId) return
                     val sentence = activeSegmentText
                     if (activeSegmentIndex == segmentIndex) {
-                        resumeCharOffset = start.coerceIn(0, sentence.length)
+                        resumeCharOffset = rewindResumeOffset(sentence, start)
                     }
                     val segment = segments.getOrNull(activeSegmentIndex)
                     if (segment != null) {
@@ -433,6 +433,18 @@ class ReaderTtsController(
         }
 
     /**
+     * If Android reports a pause inside a word, resume from the start of that
+     * word (and therefore replay that word) rather than dropping its first
+     * syllable/phoneme. For a pause between words this naturally returns the
+     * current word start, which is the safest audible resume point.
+     */
+    private fun rewindResumeOffset(text: String, start: Int): Int {
+        var offset = start.coerceIn(0, text.length)
+        while (offset > 0 && !text[offset - 1].isWhitespace()) offset--
+        return offset
+    }
+
+    /**
      * Build speech units from structural blocks. Structural XHTML headings
      * receive a longer pause; real paragraph/list/quote boundaries receive a
      * paragraph pause. Sentence/clause punctuation still controls shorter
@@ -474,6 +486,8 @@ class ReaderTtsController(
                         rawStart = mapBlockOffsetToRaw(block, localStart, text.length),
                         rawEnd = mapBlockOffsetToRaw(block, localEnd, text.length),
                         blockIndex = blockIndex,
+                        blockTextStart = localStart,
+                        blockTextEnd = localEnd,
                     )
                 } else {
                     var start = 0
@@ -489,6 +503,8 @@ class ReaderTtsController(
                                 rawStart = mapBlockOffsetToRaw(block, chunkLocalStart, text.length),
                                 rawEnd = mapBlockOffsetToRaw(block, chunkLocalEnd, text.length),
                                 blockIndex = blockIndex,
+                                blockTextStart = chunkLocalStart,
+                                blockTextEnd = chunkLocalEnd,
                             )
                         }
                         start = end

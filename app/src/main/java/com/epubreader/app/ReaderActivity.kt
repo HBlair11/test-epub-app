@@ -1136,12 +1136,14 @@ class ReaderActivity : AppCompatActivity() {
         val r = Color.red(color); val g = Color.green(color); val b = Color.blue(color)
         val wordCss = String.format(java.util.Locale.US, "rgba(%d,%d,%d,0.55)", r, g, b)
         val sentenceCss = String.format(java.util.Locale.US, "rgba(%d,%d,%d,0.22)", r, g, b)
-        val sentence = org.json.JSONObject.quote(segment.text)
-        val rawStart = segment.rawStart
-        val rawEnd = segment.rawEnd
+        val blockIndex = segment.blockIndex
+        val blockStart = segment.blockTextStart
+        val blockEnd = segment.blockTextEnd
+        val wordStart = start.coerceIn(0, segment.text.length)
+        val wordEnd = end.coerceIn(wordStart, segment.text.length)
         binding.webView.evaluateJavascript(
             """(function(){
-                var sentence=$sentence,rawStart=$rawStart,rawEnd=$rawEnd,start=$start,end=$end;
+                var targetBlock=$blockIndex,blockStart=$blockStart,blockEnd=$blockEnd,start=$wordStart,end=$wordEnd;
                 var wordColor='$wordCss',sentenceColor='$sentenceCss',doc=document,body=doc.body;
                 if(!body)return;
                 var c=doc.getElementById('livre-tts-hl');
@@ -1151,51 +1153,65 @@ class ReaderActivity : AppCompatActivity() {
                     cs.pointerEvents='none';cs.zIndex='2147483646';cs.overflow='hidden';body.appendChild(c);
                 }
                 var ignored={HEAD:1,SCRIPT:1,STYLE:1,NOSCRIPT:1,SVG:1,MATH:1};
-                var nodes=[],raw=0;
-                function ignoredNode(n){var p=n.parentElement;while(p){if(ignored[p.tagName])return true;p=p.parentElement;}return false;}
-                var w=doc.createTreeWalker(body,NodeFilter.SHOW_ALL,null,false),n;
-                while(n=w.nextNode()){
-                    if(n.nodeType===1){if(n.tagName==='BR'&&!ignoredNode(n))raw++;continue;}
-                    if(n.nodeType!==3||ignoredNode(n))continue;
-                    var text=n.textContent||'';nodes.push({node:n,start:raw,end:raw+text.length});raw+=text.length;
+                var blockTags={ADDRESS:1,ARTICLE:1,ASIDE:1,BLOCKQUOTE:1,DD:1,DIV:1,DL:1,DT:1,FIGCAPTION:1,FIGURE:1,FOOTER:1,FORM:1,H1:1,H2:1,H3:1,H4:1,H5:1,H6:1,HEADER:1,LI:1,MAIN:1,NAV:1,OL:1,P:1,PRE:1,SECTION:1,TABLE:1,TD:1,TH:1,TR:1,UL:1};
+                function inIgnored(el){while(el){if(ignored[el.tagName])return true;el=el.parentElement;}return false;}
+                function hasBlockDescendant(el){
+                    var all=el.querySelectorAll('*');
+                    for(var i=0;i<all.length;i++)if(blockTags[all[i].tagName]&&!inIgnored(all[i]))return true;
+                    return false;
                 }
-                function locate(off){for(var i=0;i<nodes.length;i++){var q=nodes[i];if(off>=q.start&&off<=q.end)return [q.node,Math.max(0,Math.min(q.node.textContent.length,off-q.start))];}return null;}
-                function makeRange(a,b){if(!a||!b)return null;try{var r=doc.createRange();r.setStart(a[0],a[1]);r.setEnd(b[0],b[1]);return r;}catch(e){return null;}}
-                function draw(rng,color){if(!rng)return null;var rects=rng.getClientRects(),last=null;for(var i=0;i<rects.length;i++){var z=rects[i];if(z.width<=0||z.height<=0)continue;var d=doc.createElement('div'),s=d.style;s.position='fixed';s.left=z.left+'px';s.top=z.top+'px';s.width=z.width+'px';s.height=z.height+'px';s.backgroundColor=color;s.borderRadius='2px';c.appendChild(d);last=z;}return last;}
-                // rawStart/rawEnd are an anchor range for the structural block.
-                // Within that bounded source area, find the normalized sentence so
-                // repeated sentences elsewhere in the chapter cannot be selected.
-                var rawText='',first=0,last=nodes.length;
-                for(var i=0;i<nodes.length;i++){if(nodes[i].end>=rawStart){first=i;break;}}
-                for(var j=first;j<nodes.length;j++){if(nodes[j].start>rawEnd){last=j;break;}}
+                var blocks=[],all=body.querySelectorAll('*');
+                for(var i=0;i<all.length;i++){
+                    var el=all[i];
+                    if(!blockTags[el.tagName]||inIgnored(el)||hasBlockDescendant(el))continue;
+                    var txt=el.textContent||'';
+                    if(txt.replace(/\s+/g,' ').trim())blocks.push(el);
+                }
+                var block=blocks[targetBlock];
+                if(!block)return;
+                var nodes=[],walker=doc.createTreeWalker(block,NodeFilter.SHOW_TEXT,null,false),n,raw=0;
+                while(n=walker.nextNode()){
+                    if(inIgnored(n.parentElement))continue;
+                    var t=n.textContent||'';
+                    nodes.push({node:n,start:raw,end:raw+t.length});
+                    raw+=t.length;
+                }
+                // Map normalized block text offsets to exact DOM text-node offsets.
                 var normChars=[],normRaw=[];
-                for(var k=first;k<last;k++){
-                    var t=nodes[k].node.textContent||'';
+                for(var ni=0;ni<nodes.length;ni++){
+                    var t=nodes[ni].node.textContent||'';
                     for(var ch=0;ch<t.length;ch++){
-                        var cch=t.charAt(ch);
-                        if(/\s/.test(cch)){
-                            if(normChars.length && normChars[normChars.length-1]!==' '){normChars.push(' ');normRaw.push(nodes[k].start+ch);}
-                        }else{normChars.push(cch);normRaw.push(nodes[k].start+ch);}
+                        var cc=t.charAt(ch);
+                        if(/\s/.test(cc)){
+                            if(normChars.length&&normChars[normChars.length-1]!==' '){normChars.push(' ');normRaw.push(nodes[ni].start+ch);}
+                        }else{normChars.push(cc);normRaw.push(nodes[ni].start+ch);}
                     }
                 }
                 while(normChars.length&&normChars[0]===' '){normChars.shift();normRaw.shift();}
                 while(normChars.length&&normChars[normChars.length-1]===' '){normChars.pop();normRaw.pop();}
-                var norm=normChars.join(''),needle=sentence.replace(/\s+/g,' ').trim();
-                var pos=norm.indexOf(needle);if(pos<0)pos=norm.toLowerCase().indexOf(needle.toLowerCase());
-                if(pos<0)return;
-                var sentenceRawStart=normRaw[pos], sentenceRawEnd=(normRaw[pos+needle.length-1]||sentenceRawStart)+1;
-                sentenceRawStart=Math.max(rawStart,sentenceRawStart);sentenceRawEnd=Math.min(rawEnd,sentenceRawEnd);
-                var a=locate(sentenceRawStart),b=locate(sentenceRawEnd);
-                var sr=makeRange(a,b);draw(sr,sentenceColor);
+                function rawAt(pos){
+                    if(!normRaw.length)return 0;
+                    if(pos<=0)return normRaw[0];
+                    if(pos>=normRaw.length)return raw;
+                    return normRaw[pos];
+                }
+                function locate(off){
+                    if(!nodes.length)return null;
+                    if(off>=raw)return [nodes[nodes.length-1].node,(nodes[nodes.length-1].node.textContent||'').length];
+                    for(var i=0;i<nodes.length;i++){
+                        var q=nodes[i];
+                        if(off>=q.start&&off<=q.end)return [q.node,Math.max(0,Math.min((q.node.textContent||'').length,off-q.start))];
+                    }
+                    return null;
+                }
+                function makeRange(a,b){if(!a||!b)return null;try{var rr=doc.createRange();rr.setStart(a[0],a[1]);rr.setEnd(b[0],b[1]);return rr;}catch(e){return null;}}
+                function draw(rng,color){if(!rng)return null;var rects=rng.getClientRects(),last=null;for(var i=0;i<rects.length;i++){var z=rects[i];if(z.width<=0||z.height<=0)continue;var d=doc.createElement('div'),s=d.style;s.position='fixed';s.left=z.left+'px';s.top=z.top+'px';s.width=z.width+'px';s.height=z.height+'px';s.backgroundColor=color;s.borderRadius='2px';c.appendChild(d);last=z;}return last;}
+                var sentenceRawStart=rawAt(blockStart),sentenceRawEnd=rawAt(blockEnd);
+                var sr=makeRange(locate(sentenceRawStart),locate(sentenceRawEnd));draw(sr,sentenceColor);
                 if(start>=end)return;
-                // Word offsets are relative to the full segment. Map them through
-                // the same normalized character map so whitespace differences in
-                // XHTML do not shift the visual word highlight.
-                var wordPosStart=pos+start,wordPosEnd=pos+end;
-                var wordRawStart=normRaw[Math.max(0,Math.min(normRaw.length-1,wordPosStart))]||sentenceRawStart;
-                var wordRawEnd=(normRaw[Math.max(0,Math.min(normRaw.length-1,wordPosEnd-1))]||wordRawStart)+1;
-                var wa=locate(wordRawStart),wb=locate(Math.min(rawEnd,wordRawEnd));
-                var wr=makeRange(wa,wb),rect=draw(wr,wordColor);
+                var wordNormStart=blockStart+start,wordNormEnd=blockStart+end;
+                var wr=makeRange(locate(rawAt(wordNormStart)),locate(rawAt(wordNormEnd)));
+                var rect=draw(wr,wordColor);
                 if(rect&&window.Caesura){if(rect.right>window.innerWidth-4)window.Caesura.nextPage(false);else if(rect.left<4)window.Caesura.prevPage(false);}
             })();""",
             null,
