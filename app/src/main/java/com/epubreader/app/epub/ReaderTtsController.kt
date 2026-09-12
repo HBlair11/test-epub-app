@@ -433,14 +433,23 @@ class ReaderTtsController(
         }
 
     /**
-     * If Android reports a pause inside a word, resume from the start of that
-     * word (and therefore replay that word) rather than dropping its first
-     * syllable/phoneme. For a pause between words this naturally returns the
-     * current word start, which is the safest audible resume point.
+     * Always resume one whole word before the position Android last reported.
+     * This deliberately backs up past the current word and then finds the
+     * beginning of the preceding word, so a pause in the middle of a word
+     * cannot resume with a clipped word or clipped meaning.
      */
     private fun rewindResumeOffset(text: String, start: Int): Int {
         var offset = start.coerceIn(0, text.length)
+
+        // Find the beginning of the word containing the reported position.
         while (offset > 0 && !text[offset - 1].isWhitespace()) offset--
+
+        // Move left over any whitespace between the current and previous word.
+        while (offset > 0 && text[offset - 1].isWhitespace()) offset--
+
+        // Find the beginning of the previous word.
+        while (offset > 0 && !text[offset - 1].isWhitespace()) offset--
+
         return offset
     }
 

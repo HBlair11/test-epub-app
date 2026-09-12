@@ -337,6 +337,8 @@
     <string name="tts_background_playback">Keep reading in background</string>
     <string name="tts_background_playback_summary">Continue read-aloud when the screen is off or you switch apps</string>
     <string name="tts_sentence_position">Sentence %1$d of %2$d</string>
+    <string name="tts_status_reading">Reading</string>
+    <string name="tts_status_paused">Paused</string>
     <string name="tts_notification_title">Reading aloud</string>
     <string name="tts_notification_channel">Read aloud playback</string>
 

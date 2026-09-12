@@ -120,6 +120,7 @@ class ReaderActivity : AppCompatActivity() {
     private var pagesInChapter: Int = 1
     private var pendingFragment: String? = null
     private var chromeVisible: Boolean = false
+    private var ttsOverlayRestoresChrome: Boolean = false
     private var restoreRatio: Float? = null
     /** Exact in-chapter page to restore after a cross-spine page seek. This uses
      *  the same Caesura page index that the visible reader already uses. */
@@ -303,7 +304,6 @@ class ReaderActivity : AppCompatActivity() {
             // segment, not found by searching the whole chapter for a string.
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                updateTtsSentencePosition()
                 highlightSpokenWord(segment, 0, segment.text.length)
             }
         })
@@ -815,7 +815,6 @@ class ReaderActivity : AppCompatActivity() {
             val offset = result?.trim()?.removeSurrounding("\"")?.toIntOrNull() ?: 0
             lifecycleScope.launch { ttsController?.speakChapter(book.file, item.href, offset) }
         }
-        updateTtsSentencePosition()
     }
 
     // ------------------------------------------------------------- patch v37 tts
@@ -833,26 +832,23 @@ class ReaderActivity : AppCompatActivity() {
     private fun updateTtsControlsUi(playing: Boolean) {
         binding.btnTtsPlayPause.setImageResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play)
         binding.btnTtsPlayPause.contentDescription = getString(if (playing) R.string.tts_pause else R.string.tts_play)
-        if (playing) {
-            updateTtsSentencePosition()
-        } else {
-            val remaining = ttsController?.sleepTimerRemainingMs() ?: -1L
-            if (remaining > 0L) {
-                binding.tvTtsStatus.text = getString(R.string.tts_sleep_remaining, (remaining / 60000L).toInt() + 1)
-            } else if (ttsController?.state == ReaderTtsController.State.PAUSED) {
-                binding.tvTtsStatus.text = getString(R.string.tts_pause)
-            } else {
-                binding.tvTtsStatus.text = getString(R.string.action_read_aloud)
-            }
+        binding.tvTtsStatus.text = when (ttsController?.state) {
+            ReaderTtsController.State.PLAYING -> getString(R.string.tts_status_reading)
+            ReaderTtsController.State.PAUSED -> getString(R.string.tts_status_paused)
+            else -> getString(R.string.tts_status_reading)
         }
     }
 
-    /** Shows the compact Read Aloud panel at the bottom of the reader. The
-     *  EPUB content stays visible — the panel floats over it. Only the bottom
-     *  bar is hidden to avoid overlap with the panel. */
+    /** Shows the Read Aloud panel as the only reader chrome. The normal reader
+     *  top bar, bottom timeline, history controls and page indicator are hidden
+     *  while TTS is open; the EPUB page itself remains visible underneath. */
     private fun showTtsOverlay() {
         clearReaderSelection()
+        ttsOverlayRestoresChrome = chromeVisible
+        chromeVisible = false
+        binding.topBar.visibility = View.GONE
         binding.bottomBar.visibility = View.GONE
+        binding.tvPageIndicator.visibility = View.GONE
         binding.ttsOverlay.visibility = View.VISIBLE
         binding.tvTtsBookTitle.text = epub?.metadata?.title?.ifBlank { null }
             ?: bookEntity?.title
@@ -863,19 +859,18 @@ class ReaderActivity : AppCompatActivity() {
         updateHistoryUi()
     }
 
-    /** Hides the Read Aloud panel. The bottom bar is restored only if chrome is
-     *  visible. Read-aloud itself is NOT stopped here (the Stop button does
-     *  that), so closing the panel while playing keeps playback going in the
-     *  background when the user has enabled it. */
+    /** Hides the Read Aloud panel and restores the reader chrome to the exact
+     *  visibility state it had when TTS was opened. Read-aloud itself is not
+     *  stopped here. */
     private fun hideTtsOverlay() {
         binding.ttsOverlay.visibility = View.GONE
-        if (chromeVisible) binding.bottomBar.visibility = View.VISIBLE
+        chromeVisible = ttsOverlayRestoresChrome
+        binding.topBar.visibility = if (chromeVisible) View.VISIBLE else View.GONE
+        binding.bottomBar.visibility = if (chromeVisible) View.VISIBLE else View.GONE
+        binding.tvPageIndicator.visibility =
+            if (!chromeVisible && !overlayVisible()) View.VISIBLE else View.GONE
         updateHistoryUi()
-    }
-
-    private fun updateTtsSentencePosition() {
-        val position = ttsController?.sentencePosition() ?: return
-        binding.tvTtsStatus.text = getString(R.string.tts_sentence_position, position.first, position.second)
+        updatePageIndicator()
     }
 
     /** Starts/stops the keep-alive foreground service with the media
@@ -917,7 +912,7 @@ class ReaderActivity : AppCompatActivity() {
             }
             .setNeutralButton(R.string.tts_sleep_off) { _, _ ->
                 ttsController?.cancelSleepTimer()
-                updateTtsSentencePosition()
+                updateTtsControlsUi(ttsController?.state == ReaderTtsController.State.PLAYING)
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
@@ -1136,6 +1131,7 @@ class ReaderActivity : AppCompatActivity() {
         val r = Color.red(color); val g = Color.green(color); val b = Color.blue(color)
         val wordCss = String.format(java.util.Locale.US, "rgba(%d,%d,%d,0.55)", r, g, b)
         val sentenceCss = String.format(java.util.Locale.US, "rgba(%d,%d,%d,0.22)", r, g, b)
+        val segmentJson = org.json.JSONObject.quote(segment.text)
         val blockIndex = segment.blockIndex
         val blockStart = segment.blockTextStart
         val blockEnd = segment.blockTextEnd
@@ -1143,75 +1139,91 @@ class ReaderActivity : AppCompatActivity() {
         val wordEnd = end.coerceIn(wordStart, segment.text.length)
         binding.webView.evaluateJavascript(
             """(function(){
-                var targetBlock=$blockIndex,blockStart=$blockStart,blockEnd=$blockEnd,start=$wordStart,end=$wordEnd;
-                var wordColor='$wordCss',sentenceColor='$sentenceCss',doc=document,body=doc.body;
+                var spoken=$segmentJson,targetBlockIndex=$blockIndex,
+                    sentenceStart=$blockStart,sentenceEnd=$blockEnd,
+                    wordStart=$wordStart,wordEnd=$wordEnd,
+                    wordColor='$wordCss',sentenceColor='$sentenceCss',doc=document,body=doc.body;
                 if(!body)return;
                 var c=doc.getElementById('livre-tts-hl');
                 if(c){while(c.firstChild)c.removeChild(c.firstChild);}else{
-                    c=doc.createElement('div');c.id='livre-tts-hl';var cs=c.style;
-                    cs.position='fixed';cs.top='0';cs.left='0';cs.width='100%';cs.height='100%';
-                    cs.pointerEvents='none';cs.zIndex='2147483646';cs.overflow='hidden';body.appendChild(c);
+                    c=doc.createElement('div');c.id='livre-tts-hl';
+                    var cs=c.style;cs.position='fixed';cs.top='0';cs.left='0';
+                    cs.width='100%';cs.height='100%';cs.pointerEvents='none';
+                    cs.zIndex='2147483646';cs.overflow='hidden';body.appendChild(c);
                 }
                 var ignored={HEAD:1,SCRIPT:1,STYLE:1,NOSCRIPT:1,SVG:1,MATH:1};
-                var blockTags={ADDRESS:1,ARTICLE:1,ASIDE:1,BLOCKQUOTE:1,DD:1,DIV:1,DL:1,DT:1,FIGCAPTION:1,FIGURE:1,FOOTER:1,FORM:1,H1:1,H2:1,H3:1,H4:1,H5:1,H6:1,HEADER:1,LI:1,MAIN:1,NAV:1,OL:1,P:1,PRE:1,SECTION:1,TABLE:1,TD:1,TH:1,TR:1,UL:1};
-                function inIgnored(el){while(el){if(ignored[el.tagName])return true;el=el.parentElement;}return false;}
-                function hasBlockDescendant(el){
-                    var all=el.querySelectorAll('*');
-                    for(var i=0;i<all.length;i++)if(blockTags[all[i].tagName]&&!inIgnored(all[i]))return true;
+                var blockTags={ADDRESS:1,ARTICLE:1,ASIDE:1,BLOCKQUOTE:1,DD:1,DIV:1,DL:1,DT:1,
+                    FIGCAPTION:1,FIGURE:1,FOOTER:1,FORM:1,H1:1,H2:1,H3:1,H4:1,H5:1,H6:1,
+                    HEADER:1,LI:1,MAIN:1,NAV:1,OL:1,P:1,PRE:1,SECTION:1,TABLE:1,TD:1,TH:1,TR:1,UL:1};
+                function ignoredAncestor(el){while(el){if(ignored[el.tagName])return true;el=el.parentElement;}return false;}
+                function hasBlockChild(el){
+                    var kids=el.querySelectorAll('*');
+                    for(var i=0;i<kids.length;i++)if(blockTags[kids[i].tagName]&&!ignoredAncestor(kids[i]))return true;
                     return false;
+                }
+                function normalizeWithMap(el){
+                    var walker=doc.createTreeWalker(el,NodeFilter.SHOW_TEXT,null,false),
+                        chars=[],map=[],n;
+                    while(n=walker.nextNode()){
+                        if(ignoredAncestor(n.parentElement))continue;
+                        var t=n.textContent||'';
+                        for(var i=0;i<t.length;i++){
+                            var ch=t.charAt(i);
+                            if(/\\s/.test(ch)){
+                                if(chars.length&&chars[chars.length-1]!==' '){chars.push(' ');map.push({n:n,o:i});}
+                            }else{chars.push(ch);map.push({n:n,o:i});}
+                        }
+                    }
+                    while(chars.length&&chars[0]===' '){chars.shift();map.shift();}
+                    while(chars.length&&chars[chars.length-1]===' '){chars.pop();map.pop();}
+                    return {text:chars.join(''),map:map};
                 }
                 var blocks=[],all=body.querySelectorAll('*');
                 for(var i=0;i<all.length;i++){
                     var el=all[i];
-                    if(!blockTags[el.tagName]||inIgnored(el)||hasBlockDescendant(el))continue;
-                    var txt=el.textContent||'';
-                    if(txt.replace(/\s+/g,' ').trim())blocks.push(el);
+                    if(!blockTags[el.tagName]||ignoredAncestor(el)||hasBlockChild(el))continue;
+                    var nm=normalizeWithMap(el);
+                    if(nm.text)blocks.push({el:el,nm:nm});
                 }
-                var block=blocks[targetBlock];
-                if(!block)return;
-                var nodes=[],walker=doc.createTreeWalker(block,NodeFilter.SHOW_TEXT,null,false),n,raw=0;
-                while(n=walker.nextNode()){
-                    if(inIgnored(n.parentElement))continue;
-                    var t=n.textContent||'';
-                    nodes.push({node:n,start:raw,end:raw+t.length});
-                    raw+=t.length;
+                var exact=[],spokenNorm=spoken.replace(/\\s+/g,' ').trim();
+                for(var bi=0;bi<blocks.length;bi++){
+                    if(blocks[bi].nm.text.indexOf(spokenNorm)>=0)exact.push(bi);
                 }
-                // Map normalized block text offsets to exact DOM text-node offsets.
-                var normChars=[],normRaw=[];
-                for(var ni=0;ni<nodes.length;ni++){
-                    var t=nodes[ni].node.textContent||'';
-                    for(var ch=0;ch<t.length;ch++){
-                        var cc=t.charAt(ch);
-                        if(/\s/.test(cc)){
-                            if(normChars.length&&normChars[normChars.length-1]!==' '){normChars.push(' ');normRaw.push(nodes[ni].start+ch);}
-                        }else{normChars.push(cc);normRaw.push(nodes[ni].start+ch);}
-                    }
+                var chosen=-1;
+                if(exact.length===1)chosen=exact[0];
+                else if(exact.length>1){
+                    // Prefer the structural block index when it is a valid exact match.
+                    if(exact.indexOf(targetBlockIndex)>=0)chosen=targetBlockIndex;
+                    else chosen=exact[0];
+                }else if(blocks[targetBlockIndex]){
+                    chosen=targetBlockIndex;
                 }
-                while(normChars.length&&normChars[0]===' '){normChars.shift();normRaw.shift();}
-                while(normChars.length&&normChars[normChars.length-1]===' '){normChars.pop();normRaw.pop();}
-                function rawAt(pos){
-                    if(!normRaw.length)return 0;
-                    if(pos<=0)return normRaw[0];
-                    if(pos>=normRaw.length)return raw;
-                    return normRaw[pos];
+                if(chosen<0||!blocks[chosen])return;
+                var data=blocks[chosen].nm, text=data.text, pos=text.indexOf(spokenNorm);
+                if(pos<0)return;
+                // TTS offsets are relative to the normalized owning block. Clamp them
+                // to the actual spoken sentence so whitespace normalization cannot
+                // produce an invalid DOM Range.
+                var sentenceAbsStart=Math.max(0,pos+sentenceStart);
+                var sentenceAbsEnd=Math.min(text.length,pos+sentenceEnd);
+                var wordAbsStart=Math.max(sentenceAbsStart,Math.min(sentenceAbsEnd,pos+wordStart));
+                var wordAbsEnd=Math.max(wordAbsStart,Math.min(sentenceAbsEnd,pos+wordEnd));
+                function point(at,endPoint){
+                    if(!data.map.length)return null;
+                    if(at>=data.map.length){var last=data.map[data.map.length-1];return [last.n,(last.n.textContent||'').length];}
+                    var p=data.map[Math.max(0,at)];return [p.n,endPoint?Math.min((p.n.textContent||'').length,p.o+1):p.o];
                 }
-                function locate(off){
-                    if(!nodes.length)return null;
-                    if(off>=raw)return [nodes[nodes.length-1].node,(nodes[nodes.length-1].node.textContent||'').length];
-                    for(var i=0;i<nodes.length;i++){
-                        var q=nodes[i];
-                        if(off>=q.start&&off<=q.end)return [q.node,Math.max(0,Math.min((q.node.textContent||'').length,off-q.start))];
-                    }
-                    return null;
+                function range(a,b){if(!a||!b)return null;try{var q=doc.createRange();q.setStart(a[0],a[1]);q.setEnd(b[0],b[1]);return q;}catch(e){return null;}}
+                function draw(rng,color){
+                    if(!rng)return null;var rects=rng.getClientRects(),last=null;
+                    for(var i=0;i<rects.length;i++){var z=rects[i];if(z.width<=0||z.height<=0)continue;
+                        var d=doc.createElement('div'),s=d.style;s.position='fixed';s.left=z.left+'px';s.top=z.top+'px';
+                        s.width=z.width+'px';s.height=z.height+'px';s.backgroundColor=color;s.borderRadius='2px';c.appendChild(d);last=z;}
+                    return last;
                 }
-                function makeRange(a,b){if(!a||!b)return null;try{var rr=doc.createRange();rr.setStart(a[0],a[1]);rr.setEnd(b[0],b[1]);return rr;}catch(e){return null;}}
-                function draw(rng,color){if(!rng)return null;var rects=rng.getClientRects(),last=null;for(var i=0;i<rects.length;i++){var z=rects[i];if(z.width<=0||z.height<=0)continue;var d=doc.createElement('div'),s=d.style;s.position='fixed';s.left=z.left+'px';s.top=z.top+'px';s.width=z.width+'px';s.height=z.height+'px';s.backgroundColor=color;s.borderRadius='2px';c.appendChild(d);last=z;}return last;}
-                var sentenceRawStart=rawAt(blockStart),sentenceRawEnd=rawAt(blockEnd);
-                var sr=makeRange(locate(sentenceRawStart),locate(sentenceRawEnd));draw(sr,sentenceColor);
-                if(start>=end)return;
-                var wordNormStart=blockStart+start,wordNormEnd=blockStart+end;
-                var wr=makeRange(locate(rawAt(wordNormStart)),locate(rawAt(wordNormEnd)));
-                var rect=draw(wr,wordColor);
+                draw(range(point(sentenceAbsStart,false),point(sentenceAbsEnd,true)),sentenceColor);
+                if(wordAbsStart>=wordAbsEnd)return;
+                var rect=draw(range(point(wordAbsStart,false),point(wordAbsEnd,true)),wordColor);
                 if(rect&&window.Caesura){if(rect.right>window.innerWidth-4)window.Caesura.nextPage(false);else if(rect.left<4)window.Caesura.prevPage(false);}
             })();""",
             null,
@@ -1258,11 +1270,9 @@ class ReaderActivity : AppCompatActivity() {
         binding.btnTtsPlayPause.setOnClickListener { ttsController?.togglePauseResume() }
         binding.btnTtsPrev.setOnClickListener {
             ttsController?.skipSentence(forward = false)
-            updateTtsSentencePosition()
         }
         binding.btnTtsNext.setOnClickListener {
             ttsController?.skipSentence(forward = true)
-            updateTtsSentencePosition()
         }
         binding.btnTtsStop.setOnClickListener { stopTtsCompletely() }
         binding.btnTtsSettings.setOnClickListener { showTtsSettingsSheet() }
