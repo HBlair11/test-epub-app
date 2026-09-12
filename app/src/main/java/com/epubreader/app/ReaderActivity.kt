@@ -3239,7 +3239,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         // Keep WebView/Chromium responsible for the real selection and handles,
         // but hide its floating menu. Our reader toolbar is the single visible
         // selection action surface.
-        mode.hide()
+        mode.hide(0L)
         binding.webView.postDelayed({ showReaderSelectionToolbar() }, 50L)
     }
 
@@ -3283,7 +3283,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 isOutsideTouchable = false
                 isFocusable = false
                 elevation = resources.getDimension(R.dimen.app_definition_card_elevation)
-                setBackgroundDrawable(androidx.core.content.ContextCompat.getDrawable(context, R.drawable.reader_selection_toolbar_bg))
+                setBackgroundDrawable(androidx.core.content.ContextCompat.getDrawable(this@ReaderActivity, R.drawable.reader_selection_toolbar_bg))
             }
             selectionToolbarPopup?.dismiss()
             selectionToolbarPopup = popup
