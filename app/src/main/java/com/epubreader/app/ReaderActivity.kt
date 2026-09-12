@@ -1406,6 +1406,10 @@ class ReaderActivity : AppCompatActivity() {
                 }
             })
         binding.webView.setOnTouchListener { _, event ->
+            // Keep Android/Chromium's native floating selection menu hidden while
+            // our custom reader toolbar is active. Do not consume the event so
+            // normal text selection and handle dragging continue to work.
+            currentSelectionActionMode?.hide(0L)
             // Patch v37: a fresh tap that lands while a text selection is active
             // dismisses the selection. The entire gesture is consumed (never
             // reaches the GestureDetector) so it does NOT also turn the page or
@@ -3285,10 +3289,60 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 elevation = resources.getDimension(R.dimen.app_definition_card_elevation)
                 setBackgroundDrawable(androidx.core.content.ContextCompat.getDrawable(this@ReaderActivity, R.drawable.reader_selection_toolbar_bg))
             }
+            installSelectionToolbarDrag(copy, popup)
+            installSelectionToolbarDrag(define, popup)
+            installSelectionToolbarDrag(highlight, popup)
+            installSelectionToolbarDrag(more, popup)
             selectionToolbarPopup?.dismiss()
             selectionToolbarPopup = popup
             positionSelectionToolbar(popup, selection)
             popup.showAtLocation(binding.root, Gravity.TOP or Gravity.START, toolbarX(selection), toolbarY(selection))
+        }
+    }
+
+    private fun installSelectionToolbarDrag(handle: View, popup: PopupWindow) {
+        handle.setOnLongClickListener {
+            var lastX = Float.NaN
+            var lastY = Float.NaN
+            handle.setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        lastX = event.rawX
+                        lastY = event.rawY
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        if (lastX.isNaN() || lastY.isNaN()) {
+                            lastX = event.rawX
+                            lastY = event.rawY
+                            return@setOnTouchListener true
+                        }
+                        val dx = (event.rawX - lastX).roundToInt()
+                        val dy = (event.rawY - lastY).roundToInt()
+                        if (dx != 0 || dy != 0) {
+                            val location = IntArray(2)
+                            val rootLocation = IntArray(2)
+                            handle.getLocationOnScreen(location)
+                            binding.root.getLocationOnScreen(rootLocation)
+                            popup.update(
+                                location[0] - rootLocation[0] + dx,
+                                location[1] - rootLocation[1] + dy,
+                                -1,
+                                -1,
+                            )
+                            lastX = event.rawX
+                            lastY = event.rawY
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        handle.setOnTouchListener(null)
+                        true
+                    }
+                    else -> true
+                }
+            }
+            true
         }
     }
 
