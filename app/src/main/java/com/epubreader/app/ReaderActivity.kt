@@ -3411,20 +3411,13 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             }
         }
 
-        // Install the same gesture interceptor on every toolbar view, including
-        // each action view. Returning true here prevents the child from handling
-        // the touch itself until ACTION_UP; a stationary tap is then forwarded
-        // with performClick(), while a moved gesture remains a toolbar drag.
-        fun installRecursively(view: View) {
-            view.setOnTouchListener(touchListener)
-            if (view is ViewGroup) {
-                for (index in 0 until view.childCount) {
-                    installRecursively(view.getChildAt(index))
-                }
-            }
+        // The root handles its own padding/background. The inner container
+        // handles the spaces between actions. Action views themselves retain
+        // their existing click listeners and therefore remain tappable.
+        content.setOnTouchListener(touchListener)
+        if (content is ViewGroup && content.childCount > 0) {
+            content.getChildAt(0).setOnTouchListener(touchListener)
         }
-
-        installRecursively(content)
     }
 
     private fun positionSelectionToolbar(popup: PopupWindow, selection: ReaderSelectionLocator) {
@@ -3818,8 +3811,8 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
      *  1. Resolve the stored start element path and search for the text
      *     within that element only - this keeps a repeated phrase from
      *     matching an earlier occurrence elsewhere in the chapter.
-     *  2. Prefix-anchored search across the whole chapter text.
-     *  3. Bare text search as the last resort.
+     *  2. If the path cannot be resolved, search all chapter occurrences and
+     *     score each candidate against the saved prefix and suffix context.
      */
     private fun injectHighlightIntoWebView(
         id: Long,
@@ -3861,18 +3854,44 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                     }
                     return node;
                 }
+                function contextScore(all,pos){
+                    var score=0;
+                    if(prefix){
+                        var before=all.slice(Math.max(0,pos-prefix.length),pos);
+                        var common=0;
+                        while(common<before.length&&common<prefix.length&&before.charAt(before.length-1-common)===prefix.charAt(prefix.length-1-common))common++;
+                        score+=common*2;
+                        if(before===prefix)score+=10000;
+                    }
+                    if(suffix){
+                        var after=all.slice(pos+text.length,pos+text.length+suffix.length);
+                        var commonAfter=0;
+                        while(commonAfter<after.length&&commonAfter<suffix.length&&after.charAt(commonAfter)===suffix.charAt(commonAfter))commonAfter++;
+                        score+=commonAfter*2;
+                        if(after===suffix)score+=10000;
+                    }
+                    return score;
+                }
+                function bestOccurrence(all,needle){
+                    if(!needle)return -1;
+                    var best=-1,bestScore=-1;
+                    var from=0,pos;
+                    while((pos=all.indexOf(needle,from))>=0){
+                        var score=contextScore(all,pos);
+                        if(score>bestScore){bestScore=score;best=pos;}
+                        from=pos+Math.max(1,needle.length);
+                    }
+                    return best;
+                }
                 var el=resolveEl(sp);
                 if(el){
                     var nodes=textNodes(el);var all='';nodes.forEach(function(n){all+=n.textContent;});
-                    var pos=all.indexOf(text);
+                    var pos=bestOccurrence(all,text);
                     if(pos>=0){var a=locate(nodes,pos);var b=locate(nodes,pos+text.length);
                         if(a&&b&&markNodes(a[0],a[1],b[0],b[1]))return true;}
                 }
                 var dnodes=textNodes(document.body);var dall='';dnodes.forEach(function(n){dall+=n.textContent;});
-                var searchStart=0;
-                if(prefix&&prefix.length>0){var pp=dall.indexOf(prefix,searchStart);if(pp>=0)searchStart=pp+prefix.length;}
-                var tp=dall.indexOf(text,searchStart);
-                if(tp<0)tp=dall.indexOf(text);
+                var tp=bestOccurrence(dall,text);
                 if(tp<0)return false;
                 var ep=tp+text.length;
                 var a2=locate(dnodes,tp);var b2=locate(dnodes,ep);
