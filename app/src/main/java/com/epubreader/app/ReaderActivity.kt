@@ -3329,7 +3329,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             val maxY = (rootHeight - popupHeight - margin).coerceAtLeast(margin)
             popupX = popupX.coerceIn(margin, maxX)
             popupY = popupY.coerceIn(margin, maxY)
-            popup.update(Gravity.TOP or Gravity.START, popupX, popupY, -1, -1)
+            popup.update(popupX, popupY, -1, -1)
         }
 
         fun initializePositionIfNeeded() {
