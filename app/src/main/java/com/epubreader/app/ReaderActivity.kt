@@ -33,6 +33,7 @@ import android.webkit.WebViewClient
 import kotlin.math.roundToInt
 import android.widget.SeekBar
 import android.widget.ImageView
+import android.widget.ImageButton
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
