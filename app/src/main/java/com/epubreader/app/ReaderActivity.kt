@@ -3936,7 +3936,15 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         val current = captureReaderLocation()
         val sameChapter = targetIndex == spineIndex
         if (!sameChapter) {
-            pendingHighlightHistoryLocation = if (!restoringHistoryLocation) current else null
+            // A chapter change is already enough to prove that the highlight click
+            // is a real navigation. Record the exact location we are leaving
+            // BEFORE loadChapter() changes the reader state. Waiting until the
+            // new chapter finishes rendering made the history entry fragile and
+            // could lose it when highlight injection/pagination was asynchronous.
+            if (!restoringHistoryLocation && current != null) {
+                pushHistory(current)
+            }
+            pendingHighlightHistoryLocation = null
             pendingHighlightId = highlight.id
             pendingFragment = null
             pendingTargetPageInChapter = null
@@ -3975,18 +3983,11 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 val targetId = pendingHighlightId
                 if (targetId != null && highlights.any { it.id == targetId }) {
                     pendingHighlightId = null
-                    val historyLocation = pendingHighlightHistoryLocation
                     pendingHighlightHistoryLocation = null
                     handler.postDelayed({
                         binding.webView.evaluateJavascript(
                             "if(window.Caesura){window.Caesura.gotoHighlightById($targetId);}",
-                        ) { result ->
-                            val targetPage = result?.trim()?.removeSurrounding("\"")?.toIntOrNull()
-                            if (targetPage != null && historyLocation != null &&
-                                targetPage != historyLocation.pageInChapter
-                            ) {
-                                pushHistory(historyLocation)
-                            }
+                        ) {
                             handler.postDelayed({ pollProgress() }, 80L)
                         }
                     }, 120L)
