@@ -1,14 +1,18 @@
-# Selection ActionMode Regression Fix
+# Selection ActionMode Fix
 
-## Summary
-Restored the reader's Define and Highlight actions in Android's native text-selection floating toolbar without replacing or intercepting WebView/Chromium's selection ActionMode. Android's existing Copy, Translate, Search, Share, Select all, and other platform actions remain available.
+## Update
 
-## Updated files
-- `app/src/main/java/com/epubreader/app/ReaderActivity.kt` — registers a public `customSelectionActionModeCallback` on the reader WebView, adds Define/Highlight during ActionMode creation/preparation, and keeps the existing selection capture/actions.
-- `app/src/main/java/com/epubreader/app/ui/LivreWebView.kt` — retained the existing custom WebView type and documented that it does not intercept private selection callbacks.
-- `docs/PHASE_4_SELECTION_ACTIONMODE_FIX.md` — this change log.
+Corrected the selection-toolbar integration to use the existing Activity-level `onActionModeStarted()` path already supported by this project. Removed the unsupported `WebView.customSelectionActionModeCallback` reference that does not exist on the project compile target.
 
-## Preserved
-- App version remains v37 / versionName 1.36.
-- Existing ReaderSelectionBridge, ReaderSelectionLocator, dictionary lookup, highlight persistence, and Android default selection actions were reused.
-- No architecture or Room schema changes.
+The existing Android selection toolbar remains intact, while the app continues to add **Define** and **Highlight** after WebView menu preparation. Android default actions such as Copy, Translate, Search, Share, and Select all are not cleared or replaced.
+
+## Files updated
+
+- `app/src/main/java/com/epubreader/app/ReaderActivity.kt` — removed the unsupported WebView API assignment and retained the existing delayed ActionMode menu injection.
+- `docs/PHASE_4_SELECTION_ACTIONMODE_FIX.md` — updated this fix documentation.
+
+## Compatibility
+
+- App version remains v37 / 1.36.
+- No architecture or database changes.
+- No files were removed.

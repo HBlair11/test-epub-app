@@ -445,29 +445,9 @@ class ReaderActivity : AppCompatActivity() {
         )
         binding.webView.setOnLongClickListener { false }
 
-        // Keep the platform/Chromium text-selection ActionMode intact while
-        // registering our two app actions through the public View API. This is
-        // deliberately scoped to selection ActionMode only; it does not override
-        // WebView.startActionMode or intercept any private Chromium callbacks.
-        binding.webView.customSelectionActionModeCallback = object : ActionMode.Callback {
-            override fun onCreateActionMode(mode: ActionMode, menu: android.view.Menu): Boolean {
-                addSelectionActionItems(menu)
-                return true
-            }
-
-            override fun onPrepareActionMode(mode: ActionMode, menu: android.view.Menu): Boolean {
-                addSelectionActionItems(menu)
-                return false
-            }
-
-            override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
-                return false
-            }
-
-            override fun onDestroyActionMode(mode: ActionMode) {
-                if (currentSelectionActionMode === mode) currentSelectionActionMode = null
-            }
-        }
+        // Keep Android/Chromium text selection intact. The Activity-level
+        // ActionMode lifecycle below adds Define and Highlight after WebView
+        // finishes its own menu preparation, without overriding WebView internals.
     }
 
     private fun captureCurrentSelection(onCaptured: ((ReaderSelectionLocator?) -> Unit)? = null) {
