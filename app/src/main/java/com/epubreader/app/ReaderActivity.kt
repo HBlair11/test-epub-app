@@ -2611,7 +2611,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             binding.webView.evaluateJavascript(
                 "if(window.Caesura){window.Caesura.pageForTextAnchor($safeText,${reflowAnchor.fallbackPage});}"
             ) { result ->
-                val page = result?.trim()?.removeSurrounding(""")?.toIntOrNull()
+                val page = result?.trim()?.removeSurrounding("\"")?.toIntOrNull()
                     ?: reflowAnchor.fallbackPage
                 binding.webView.evaluateJavascript(
                     "if(window.Caesura){window.Caesura.gotoPage(${page.coerceAtLeast(0)},false);}"
