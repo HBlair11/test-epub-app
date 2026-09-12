@@ -3371,14 +3371,20 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                     // coordinate system as toolbarX()/toolbarY(). Starting from the
                     // requested position avoids the first-move jump seen when screen
                     // coordinates are mixed with window coordinates.
-                    popupX = toolbarX(currentReaderSelection ?: return@setOnTouchListener false)
-                    popupY = toolbarY(currentReaderSelection ?: return@setOnTouchListener false)
-                    dragging = false
-                    longPressRunnable?.let(view::removeCallbacks)
-                    val runnable = Runnable { beginDrag() }
-                    longPressRunnable = runnable
-                    view.postDelayed(runnable, longPressDelay)
-                    true
+                    val selection = currentReaderSelection
+                    if (selection == null) {
+                        longPressRunnable = null
+                        false
+                    } else {
+                        popupX = toolbarX(selection)
+                        popupY = toolbarY(selection)
+                        dragging = false
+                        longPressRunnable?.let(view::removeCallbacks)
+                        val runnable = Runnable { beginDrag() }
+                        longPressRunnable = runnable
+                        view.postDelayed(runnable, longPressDelay)
+                        true
+                    }
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val movedX = kotlin.math.abs(event.rawX - downRawX)
