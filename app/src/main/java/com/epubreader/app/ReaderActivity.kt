@@ -2195,6 +2195,23 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             return true;
           }
 
+          function gotoHighlightById(id) {
+            var marks = document.querySelectorAll('mark.livre-highlight[data-highlight-id="' + id + '"]');
+            if (!marks.length) return false;
+
+            var element = marks[0];
+            var x = 0;
+            var node = element;
+
+            while (node) {
+              x += node.offsetLeft || 0;
+              node = node.offsetParent;
+            }
+
+            gotoPage(Math.floor(x / advance()), false);
+            return true;
+          }
+
           function apply() {
             if (!body) return;
 
@@ -2242,7 +2259,8 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
               nextPage: nextPage,
               prevPage: prevPage,
               ratio: ratio,
-              gotoElementById: gotoElementById
+              gotoElementById: gotoElementById,
+              gotoHighlightById: gotoHighlightById
             };
           }
 
@@ -2709,6 +2727,8 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
     private var highlightRv: RecyclerView? = null
     private var highlightEmpty: TextView? = null
     private var highlightObserverStarted = false
+    private var pendingHighlightId: Long? = null
+    private var pendingHighlightHistoryLocation: ReaderLocation? = null
     private var activeOverlayTab: Int = 0
 
     /** Whether the Bookmarks tab is currently shown in the TOC overlay. The
@@ -2748,7 +2768,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             highlightRv!!.layoutManager = LinearLayoutManager(this)
             highlightRv!!.adapter = HighlightListAdapter(
                 onClick = { h ->
-                    navigateToUrl("https://${EpubResourceResolver.VIRTUAL_HOST}/$bookId/${h.spineHref.trimStart('/')}")
+                    goToHighlight(h)
                     hideOverlays()
                 },
                 onDelete = { h ->
@@ -3901,6 +3921,45 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         )
     }
 
+    /**
+     * Navigates from the Highlights tab to the exact rendered page containing
+     * the selected highlight. A highlight is not an EPUB URL/fragment, so using
+     * navigateToUrl() here can reload the same chapter and restore the current
+     * page while still adding a history entry.
+     */
+    private fun goToHighlight(highlight: com.epubreader.app.data.HighlightEntity) {
+        clearReaderSelection()
+        val book = epub ?: return
+        val targetIndex = book.spine.indexOfFirst { it.href == highlight.spineHref }
+        if (targetIndex < 0) return
+
+        val current = captureReaderLocation()
+        val sameChapter = targetIndex == spineIndex
+        if (!sameChapter) {
+            pendingHighlightHistoryLocation = if (!restoringHistoryLocation) current else null
+            pendingHighlightId = highlight.id
+            pendingFragment = null
+            pendingTargetPageInChapter = null
+            restoreRatio = null
+            loadChapter(targetIndex)
+            return
+        }
+
+        binding.webView.evaluateJavascript(
+            "if(window.Caesura){window.Caesura.gotoHighlightById(${highlight.id});}"
+        ) { result ->
+            val targetPage = result?.trim()?.removeSurrounding("\"")?.toIntOrNull()
+            if (targetPage != null && !restoringHistoryLocation && current != null &&
+                targetPage != current.pageInChapter
+            ) {
+                // The tab navigation is a real reader navigation, so preserve the
+                // prior location only when the highlight actually moves us.
+                pushHistory(current)
+            }
+            handler.postDelayed({ pollProgress() }, 80L)
+        }
+    }
+
     /** Loads all highlights for the current chapter and injects them into the WebView. */
     private fun injectHighlightsForChapter() {
         val book = epub ?: return
@@ -3912,6 +3971,25 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             withContext(Dispatchers.Main) {
                 highlights.forEach { h ->
                     injectHighlightIntoWebView(h.id, h.text, h.prefix, h.suffix, h.color, h.startPath, h.endPath)
+                }
+                val targetId = pendingHighlightId
+                if (targetId != null && highlights.any { it.id == targetId }) {
+                    pendingHighlightId = null
+                    val historyLocation = pendingHighlightHistoryLocation
+                    pendingHighlightHistoryLocation = null
+                    handler.postDelayed({
+                        binding.webView.evaluateJavascript(
+                            "if(window.Caesura){window.Caesura.gotoHighlightById($targetId);}",
+                        ) { result ->
+                            val targetPage = result?.trim()?.removeSurrounding("\"")?.toIntOrNull()
+                            if (targetPage != null && historyLocation != null &&
+                                targetPage != historyLocation.pageInChapter
+                            ) {
+                                pushHistory(historyLocation)
+                            }
+                            handler.postDelayed({ pollProgress() }, 80L)
+                        }
+                    }, 120L)
                 }
             }
         }
