@@ -3301,10 +3301,11 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
     }
 
     /**
-     * Lets the non-action portion of the custom toolbar move immediately when
-     * the user touches and drags it. Action buttons keep their normal click
-     * behavior. Movement is free in both directions and clamped to the app's
-     * existing popup edge margin.
+     * Lets the entire custom toolbar act as a draggable surface. A tap on an
+     * action view still performs that action; once the touch moves beyond the
+     * normal touch slop, it becomes a toolbar drag and the action is suppressed.
+     * Movement is free in both directions and clamped to the app's existing
+     * popup edge margin.
      */
     private fun installSelectionToolbarDrag(content: View, popup: PopupWindow) {
         val touchSlop = ViewConfiguration.get(content.context).scaledTouchSlop
@@ -3384,8 +3385,17 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                     if (!dragging) {
                         false
                     } else {
+                        val wasMoved = moved
                         dragging = false
+                        moved = false
                         view.parent?.requestDisallowInterceptTouchEvent(false)
+
+                        // A tap on an action view is still a normal action click.
+                        // A drag on that same view moves the toolbar instead and
+                        // must not trigger the action.
+                        if (!wasMoved && view !== content && view.isClickable) {
+                            view.performClick()
+                        }
                         true
                     }
                 }
