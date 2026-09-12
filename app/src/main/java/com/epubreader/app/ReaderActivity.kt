@@ -2173,7 +2173,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             return currentPage() / (count - 1);
           }
 
-          function gotoElementById(id) {
+          function pageForElementById(id) {
             var element = document.getElementById(id);
 
             if (!element) {
@@ -2181,7 +2181,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
               if (named.length) element = named[0];
             }
 
-            if (!element) return false;
+            if (!element) return -1;
 
             var x = 0;
             var node = element;
@@ -2191,7 +2191,13 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
               node = node.offsetParent;
             }
 
-            gotoPage(Math.floor(x / advance()), false);
+            return Math.floor(x / advance());
+          }
+
+          function gotoElementById(id) {
+            var page = pageForElementById(id);
+            if (page < 0) return false;
+            gotoPage(page, false);
             return true;
           }
 
@@ -2263,6 +2269,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
               prevPage: prevPage,
               ratio: ratio,
               gotoElementById: gotoElementById,
+              pageForElementById: pageForElementById,
               highlightPageById: highlightPageById,
               gotoHighlightById: gotoHighlightById
             };
@@ -2304,15 +2311,69 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         val entryPath = parts[1].substringBefore('#').substringBefore('?')
         val frag = if ('#' in parts[1]) parts[1].substringAfter('#') else null
         val idx = book.spine.indexOfFirst { it.href == entryPath }
-        if (idx >= 0) {
-            if (!restoringHistoryLocation) {
-                captureReaderLocation()?.let { current ->
+        if (idx < 0) return
+
+        // Resolve the visible WebView page before navigation so every internal
+        // destination (TOC and EPUB links included) follows the same history rule.
+        binding.webView.evaluateJavascript(
+            "(function(){if(!window.Caesura) return '';return window.Caesura.currentPage()+','+window.Caesura.ratio();})();"
+        ) { result ->
+            val values = result?.trim()?.removeSurrounding("\"")?.split(',')
+            val actualPage = values?.getOrNull(0)?.toIntOrNull()
+            val actualRatio = values?.getOrNull(1)?.toFloatOrNull()
+            val current = captureReaderLocation()?.let { location ->
+                if (actualPage != null && actualPage >= 0) {
+                    location.copy(pageInChapter = actualPage, ratio = actualRatio ?: location.ratio)
+                } else location
+            }
+
+            if (idx != spineIndex) {
+                if (!restoringHistoryLocation && current != null) {
                     pushHistory(current)
                 }
+                pendingFragment = frag
+                pendingTargetPageInChapter = null
+                restoreRatio = null
+                loadChapter(idx)
+                return@evaluateJavascript
             }
-            pendingFragment = frag
-            if (idx != spineIndex) loadChapter(idx) else {
-                capturePageSnapshot(forward = false); applyPendingFragmentOrRestore()
+
+            val targetExpression = if (frag != null) {
+                val safe = frag.replace("'", "")
+                "window.Caesura.pageForElementById('$safe')"
+            } else {
+                "0"
+            }
+            binding.webView.evaluateJavascript(
+                "if(window.Caesura){window.Caesura.currentPage() + '|' + $targetExpression;}"
+            ) { targetResult ->
+                val targetValues = targetResult?.trim()?.removeSurrounding("\"")?.split('|')
+                val currentPage = targetValues?.getOrNull(0)?.toIntOrNull() ?: actualPage
+                val targetPage = targetValues?.getOrNull(1)?.toIntOrNull()
+
+                if (targetPage == null || targetPage < 0) return@evaluateJavascript
+
+                if (!restoringHistoryLocation && current != null &&
+                    currentPage != null && targetPage != currentPage
+                ) {
+                    pushHistory(current.copy(pageInChapter = currentPage))
+                }
+
+                if (frag != null) {
+                    pendingFragment = frag
+                    pendingTargetPageInChapter = null
+                    restoreRatio = null
+                    binding.webView.evaluateJavascript(
+                        "if(window.Caesura){window.Caesura.gotoElementById('$frag');}"
+                    ) {
+                        handler.postDelayed({ pollProgress() }, 80L)
+                    }
+                } else {
+                    pendingFragment = null
+                    pendingTargetPageInChapter = targetPage
+                    capturePageSnapshot(forward = false)
+                    applyPendingFragmentOrRestore()
+                }
             }
         }
     }
@@ -2964,13 +3025,50 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
 
     // ---------------------------------------------------------------- bookmarks
     private fun goToBookmark(b: BookmarkEntity) {
-        if (!restoringHistoryLocation) {
-            captureReaderLocation()?.let { pushHistory(it) }
-        }
-        pendingFragment = null
-        restoreRatio = b.scrollRatio
-        if (b.spineIndex != spineIndex) loadChapter(b.spineIndex) else {
-            capturePageSnapshot(); applyPendingFragmentOrRestore()
+        clearReaderSelection()
+        val book = epub ?: return
+        if (b.spineIndex !in book.spine.indices) return
+
+        binding.webView.evaluateJavascript(
+            "(function(){if(!window.Caesura) return '';return window.Caesura.currentPage()+','+window.Caesura.pageCount()+','+window.Caesura.ratio();})();"
+        ) { result ->
+            val values = result?.trim()?.removeSurrounding("\"")?.split(',')
+            val actualPage = values?.getOrNull(0)?.toIntOrNull()
+            val pageCount = values?.getOrNull(1)?.toIntOrNull()?.coerceAtLeast(1)
+            val actualRatio = values?.getOrNull(2)?.toFloatOrNull()
+            val current = captureReaderLocation()?.let { location ->
+                if (actualPage != null && actualPage >= 0) {
+                    location.copy(pageInChapter = actualPage, ratio = actualRatio ?: location.ratio)
+                } else location
+            }
+
+            if (b.spineIndex != spineIndex) {
+                if (!restoringHistoryLocation && current != null) {
+                    pushHistory(current)
+                }
+                pendingFragment = null
+                pendingTargetPageInChapter = null
+                restoreRatio = b.scrollRatio
+                loadChapter(b.spineIndex)
+                return@evaluateJavascript
+            }
+
+            val count = pageCount ?: pagesInChapter.coerceAtLeast(1)
+            val targetPage = if (count > 1) {
+                kotlin.math.round(b.scrollRatio.coerceIn(0f, 1f) * (count - 1)).toInt()
+            } else 0
+
+            if (!restoringHistoryLocation && current != null &&
+                actualPage != null && targetPage != actualPage
+            ) {
+                pushHistory(current.copy(pageInChapter = actualPage))
+            }
+
+            pendingFragment = null
+            pendingTargetPageInChapter = targetPage
+            restoreRatio = null
+            capturePageSnapshot(forward = false)
+            applyPendingFragmentOrRestore()
         }
     }
 
@@ -3940,25 +4038,24 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         val current = captureReaderLocation()
         val sameChapter = targetIndex == spineIndex
         if (!sameChapter) {
-            // A chapter change is already enough to prove that the highlight click
-            // is a real navigation. Record the exact location we are leaving
-            // BEFORE loadChapter() changes the reader state. Waiting until the
-            // new chapter finishes rendering made the history entry fragile and
-            // could lose it when highlight injection/pagination was asynchronous.
-            if (!restoringHistoryLocation && current != null) {
-                pushHistory(current)
-            }
+            // Resolve the visible WebView page before changing chapters. The
+            // destination is asynchronous, but the history entry must represent
+            // the exact location the user is leaving.
             pendingHighlightHistoryLocation = null
             pendingHighlightId = highlight.id
             pendingFragment = null
             pendingTargetPageInChapter = null
             restoreRatio = null
             binding.webView.evaluateJavascript(
-                "if(window.Caesura){window.Caesura.currentPage();}"
+                "(function(){if(!window.Caesura) return '';return window.Caesura.currentPage()+','+window.Caesura.ratio();})();"
             ) { result ->
-                val actualPage = result?.trim()?.removeSurrounding("\"")?.toIntOrNull()
+                val values = result?.trim()?.removeSurrounding("\"")?.split(',')
+                val actualPage = values?.getOrNull(0)?.toIntOrNull()
+                val actualRatio = values?.getOrNull(1)?.toFloatOrNull()
                 if (!restoringHistoryLocation && current != null) {
-                    pushHistory(if (actualPage != null && actualPage >= 0) current.copy(pageInChapter = actualPage) else current)
+                    pushHistory(if (actualPage != null && actualPage >= 0) {
+                        current.copy(pageInChapter = actualPage, ratio = actualRatio ?: current.ratio)
+                    } else current)
                 }
                 loadChapter(targetIndex)
             }
