@@ -87,11 +87,25 @@
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">match_parent</item>
         <item name="android:gravity">center</item>
-        <item name="android:minWidth">@dimen/app_selection_toolbar_padding</item>
+        <item name="android:minWidth">@dimen/app_selection_toolbar_action_min_width</item>
+        <item name="android:layout_marginStart">@dimen/app_selection_toolbar_action_margin_h</item>
+        <item name="android:layout_marginEnd">@dimen/app_selection_toolbar_action_margin_h</item>
         <item name="android:paddingStart">@dimen/app_selection_toolbar_action_padding_h</item>
         <item name="android:paddingEnd">@dimen/app_selection_toolbar_action_padding_h</item>
         <item name="android:textColor">@color/reader_chrome_text</item>
         <item name="android:textSize">@dimen/app_selection_toolbar_text_size</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <style name="ReaderSelectionToolbarDragHandle" parent="android:style/Widget.TextView">
+        <item name="android:layout_width">@dimen/app_selection_toolbar_drag_handle_width</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textColor">@color/reader_chrome_text</item>
+        <item name="android:textSize">@dimen/app_selection_toolbar_drag_handle_text_size</item>
+        <item name="android:paddingStart">@dimen/app_selection_toolbar_action_padding_h</item>
+        <item name="android:paddingEnd">@dimen/app_selection_toolbar_action_padding_h</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
     </style>

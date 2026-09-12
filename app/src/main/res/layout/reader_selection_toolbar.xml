@@ -33,5 +33,11 @@
             style="@style/ReaderSelectionToolbarAction"
             android:contentDescription="@string/selection_more"
             android:text="@string/selection_more" />
+
+        <TextView
+            android:id="@+id/selection_toolbar_drag_handle"
+            style="@style/ReaderSelectionToolbarDragHandle"
+            android:contentDescription="@string/selection_move_toolbar"
+            android:text="⋮⋮" />
     </LinearLayout>
 </HorizontalScrollView>

@@ -86,5 +86,9 @@
     <dimen name="app_selection_toolbar_padding">8dp</dimen>
     <dimen name="app_selection_toolbar_estimated_width">360dp</dimen>
     <dimen name="app_selection_toolbar_action_padding_h">16dp</dimen>
+    <dimen name="app_selection_toolbar_action_min_width">48dp</dimen>
+    <dimen name="app_selection_toolbar_action_margin_h">2dp</dimen>
+    <dimen name="app_selection_toolbar_drag_handle_width">40dp</dimen>
+    <dimen name="app_selection_toolbar_drag_handle_text_size">18sp</dimen>
     <dimen name="app_selection_toolbar_text_size">14sp</dimen>
 </resources>

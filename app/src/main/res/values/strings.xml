@@ -356,4 +356,5 @@
     <string name="tts_section">Section</string>
     <string name="tts_stop_confirm">Stop</string>
 
+    <string name="selection_move_toolbar">Move selection toolbar</string>
 </resources>
