@@ -3301,20 +3301,19 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
     }
 
     /**
-     * Makes the entire custom toolbar behave like a floating selection toolbar:
-     * a normal tap activates the action, while a long-press anywhere on the
-     * toolbar switches that same gesture into free two-dimensional dragging.
-     * The position is clamped to the app's existing popup edge margin.
+     * Lets the non-action portion of the custom toolbar move immediately when
+     * the user touches and drags it. Action buttons keep their normal click
+     * behavior. Movement is free in both directions and clamped to the app's
+     * existing popup edge margin.
      */
     private fun installSelectionToolbarDrag(content: View, popup: PopupWindow) {
-        val longPressDelay = ViewConfiguration.getLongPressTimeout().toLong()
         val touchSlop = ViewConfiguration.get(content.context).scaledTouchSlop
         var downRawX = 0f
         var downRawY = 0f
         var lastRawX = 0f
         var lastRawY = 0f
         var dragging = false
-        var longPressRunnable: Runnable? = null
+        var moved = false
         var popupX = 0
         var popupY = 0
         var positionInitialized = false
@@ -3340,81 +3339,75 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             positionInitialized = true
         }
 
-        fun beginDrag() {
-            if (selectionToolbarPopup !== popup) return
-            initializePositionIfNeeded()
-            dragging = true
-            content.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
-            content.parent?.requestDisallowInterceptTouchEvent(true)
-        }
-
         val touchListener = View.OnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    downRawX = event.rawX
-                    downRawY = event.rawY
-                    lastRawX = event.rawX
-                    lastRawY = event.rawY
-                    initializePositionIfNeeded()
-                    dragging = false
-                    longPressRunnable?.let(view::removeCallbacks)
-                    val runnable = Runnable { beginDrag() }
-                    longPressRunnable = runnable
-                    view.postDelayed(runnable, longPressDelay)
-                    true
+                    if (selectionToolbarPopup !== popup) {
+                        false
+                    } else {
+                        initializePositionIfNeeded()
+                        downRawX = event.rawX
+                        downRawY = event.rawY
+                        lastRawX = event.rawX
+                        lastRawY = event.rawY
+                        dragging = true
+                        moved = false
+                        view.parent?.requestDisallowInterceptTouchEvent(true)
+                        true
+                    }
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    val movedX = kotlin.math.abs(event.rawX - downRawX)
-                    val movedY = kotlin.math.abs(event.rawY - downRawY)
-                    if (!dragging && (movedX > touchSlop || movedY > touchSlop)) {
-                        longPressRunnable?.let(view::removeCallbacks)
-                        longPressRunnable = null
-                    }
-                    if (dragging) {
-                        popupX += (event.rawX - lastRawX).roundToInt()
-                        popupY += (event.rawY - lastRawY).roundToInt()
-                        refreshPopupPosition()
+                    if (!dragging) {
+                        false
+                    } else {
+                        val deltaX = event.rawX - lastRawX
+                        val deltaY = event.rawY - lastRawY
+                        if (!moved &&
+                            (kotlin.math.abs(event.rawX - downRawX) > touchSlop ||
+                                kotlin.math.abs(event.rawY - downRawY) > touchSlop)
+                        ) {
+                            moved = true
+                        }
+                        if (moved) {
+                            popupX += deltaX.roundToInt()
+                            popupY += deltaY.roundToInt()
+                            refreshPopupPosition()
+                        }
                         lastRawX = event.rawX
                         lastRawY = event.rawY
+                        true
                     }
-                    true
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    longPressRunnable?.let(view::removeCallbacks)
-                    longPressRunnable = null
-                    val wasDragging = dragging
-                    dragging = false
-                    view.parent?.requestDisallowInterceptTouchEvent(false)
-                    if (!wasDragging) {
-                        view.performClick()
+                    if (!dragging) {
+                        false
+                    } else {
+                        dragging = false
+                        view.parent?.requestDisallowInterceptTouchEvent(false)
+                        true
                     }
-                    true
                 }
 
                 MotionEvent.ACTION_CANCEL -> {
-                    longPressRunnable?.let(view::removeCallbacks)
-                    longPressRunnable = null
                     dragging = false
+                    moved = false
                     view.parent?.requestDisallowInterceptTouchEvent(false)
                     true
                 }
 
-                else -> true
+                else -> dragging
             }
         }
 
-        fun installRecursively(view: View) {
-            view.setOnTouchListener(touchListener)
-            if (view is ViewGroup) {
-                for (index in 0 until view.childCount) {
-                    installRecursively(view.getChildAt(index))
-                }
-            }
+        // The root handles its own padding/background. The inner container
+        // handles the spaces between actions. Action views themselves retain
+        // their existing click listeners and therefore remain tappable.
+        content.setOnTouchListener(touchListener)
+        if (content is ViewGroup && content.childCount > 0) {
+            content.getChildAt(0).setOnTouchListener(touchListener)
         }
-
-        installRecursively(content)
     }
 
     private fun positionSelectionToolbar(popup: PopupWindow, selection: ReaderSelectionLocator) {
