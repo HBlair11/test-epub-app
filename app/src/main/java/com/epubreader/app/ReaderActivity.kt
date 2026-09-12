@@ -81,7 +81,6 @@ class ReaderActivity : AppCompatActivity() {
      *  Held so it can be dismissed when the user navigates away or taps the
      *  page. Patch v37. */
     private var currentSelectionActionMode: ActionMode? = null
-    private var selectionActionModeHideRunnable: Runnable? = null
     private var selectionToolbarPopup: PopupWindow? = null
     private var currentReaderSelection: ReaderSelectionLocator? = null
     /** Time-based guard: a tap that should NOT turn the page or toggle chrome
@@ -3242,36 +3241,15 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         super.onActionModeStarted(mode)
         currentSelectionActionMode = mode
         definitionPopup?.dismiss()
-        // WebView/Chromium owns the native selection ActionMode. Keep that mode
-        // alive for the selection handles, but remove its menu items. Do not call
-        // ActionMode.hide() here: Chromium can dispatch selection/touch callbacks
-        // while the ActionMode is being transitioned, and repeatedly hiding the
-        // platform mode from those callbacks can crash on some Android builds.
-        suppressNativeSelectionMenu(mode)
+        // LivreWebView suppresses the native floating menu through the ActionMode
+        // callback lifecycle, without calling ActionMode.hide()/finish() or mutating
+        // the live menu from asynchronous touch callbacks. This keeps Chromium's
+        // selection handles and lifecycle intact.
         binding.webView.postDelayed({ showReaderSelectionToolbar() }, 50L)
-    }
-
-    private fun suppressNativeSelectionMenu(mode: ActionMode) {
-        selectionActionModeHideRunnable?.let(binding.webView::removeCallbacks)
-        val runnable = object : Runnable {
-            override fun run() {
-                if (currentSelectionActionMode !== mode) return
-                // Chromium can repopulate its ActionMode menu after selection-handle
-                // movement. Clearing the menu keeps the native action toolbar empty
-                // while preserving the ActionMode and native selection handles.
-                mode.menu.clear()
-                binding.webView.postDelayed(this, 75L)
-            }
-        }
-        selectionActionModeHideRunnable = runnable
-        mode.menu.clear()
-        binding.webView.post(runnable)
     }
 
     override fun onActionModeFinished(mode: ActionMode) {
         super.onActionModeFinished(mode)
-        selectionActionModeHideRunnable?.let(binding.webView::removeCallbacks)
-        selectionActionModeHideRunnable = null
         if (currentSelectionActionMode === mode) currentSelectionActionMode = null
         selectionToolbarPopup?.dismiss()
         selectionToolbarPopup = null
@@ -3286,7 +3264,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             val copy = content.findViewById<TextView>(R.id.selection_toolbar_copy)
             val define = content.findViewById<TextView>(R.id.selection_toolbar_define)
             val highlight = content.findViewById<TextView>(R.id.selection_toolbar_highlight)
-            val more = content.findViewById<TextView>(R.id.selection_toolbar_more)
+            val more = content.findViewById<ImageButton>(R.id.selection_toolbar_more)
 
             copy.setOnClickListener { copySelectedText() }
             define.setOnClickListener {
