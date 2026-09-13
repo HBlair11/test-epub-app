@@ -2032,15 +2032,11 @@ figure { margin:0.5em 0 !important; }
 table { max-width:100% !important; }
 a { color:${ink} !important; }
 h1,h2,h3,h4,h5,h6 { color:${ink} !important; line-height:1.25 !important; break-after:avoid; }
-/* Highlight overlays: absolutely/fixed positioned paint only; they never participate in EPUB layout. */
-.livre-highlight-overlay {
-  position:fixed !important;
-  margin:0 !important;
-  padding:0 !important;
-  border:0 !important;
-  pointer-events:none !important;
-  z-index:2147483000 !important;
-  box-sizing:border-box !important;
+/* Highlight marks: subtle background, no layout disruption. */
+mark.livre-highlight {
+  color:inherit !important;
+  break-inside:avoid;
+  -webkit-column-break-inside:avoid;
 }
 </style>""".trimIndent() + darkTextOverride(prefs.theme, ink)
     }
@@ -2074,7 +2070,7 @@ h1,h2,h3,h4,h5,h6 { color:${ink} !important; line-height:1.25 !important; break-
         return """
 <style>
 body, body * { color:${ink} !important; }
-body *:not(.livre-tts-word):not(.livre-tts-sentence) { background-color: transparent !important; }
+body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) { background-color: transparent !important; }
 </style>""".trimIndent()
     }
 
@@ -2229,16 +2225,16 @@ body *:not(.livre-tts-word):not(.livre-tts-sentence) { background-color: transpa
           }
 
           function highlightPageById(id) {
-            var overlays = document.querySelectorAll('.livre-highlight-overlay[data-highlight-id="' + id + '"]');
-            if (!overlays.length) return -1;
-            var best = -1;
-            for (var i = 0; i < overlays.length; i++) {
-              var left = parseFloat(overlays[i].style.left) || 0;
-              var absoluteX = (body.scrollLeft || 0) + left;
-              var page = Math.max(0, Math.floor(absoluteX / advance()));
-              if (best < 0 || page < best) best = page;
+            var marks = document.querySelectorAll('mark.livre-highlight[data-highlight-id="' + id + '"]');
+            if (!marks.length) return -1;
+            var element = marks[0];
+            var x = 0;
+            var node = element;
+            while (node) {
+              x += node.offsetLeft || 0;
+              node = node.offsetParent;
             }
-            return best;
+            return Math.floor(x / advance());
           }
 
           function gotoHighlightById(id) {
@@ -2290,114 +2286,201 @@ body *:not(.livre-tts-word):not(.livre-tts-sentence) { background-color: transpa
             }
           }
 
-          function pageSnippet(page) {
+          function pageAnchor(page) {
             if (!body) return '';
             var target = Math.max(0, Math.floor(page || 0));
             var actual = currentPage();
             if (target !== actual) gotoPage(target, false);
 
-            // Patch L: find the first text position that actually renders in the
-            // requested column, then read forward from that exact DOM offset.
-            // We inspect Range fragments for the boundary only; we never filter
-            // individual text nodes or characters out of the resulting snippet.
+            // Whole-page bookmarks use the actual text position visible at the
+            // start of the rendered page, then capture a substantial semantic
+            // passage from that point. A single word is intentionally not enough:
+            // common words can occur many times in the same chapter.
             var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
             var nodes = [];
             var node;
             while ((node = walker.nextNode())) {
-              if ((node.textContent || '').length) nodes.push(node);
+              if ((node.textContent || '').trim()) nodes.push(node);
             }
             if (!nodes.length) return '';
 
+            var bodyRect = body.getBoundingClientRect();
+
             function pageOfRect(rect) {
               if (!rect || (!rect.width && !rect.height)) return -1;
-              var bodyRect = body.getBoundingClientRect();
               var absoluteX = (body.scrollLeft || 0) + rect.left - bodyRect.left;
               return Math.max(0, Math.floor(absoluteX / advance()));
             }
 
-            function rangeHasPage(range, wantedPage) {
-              var rects = range.getClientRects();
-              for (var r = 0; r < rects.length; r++) {
-                if (pageOfRect(rects[r]) === wantedPage) return true;
-              }
+            function prefixHasPage(node, offset, wantedPage) {
+              var len = (node.textContent || '').length;
+              if (!len || offset < 1) return false;
+              var range = document.createRange();
+              try {
+                range.setStart(node, 0);
+                range.setEnd(node, Math.min(offset, len));
+                var rects = range.getClientRects();
+                for (var i = 0; i < rects.length; i++) {
+                  if (pageOfRect(rects[i]) === wantedPage) return true;
+                }
+              } catch (e) {}
+              finally { range.detach(); }
               return false;
             }
 
-            var firstNodeIndex = -1;
-            for (var i = 0; i < nodes.length; i++) {
+            function firstOffsetOnPage(node, wantedPage) {
+              var text = node.textContent || '';
+              var len = text.length;
+              if (!len) return -1;
               var full = document.createRange();
               try {
-                full.selectNodeContents(nodes[i]);
-                if (rangeHasPage(full, target)) {
-                  firstNodeIndex = i;
-                  break;
+                full.selectNodeContents(node);
+                var fullRects = full.getClientRects();
+                var hasPage = false;
+                for (var i = 0; i < fullRects.length; i++) {
+                  if (pageOfRect(fullRects[i]) === wantedPage) { hasPage = true; break; }
                 }
-              } catch (e) {
+                if (!hasPage) return -1;
               } finally {
                 full.detach();
               }
-            }
-            if (firstNodeIndex < 0) return '';
 
-            var firstNode = nodes[firstNodeIndex];
-            var firstText = firstNode.textContent || '';
-            var startOffset = 0;
-
-            // Locate the smallest prefix that reaches the target page. Because
-            // the prefix is grown monotonically, the first successful endpoint
-            // identifies the first character whose rendered fragment belongs to
-            // the target column. We then start at endpoint - 1, preserving that
-            // character instead of dropping a boundary letter such as 's'.
-            var lo = 1;
-            var hi = firstText.length;
-            var firstReach = -1;
-            while (lo <= hi) {
-              var mid = Math.floor((lo + hi) / 2);
-              var prefixRange = document.createRange();
-              var reaches = false;
-              try {
-                prefixRange.setStart(firstNode, 0);
-                prefixRange.setEnd(firstNode, mid);
-                reaches = rangeHasPage(prefixRange, target);
-              } catch (e2) {
-                reaches = false;
-              } finally {
-                prefixRange.detach();
+              var lo = 1, hi = len, answer = len;
+              while (lo <= hi) {
+                var mid = Math.floor((lo + hi) / 2);
+                if (prefixHasPage(node, mid, wantedPage)) {
+                  answer = mid;
+                  hi = mid - 1;
+                } else {
+                  lo = mid + 1;
+                }
               }
-              if (reaches) {
-                firstReach = mid;
-                hi = mid - 1;
-              } else {
-                lo = mid + 1;
+
+              // Move to the beginning of the visible word so a pagination split
+              // never causes the first character of that word to be discarded.
+              var offset = Math.max(0, answer - 1);
+              while (offset > 0 && !/\s/.test(text.charAt(offset - 1))) offset--;
+              return offset;
+            }
+
+            var startNode = -1;
+            var startOffset = -1;
+            for (var i = 0; i < nodes.length; i++) {
+              var offset = firstOffsetOnPage(nodes[i], target);
+              if (offset >= 0) {
+                startNode = i;
+                startOffset = offset;
+                break;
               }
             }
-            if (firstReach > 0) startOffset = firstReach - 1;
+            if (startNode < 0) return '';
 
-            var result = '';
-            for (var n = firstNodeIndex; n < nodes.length && result.length < 180; n++) {
-              var source = nodes[n].textContent || '';
-              var from = n === firstNodeIndex ? startOffset : 0;
-              if (from >= source.length) continue;
-              result += source.slice(from);
+            function containingBlock(textNode) {
+              var el = textNode && textNode.parentElement;
+              while (el && el !== body) {
+                var tag = (el.tagName || '').toLowerCase();
+                if (/^(p|li|blockquote|h1|h2|h3|h4|h5|h6|pre|td|th|dt|dd)$/.test(tag)) return el;
+                el = el.parentElement;
+              }
+              return textNode.parentElement || body;
             }
 
-            // Normalize only after the DOM text has been collected. This preserves
-            // every source character first, then makes the stored display snippet
-            // stable across inline span boundaries and EPUB whitespace.
-            return result.replace(/\s+/g, ' ').trim().slice(0, 180);
+            function normalized(text) {
+              return String(text || '').replace(/\s+/g, ' ').trim();
+            }
+
+            function sentenceEnd(text, from) {
+              // Require whitespace/end after punctuation so initials and decimal
+              // points are less likely to become false sentence boundaries.
+              var re = /[.!?](?:["'”’»)]*)?(?=\s|$)/g;
+              re.lastIndex = Math.max(0, from || 0);
+              var match;
+              while ((match = re.exec(text)) !== null) return match.index + match[0].length;
+              return -1;
+            }
+
+            // Start with the exact visible position, not the beginning of the DOM
+            // paragraph. This handles a page that begins halfway through a paragraph.
+            var firstBlock = containingBlock(nodes[startNode]);
+            var blockNodes = [];
+            var blockWalker = document.createTreeWalker(firstBlock, NodeFilter.SHOW_TEXT, null);
+            var bn;
+            while ((bn = blockWalker.nextNode())) {
+              if ((bn.textContent || '').length) blockNodes.push(bn);
+            }
+
+            var startBlockNode = blockNodes.indexOf(nodes[startNode]);
+            if (startBlockNode < 0) return '';
+
+            var passage = '';
+            for (var b = startBlockNode; b < blockNodes.length; b++) {
+              var source = blockNodes[b].textContent || '';
+              var from = b === startBlockNode ? startOffset : 0;
+              if (from < source.length) passage += (passage ? ' ' : '') + source.slice(from);
+            }
+            passage = normalized(passage);
+
+            // Prefer two sentence boundaries from the actual page-start position.
+            // If the paragraph does not contain two, retain the whole remaining
+            // paragraph and continue into following text until the anchor is useful.
+            var firstEnd = sentenceEnd(passage, 0);
+            var secondEnd = firstEnd >= 0 ? sentenceEnd(passage, firstEnd) : -1;
+            var anchorText = secondEnd >= 0 ? passage.slice(0, secondEnd) : passage;
+
+            if (anchorText.length < 180) {
+              var lastBlockNode = blockNodes.length ? blockNodes[blockNodes.length - 1] : nodes[startNode];
+              var continuationNode = nodes.indexOf(lastBlockNode) + 1;
+              for (var n = continuationNode; n < nodes.length && anchorText.length < 420; n++) {
+                var extra = normalized(nodes[n].textContent || '');
+                if (!extra) continue;
+                anchorText += (anchorText ? ' ' : '') + extra;
+                if (sentenceEnd(anchorText, anchorText.length - extra.length - 1) >= 0) {
+                  var e1 = sentenceEnd(anchorText, 0);
+                  var e2 = e1 >= 0 ? sentenceEnd(anchorText, e1) : -1;
+                  if (e2 >= 0) anchorText = anchorText.slice(0, e2);
+                }
+              }
+            }
+
+            anchorText = normalized(anchorText);
+            if (!anchorText) return '';
+
+            // Keep both ends of a long passage. The beginning identifies the page
+            // start; the ending portion helps reject a repeated beginning elsewhere.
+            var startPart = anchorText.slice(0, 220);
+            var endPart = anchorText.length > 220 ? anchorText.slice(-120) : anchorText;
+            return JSON.stringify({
+              start: startPart,
+              end: endPart,
+              length: anchorText.length
+            });
           }
 
           function pageForTextAnchor(anchor, fallbackPage) {
             if (!anchor || !body) return -1;
-            var wanted = String(anchor).replace(/\s+/g,' ').trim().toLowerCase();
-            if (!wanted) return -1;
 
-            // Build one normalized DOM text stream and remember the exact text-node
-            // position represented by every normalized character. This lets the
-            // bookmark survive font, margin, line-height and pagination changes.
-            // We then locate the actual occurrence and ask the browser for the
-            // rendered page of that occurrence; no stored page number is used as
-            // the primary location.
+            var raw = String(anchor).trim();
+            var startWanted = raw;
+            var endWanted = '';
+            var expectedLength = 0;
+            try {
+              var parsed = JSON.parse(raw);
+              if (parsed && typeof parsed.start === 'string') {
+                startWanted = parsed.start;
+                endWanted = typeof parsed.end === 'string' ? parsed.end : '';
+                expectedLength = Number(parsed.length) || 0;
+              }
+            } catch (e) {
+              // Legacy whole-page bookmarks stored plain text in snippet.
+            }
+
+            startWanted = startWanted.replace(/\s+/g, ' ').trim().toLowerCase();
+            endWanted = endWanted.replace(/\s+/g, ' ').trim().toLowerCase();
+            if (!startWanted) return -1;
+
+            // Build one normalized DOM text stream and remember exact text-node
+            // positions. The semantic anchor is preferred over the old page/ratio
+            // values so Reader Settings changes do not move the bookmark.
             var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
             var stream = '';
             var positions = [];
@@ -2421,31 +2504,70 @@ body *:not(.livre-tts-word):not(.livre-tts-sentence) { background-color: transpa
               }
             }
 
-            var match = stream.indexOf(wanted);
-            if (match < 0) {
-              // A long whole-page snippet may contain punctuation/spacing that
-              // changed at an inline DOM boundary. A shorter prefix remains a
-              // useful semantic fallback without returning to page-number logic.
-              var prefix = wanted.slice(0, Math.min(80, wanted.length));
-              match = prefix ? stream.indexOf(prefix) : -1;
+            function pageForMatch(match, wantedLength) {
+              if (match < 0 || !positions[match]) return -1;
+              try {
+                var start = positions[match];
+                var range = document.createRange();
+                var endPos = positions[Math.min(positions.length - 1, match + Math.max(1, wantedLength) - 1)];
+                if (!endPos) { range.detach(); return -1; }
+                range.setStart(start.node, start.offset);
+                range.setEnd(endPos.node, Math.min((endPos.node.textContent || '').length, endPos.offset + 1));
+                var page = pageOfRangeStart(range);
+                range.detach();
+                return page >= 0 ? page : -1;
+              } catch (e) {
+                return -1;
+              }
             }
-            if (match < 0 || !positions[match]) return -1;
 
-            try {
-              // Patch L: resolve a short, non-collapsed text range beginning at
-              // the semantic anchor. Using getClientRects()[0] identifies the
-              // first rendered fragment of the actual text instead of the union
-              // rectangle for a multi-line/multi-column range.
-              var start = positions[match];
-              var range = document.createRange();
-              range.setStart(start.node, start.offset);
-              range.setEnd(start.node, Math.min((start.node.textContent || '').length, start.offset + 1));
-              var page = pageOfRangeStart(range);
-              range.detach();
-              return page >= 0 ? page : -1;
-            } catch (e) {
-              return -1;
+            function normalizedIndexOf(needle, from) {
+              if (!needle) return -1;
+              return stream.indexOf(needle, Math.max(0, from || 0));
             }
+
+            var candidates = [];
+            var searchFrom = 0;
+            while (searchFrom < stream.length) {
+              var match = normalizedIndexOf(startWanted, searchFrom);
+              if (match < 0) break;
+              candidates.push(match);
+              searchFrom = match + Math.max(1, startWanted.length);
+            }
+
+            // Legacy anchors can be shorter. Try their strongest leading phrase.
+            if (!candidates.length) {
+              var shortWanted = startWanted.slice(0, 80);
+              var legacyMatch = normalizedIndexOf(shortWanted, 0);
+              if (legacyMatch >= 0) candidates.push(legacyMatch);
+            }
+            if (!candidates.length) return -1;
+
+            // Prefer a candidate whose ending context is also present nearby. This
+            // makes repeated phrases such as common first words poor matches.
+            var bestMatch = candidates[0];
+            var bestScore = -1;
+            for (var c = 0; c < candidates.length; c++) {
+              var candidate = candidates[c];
+              var score = startWanted.length;
+              if (endWanted) {
+                var verifyFrom = candidate + Math.max(0, Math.min(expectedLength || startWanted.length, stream.length - candidate));
+                var nearbyStart = Math.max(candidate + startWanted.length, verifyFrom - 180);
+                var nearbyEnd = Math.min(stream.length, verifyFrom + 180 + endWanted.length);
+                var nearby = stream.slice(nearbyStart, nearbyEnd);
+                if (nearby.indexOf(endWanted) >= 0) score += endWanted.length * 4;
+                else score -= endWanted.length;
+              }
+              if (score > bestScore) {
+                bestScore = score;
+                bestMatch = candidate;
+              }
+            }
+
+            var page = pageForMatch(bestMatch, Math.min(32, Math.max(1, startWanted.length)));
+            if (page >= 0) return page;
+
+            return fallbackPage >= 0 ? fallbackPage : -1;
           }
 
           function init() {
@@ -3175,7 +3297,7 @@ body *:not(.livre-tts-word):not(.livre-tts-sentence) { background-color: transpa
                         withContext(Dispatchers.Main) {
                             // Also unwrap the mark from the current page if visible.
                             binding.webView.evaluateJavascript(
-                                "(function(){document.querySelectorAll('.livre-highlight-overlay[data-highlight-id=\"' + h.id + '\"]').forEach(function(v){v.remove();});})();",
+                                "(function(){var m=document.querySelector('mark.livre-highlight[data-highlight-id=\"" + h.id + "\"]');if(m){var p=m.parentNode;while(m.firstChild)p.insertBefore(m.firstChild,m);p.removeChild(m);}})();",
                                 null,
                             )
                             Snackbar
@@ -3433,13 +3555,13 @@ body *:not(.livre-tts-word):not(.livre-tts-sentence) { background-color: transpa
         val idx = spineIndex
         val title = sectionLabel()
         binding.webView.evaluateJavascript(
-            "(function(){if(!window.Caesura) return '';var p=window.Caesura.currentPage();var r=window.Caesura.ratio();var t=window.Caesura.pageSnippet(p);return JSON.stringify({page:p,ratio:r,snippet:t});})();"
+            "(function(){if(!window.Caesura) return '';var p=window.Caesura.currentPage();var r=window.Caesura.ratio();var a=window.Caesura.pageAnchor(p);return JSON.stringify({page:p,ratio:r,anchor:a});})();"
         ) { result ->
             val raw = runCatching { org.json.JSONTokener(result?.trim().orEmpty()).nextValue() as? String }.getOrNull() ?: ""
             val json = runCatching { org.json.JSONObject(raw) }.getOrNull()
             val page = json?.optInt("page", currentPageInChapter)?.coerceAtLeast(0) ?: currentPageInChapter
             val ratio = json?.optDouble("ratio", currentScrollRatio.toDouble())?.toFloat()?.coerceIn(0f, 1f) ?: currentScrollRatio
-            val snippet = json?.optString("snippet").orEmpty().trim()
+            val snippet = json?.optString("anchor").orEmpty().trim()
             lifecycleScope.launch(Dispatchers.IO) {
                 val existing = db.bookmarkDao().findWholePageBySnippet(bookId, idx, snippet).let { semantic ->
                     semantic ?: db.bookmarkDao().findWholePage(bookId, idx, page, ratio)
@@ -4395,9 +4517,7 @@ body *:not(.livre-tts-word):not(.livre-tts-sentence) { background-color: transpa
         lifecycleScope.launch(Dispatchers.IO) {
             val id = com.epubreader.app.data.BookRepository(applicationContext).addHighlight(highlight)
             withContext(Dispatchers.Main) {
-                handler.postDelayed({
-                    injectHighlightIntoWebView(id, selection.text, selection.prefix, selection.suffix, color, selection.startPath, selection.endPath)
-                }, 60L)
+                injectHighlightIntoWebView(id, selection.text, selection.prefix, selection.suffix, color, selection.startPath, selection.endPath)
                 Snackbar.make(binding.root, R.string.highlight_added, Snackbar.LENGTH_SHORT).show()
             }
         }
@@ -4405,7 +4525,7 @@ body *:not(.livre-tts-word):not(.livre-tts-sentence) { background-color: transpa
 
     /** Injects a single highlight into the WebView immediately after creation.
      *
-     * Patch v37/K anchoring strategy (most-specific first):
+     * Patch v37 anchoring strategy (most-specific first):
      *  1. Resolve the stored start element path and search for the text
      *     within that element only - this keeps a repeated phrase from
      *     matching an earlier occurrence elsewhere in the chapter.
@@ -4429,10 +4549,16 @@ body *:not(.livre-tts-word):not(.livre-tts-sentence) { background-color: transpa
         binding.webView.evaluateJavascript(
             """(function(){
                 var text=$safeText,prefix=$safePrefix,suffix=$safeSuffix,color='$cssColor',id=$id,sp=$safeStartPath;
-                var old=document.querySelectorAll('.livre-highlight-overlay[data-highlight-id="'+id+'"]');
-                if(old.length)return true;
+                if(document.querySelector('mark.livre-highlight[data-highlight-id="'+id+'"]'))return true;
                 function textNodes(root){var w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,null,false);var a=[];while(w.nextNode())a.push(w.currentNode);return a;}
                 function locate(nodes,off){var acc=0;for(var i=0;i<nodes.length;i++){var len=nodes[i].textContent.length;if(off<=acc+len)return [nodes[i],off-acc];acc+=len;}return null;}
+                function markNodes(sn,so,en,eo){
+                    if(!sn||!en)return false;
+                    function make(){var m=document.createElement('mark');m.className='livre-highlight';m.style.backgroundColor=color;m.style.borderRadius='2px';m.dataset.highlightId=id;m.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();LivreHighlight.onHighlightTap(id);});return m;}
+                    try{var r=document.createRange();r.setStart(sn,so);r.setEnd(en,eo);r.surroundContents(make());return true;}catch(e){}
+                    try{var r2=document.createRange();r2.setStart(sn,so);r2.setEnd(en,eo);var m2=make();m2.appendChild(r2.extractContents());r2.insertNode(m2);return true;}catch(e2){}
+                    return false;
+                }
                 function resolveEl(p){
                     if(!p)return null;
                     var parts=p.split('/');var node=document.body;var started=false;
@@ -4449,101 +4575,45 @@ body *:not(.livre-tts-word):not(.livre-tts-sentence) { background-color: transpa
                 function contextScore(all,pos){
                     var score=0;
                     if(prefix){
-                        var before=all.slice(Math.max(0,pos-prefix.length),pos);var common=0;
+                        var before=all.slice(Math.max(0,pos-prefix.length),pos);
+                        var common=0;
                         while(common<before.length&&common<prefix.length&&before.charAt(before.length-1-common)===prefix.charAt(prefix.length-1-common))common++;
-                        score+=common*2;if(before===prefix)score+=10000;
+                        score+=common*2;
+                        if(before===prefix)score+=10000;
                     }
                     if(suffix){
-                        var after=all.slice(pos+text.length,pos+text.length+suffix.length);var commonAfter=0;
+                        var after=all.slice(pos+text.length,pos+text.length+suffix.length);
+                        var commonAfter=0;
                         while(commonAfter<after.length&&commonAfter<suffix.length&&after.charAt(commonAfter)===suffix.charAt(commonAfter))commonAfter++;
-                        score+=commonAfter*2;if(after===suffix)score+=10000;
+                        score+=commonAfter*2;
+                        if(after===suffix)score+=10000;
                     }
                     return score;
                 }
                 function bestOccurrence(all,needle){
-                    if(!needle)return -1;var best=-1,bestScore=-1,from=0,pos;
-                    while((pos=all.indexOf(needle,from))>=0){var score=contextScore(all,pos);if(score>bestScore){bestScore=score;best=pos;}from=pos+Math.max(1,needle.length);}
+                    if(!needle)return -1;
+                    var best=-1,bestScore=-1;
+                    var from=0,pos;
+                    while((pos=all.indexOf(needle,from))>=0){
+                        var score=contextScore(all,pos);
+                        if(score>bestScore){bestScore=score;best=pos;}
+                        from=pos+Math.max(1,needle.length);
+                    }
                     return best;
                 }
-                function paintRange(sn,so,en,eo){
-                    if(!sn||!en)return false;
-                    var range=document.createRange();
-                    try{
-                        range.setStart(sn,so);range.setEnd(en,eo);
-                        var rects=range.getClientRects();
-                        if(!rects||!rects.length){range.detach();return false;}
-                        var host=document.getElementById('livre-highlight-overlay-host');
-                        if(!host){
-                            host=document.createElement('div');
-                            host.id='livre-highlight-overlay-host';
-                            host.style.position='fixed';host.style.left='0';host.style.top='0';host.style.width='0';host.style.height='0';host.style.zIndex='2147482999';host.style.pointerEvents='none';
-                            document.documentElement.appendChild(host);
-                        }
-                        var created=[];
-                        for(var i=0;i<rects.length;i++){
-                            var r=rects[i];
-                            if(!r||r.width<=0||r.height<=0)continue;
-                            var v=document.createElement('div');
-                            v.className='livre-highlight-overlay';
-                            v.dataset.highlightId=id;
-                            v.style.left=r.left+'px';v.style.top=r.top+'px';v.style.width=r.width+'px';v.style.height=r.height+'px';
-                            v.style.backgroundColor=color;v.style.borderRadius='2px';v.style.opacity='0.4';v.style.pointerEvents='none';
-                            host.appendChild(v);created.push(v);
-                        }
-                        if(!created.length){range.detach();return false;}
-                        function refresh(){
-                            if(!document.body.contains(created[0]))return;
-                            var rr=range.getClientRects ? range.getClientRects() : [];
-                            for(var k=0;k<created.length;k++){
-                                var q=rr[k];if(!q){created[k].style.display='none';continue;}
-                                created[k].style.display='block';created[k].style.left=q.left+'px';created[k].style.top=q.top+'px';created[k].style.width=q.width+'px';created[k].style.height=q.height+'px';
-                            }
-                        }
-                        // Keep the visual paint synchronized with horizontal page turns
-                        // without ever changing the EPUB DOM or its pagination.
-                        created.forEach(function(v){v.__livreHighlightRange={range:range};});
-                        return true;
-                    }catch(e){try{range.detach();}catch(ignore){}return false;}
-                }
-                function installRefresh(){
-                    if(window.__livreHighlightRefreshInstalled)return;
-                    window.__livreHighlightRefreshInstalled=true;
-                    window.__livreHighlightRefresh=function(){
-                        var host=document.getElementById('livre-highlight-overlay-host');if(!host)return;
-                        var overlays=host.querySelectorAll('.livre-highlight-overlay');
-                        var groups={};
-                        for(var i=0;i<overlays.length;i++){
-                            var ov=overlays[i],gid=ov.getAttribute('data-highlight-id');
-                            if(!groups[gid])groups[gid]=[];groups[gid].push(ov);
-                        }
-                        Object.keys(groups).forEach(function(gid){
-                            var group=groups[gid];var first=group[0],a=first.__livreHighlightRange;if(!a||!a.range)return;
-                            try{var r=a.range;var rects=r.getClientRects();
-                                for(var j=0;j<group.length;j++){var q=rects[j];if(!q){group[j].style.display='none';continue;}group[j].style.display='block';group[j].style.left=q.left+'px';group[j].style.top=q.top+'px';group[j].style.width=q.width+'px';group[j].style.height=q.height+'px';}
-                            }catch(e){group.forEach(function(v){v.style.display='none';});}
-                        });
-                    };
-                    body.addEventListener('scroll',window.__livreHighlightRefresh,{passive:true});
-                    window.addEventListener('resize',window.__livreHighlightRefresh);
-                    body.addEventListener('click',function(e){
-                        var host=document.getElementById('livre-highlight-overlay-host');if(!host)return;
-                        var overlays=host.querySelectorAll('.livre-highlight-overlay');
-                        for(var i=0;i<overlays.length;i++){
-                            var r=overlays[i].getBoundingClientRect();
-                            if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){
-                                var hid=overlays[i].getAttribute('data-highlight-id');
-                                if(hid){e.preventDefault();e.stopPropagation();LivreHighlight.onHighlightTap(parseInt(hid,10));return;}
-                            }
-                        }
-                    });
-                }
-                function finish(){installRefresh();if(window.__livreHighlightRefresh)window.__livreHighlightRefresh();return true;}
                 var el=resolveEl(sp);
-                if(el){var nodes=textNodes(el),all='';nodes.forEach(function(n){all+=n.textContent;});var pos=bestOccurrence(all,text);
-                    if(pos>=0){var a=locate(nodes,pos),b=locate(nodes,pos+text.length);if(a&&b&&paintRange(a[0],a[1],b[0],b[1]))return finish();}
+                if(el){
+                    var nodes=textNodes(el);var all='';nodes.forEach(function(n){all+=n.textContent;});
+                    var pos=bestOccurrence(all,text);
+                    if(pos>=0){var a=locate(nodes,pos);var b=locate(nodes,pos+text.length);
+                        if(a&&b&&markNodes(a[0],a[1],b[0],b[1]))return true;}
                 }
-                var dnodes=textNodes(document.body),dall='';dnodes.forEach(function(n){dall+=n.textContent;});var tp=bestOccurrence(dall,text);if(tp<0)return false;
-                var a2=locate(dnodes,tp),b2=locate(dnodes,tp+text.length);if(!a2||!b2)return false;return paintRange(a2[0],a2[1],b2[0],b2[1])?finish():false;
+                var dnodes=textNodes(document.body);var dall='';dnodes.forEach(function(n){dall+=n.textContent;});
+                var tp=bestOccurrence(dall,text);
+                if(tp<0)return false;
+                var ep=tp+text.length;
+                var a2=locate(dnodes,tp);var b2=locate(dnodes,ep);
+                return !!(a2&&b2&&markNodes(a2[0],a2[1],b2[0],b2[1]));
             })();""",
             null,
         )
@@ -4637,15 +4707,8 @@ body *:not(.livre-tts-word):not(.livre-tts-sentence) { background-color: transpa
             if (highlights.isEmpty()) return@launch
             withContext(Dispatchers.Main) {
                 highlights.forEach { h ->
-                    handler.postDelayed({
-                        injectHighlightIntoWebView(h.id, h.text, h.prefix, h.suffix, h.color, h.startPath, h.endPath)
-                    }, 80L)
+                    injectHighlightIntoWebView(h.id, h.text, h.prefix, h.suffix, h.color, h.startPath, h.endPath)
                 }
-                handler.postDelayed({
-                    highlights.forEach { h ->
-                        injectHighlightIntoWebView(h.id, h.text, h.prefix, h.suffix, h.color, h.startPath, h.endPath)
-                    }
-                }, 180L)
                 val targetId = pendingHighlightId
                 if (targetId != null && highlights.any { it.id == targetId }) {
                     pendingHighlightId = null
@@ -4731,7 +4794,7 @@ body *:not(.livre-tts-word):not(.livre-tts-sentence) { background-color: transpa
                             withContext(Dispatchers.Main) {
                                 // Remove the highlight from the WebView.
                                 binding.webView.evaluateJavascript(
-                                    """(function(){document.querySelectorAll('.livre-highlight-overlay[data-highlight-id="$highlightId"]').forEach(function(v){v.remove();});})()""",
+                                    """(function(){var m=document.querySelector('mark.livre-highlight[data-highlight-id="$highlightId"]');if(m){var p=m.parentNode;while(m.firstChild)p.insertBefore(m.firstChild,m);p.removeChild(m);}})();""",
                                     null,
                                 )
                                 Snackbar
