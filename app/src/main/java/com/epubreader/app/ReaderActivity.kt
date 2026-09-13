@@ -2273,45 +2273,73 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
           function pageSnippet(page) {
             if (!body) return '';
             var target = Math.max(0, Math.floor(page || 0));
-            var startX = target * advance();
-            var endX = startX + advance();
-            var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null, false);
-            var words = [];
-            var total = 0;
-            while (walker.nextNode() && total < 220) {
-              var node = walker.currentNode;
-              var value = node.textContent || '';
-              if (!value.trim()) continue;
-              var matches = value.match(/\S+/g) || [];
-              var searchFrom = 0;
-              for (var i = 0; i < matches.length && total < 220; i++) {
-                var word = matches[i];
-                var offset = value.indexOf(word, searchFrom);
-                if (offset < 0) continue;
-                searchFrom = offset + word.length;
-                var range = document.createRange();
-                range.setStart(node, offset);
-                range.setEnd(node, offset + word.length);
-                var rects = range.getClientRects();
-                var visible = false;
-                for (var j = 0; j < rects.length; j++) {
-                  var rect = rects[j];
-                  var cx = rect.left + (body.scrollLeft || 0) + rect.width / 2;
-                  if (cx >= startX - 1 && cx < endX + 1 && rect.bottom > 0 && rect.top < (window.innerHeight || 1)) {
-                    visible = true;
-                    break;
-                  }
+            var actual = currentPage();
+            if (target !== actual) gotoPage(target, false);
+
+            var width = window.innerWidth || 1;
+            var height = window.innerHeight || 1;
+            var positions = [];
+
+            function caretAt(x, y) {
+              try {
+                if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);
+                if (document.caretPositionFromPoint) {
+                  var p = document.caretPositionFromPoint(x, y);
+                  if (!p) return null;
+                  var r = document.createRange();
+                  r.setStart(p.offsetNode, p.offset);
+                  r.collapse(true);
+                  return r;
                 }
-                range.detach();
-                if (visible) {
-                  var next = words.length ? (words.join(' ') + ' ' + word) : word;
-                  if (next.length > 180) break;
-                  words.push(word);
-                  total = next.length;
-                }
+              } catch (e) {}
+              return null;
+            }
+
+            // Sample the rendered page itself and collect caret positions from
+            // visible text. This avoids rebuilding words from individual DOM
+            // character ranges, which can lose glyphs in some WebView text runs.
+            for (var y = 8; y < height - 8; y += 18) {
+              for (var x = 6; x < width - 6; x += 36) {
+                var range = caretAt(x, y);
+                if (!range || !range.startContainer) continue;
+                var node = range.startContainer;
+                if (node.nodeType !== Node.TEXT_NODE) continue;
+                if (!(node.textContent || '').trim()) continue;
+                var rect = range.getBoundingClientRect ? range.getBoundingClientRect() : null;
+                if (!rect || rect.width < 0 || rect.height < 0) continue;
+                if (rect.right < 0 || rect.left > width || rect.bottom < 0 || rect.top > height) continue;
+                positions.push(range);
               }
             }
-            return words.join(' ').replace(/\s+/g, ' ').trim().slice(0, 180);
+
+            if (!positions.length) return '';
+
+            var first = positions[0];
+            var last = positions[0];
+            for (var i = 1; i < positions.length; i++) {
+              var candidate = positions[i];
+              try {
+                if (first.compareBoundaryPoints(Range.START_TO_START, candidate) > 0) first = candidate;
+                if (last.compareBoundaryPoints(Range.START_TO_START, candidate) < 0) last = candidate;
+              } catch (e) {}
+            }
+
+            var result = '';
+            try {
+              var selected = document.createRange();
+              selected.setStart(first.startContainer, first.startOffset);
+              selected.setEnd(last.startContainer, last.startOffset);
+              result = selected.toString();
+              selected.detach();
+            } catch (e) {
+              result = '';
+            }
+
+            for (var j = 0; j < positions.length; j++) {
+              try { positions[j].detach(); } catch (e) {}
+            }
+
+            return result.replace(/\s+/g, ' ').trim().slice(0, 180);
           }
 
           function pageForTextAnchor(anchor, fallbackPage) {
@@ -3302,7 +3330,14 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                                 lifecycleScope.launch(Dispatchers.IO) {
                                     db.bookmarkDao().delete(existing)
                                     withContext(Dispatchers.Main) {
-                                        Snackbar.make(binding.root, R.string.bookmark_deleted, Snackbar.LENGTH_SHORT).show()
+                                        Snackbar
+                                            .make(binding.root, R.string.bookmark_deleted, Snackbar.LENGTH_LONG)
+                                            .setAction(R.string.undo) {
+                                                lifecycleScope.launch(Dispatchers.IO) {
+                                                    db.bookmarkDao().insert(existing)
+                                                }
+                                            }
+                                            .show()
                                     }
                                 }
                             }
@@ -3350,7 +3385,14 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                                 lifecycleScope.launch(Dispatchers.IO) {
                                     db.bookmarkDao().delete(existing)
                                     withContext(Dispatchers.Main) {
-                                        Snackbar.make(binding.root, R.string.bookmark_deleted, Snackbar.LENGTH_SHORT).show()
+                                        Snackbar
+                                            .make(binding.root, R.string.bookmark_deleted, Snackbar.LENGTH_LONG)
+                                            .setAction(R.string.undo) {
+                                                lifecycleScope.launch(Dispatchers.IO) {
+                                                    db.bookmarkDao().insert(existing)
+                                                }
+                                            }
+                                            .show()
                                     }
                                 }
                             }

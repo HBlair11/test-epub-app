@@ -207,7 +207,6 @@ abstract class AppDatabase : RoomDatabase() {
         private val MIGRATION_15_16 =
             object : Migration(15, 16) {
                 override fun migrate(database: SupportSQLiteDatabase) {
-                    // Distinguish whole-page bookmarks from selected-text bookmarks so duplicate handling never crosses the two types.
                     database.execSQL("ALTER TABLE bookmarks ADD COLUMN bookmark_type INTEGER NOT NULL DEFAULT 0")
                 }
             }
