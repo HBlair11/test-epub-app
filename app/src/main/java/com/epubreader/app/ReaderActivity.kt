@@ -2032,12 +2032,15 @@ figure { margin:0.5em 0 !important; }
 table { max-width:100% !important; }
 a { color:${ink} !important; }
 h1,h2,h3,h4,h5,h6 { color:${ink} !important; line-height:1.25 !important; break-after:avoid; }
-/* Highlight marks: subtle background, no layout disruption. */
-mark.livre-highlight {
-  color:inherit !important;
-  display:inline !important;
-  break-inside:auto !important;
-  -webkit-column-break-inside:auto !important;
+/* Highlight overlays: absolutely/fixed positioned paint only; they never participate in EPUB layout. */
+.livre-highlight-overlay {
+  position:fixed !important;
+  margin:0 !important;
+  padding:0 !important;
+  border:0 !important;
+  pointer-events:none !important;
+  z-index:2147483000 !important;
+  box-sizing:border-box !important;
 }
 </style>""".trimIndent() + darkTextOverride(prefs.theme, ink)
     }
@@ -2071,7 +2074,7 @@ mark.livre-highlight {
         return """
 <style>
 body, body * { color:${ink} !important; }
-body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) { background-color: transparent !important; }
+body *:not(.livre-tts-word):not(.livre-tts-sentence) { background-color: transparent !important; }
 </style>""".trimIndent()
     }
 
@@ -2226,16 +2229,16 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
           }
 
           function highlightPageById(id) {
-            var marks = document.querySelectorAll('mark.livre-highlight[data-highlight-id="' + id + '"]');
-            if (!marks.length) return -1;
-            var element = marks[0];
-            var x = 0;
-            var node = element;
-            while (node) {
-              x += node.offsetLeft || 0;
-              node = node.offsetParent;
+            var overlays = document.querySelectorAll('.livre-highlight-overlay[data-highlight-id="' + id + '"]');
+            if (!overlays.length) return -1;
+            var best = -1;
+            for (var i = 0; i < overlays.length; i++) {
+              var left = parseFloat(overlays[i].style.left) || 0;
+              var absoluteX = (body.scrollLeft || 0) + left;
+              var page = Math.max(0, Math.floor(absoluteX / advance()));
+              if (best < 0 || page < best) best = page;
             }
-            return Math.floor(x / advance());
+            return best;
           }
 
           function gotoHighlightById(id) {
@@ -2276,12 +2279,9 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
 
           function pageOfRangeStart(range) {
             try {
-              var rect = range.getBoundingClientRect();
-              if (!rect || (!rect.width && !rect.height)) {
-                var rects = range.getClientRects();
-                if (!rects.length) return -1;
-                rect = rects[0];
-              }
+              var rects = range.getClientRects();
+              if (!rects || !rects.length) return -1;
+              var rect = rects[0];
               var bodyRect = body.getBoundingClientRect();
               var absoluteX = (body.scrollLeft || 0) + rect.left - bodyRect.left;
               return Math.max(0, Math.floor(absoluteX / advance()));
@@ -2296,19 +2296,15 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             var actual = currentPage();
             if (target !== actual) gotoPage(target, false);
 
-            // Patch K: resolve the first text position on the rendered column by
-            // inspecting complete text-node layout fragments. We deliberately do
-            // not sample individual characters or discard text nodes by geometry.
-            // A text node may cross a pagination boundary, so once the first node
-            // belonging to this page is found, a prefix Range is used only to find
-            // the boundary offset inside that node. The snippet itself is then
-            // read directly from DOM text, preserving every character (including
-            // the previously lost 's').
+            // Patch L: find the first text position that actually renders in the
+            // requested column, then read forward from that exact DOM offset.
+            // We inspect Range fragments for the boundary only; we never filter
+            // individual text nodes or characters out of the resulting snippet.
             var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
             var nodes = [];
             var node;
             while ((node = walker.nextNode())) {
-              if (node.textContent) nodes.push(node);
+              if ((node.textContent || '').length) nodes.push(node);
             }
             if (!nodes.length) return '';
 
@@ -2319,10 +2315,10 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
               return Math.max(0, Math.floor(absoluteX / advance()));
             }
 
-            function rangeHasTargetPage(range) {
+            function rangeHasPage(range, wantedPage) {
               var rects = range.getClientRects();
-              for (var i = 0; i < rects.length; i++) {
-                if (pageOfRect(rects[i]) === target) return true;
+              for (var r = 0; r < rects.length; r++) {
+                if (pageOfRect(rects[r]) === wantedPage) return true;
               }
               return false;
             }
@@ -2332,7 +2328,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
               var full = document.createRange();
               try {
                 full.selectNodeContents(nodes[i]);
-                if (rangeHasTargetPage(full)) {
+                if (rangeHasPage(full, target)) {
                   firstNodeIndex = i;
                   break;
                 }
@@ -2347,71 +2343,47 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             var firstText = firstNode.textContent || '';
             var startOffset = 0;
 
-            // If the node crosses from an earlier page into the target page,
-            // locate the first target-page character without using collapsed
-            // caret geometry. Prefix ranges retain normal glyph/line layout and
-            // are much less susceptible to the one-character caret artifact.
-            var fullFirst = document.createRange();
-            try {
-              fullFirst.selectNodeContents(firstNode);
-              var fullRects = fullFirst.getClientRects();
-              var startsOnTarget = false;
-              for (var fr = 0; fr < fullRects.length; fr++) {
-                if (pageOfRect(fullRects[fr]) === target) {
-                  startsOnTarget = pageOfRect(fullRects[fr]) === target &&
-                    (fr === 0 || pageOfRect(fullRects[fr - 1]) !== target);
-                  if (startsOnTarget && fr === 0) break;
-                }
+            // Locate the smallest prefix that reaches the target page. Because
+            // the prefix is grown monotonically, the first successful endpoint
+            // identifies the first character whose rendered fragment belongs to
+            // the target column. We then start at endpoint - 1, preserving that
+            // character instead of dropping a boundary letter such as 's'.
+            var lo = 1;
+            var hi = firstText.length;
+            var firstReach = -1;
+            while (lo <= hi) {
+              var mid = Math.floor((lo + hi) / 2);
+              var prefixRange = document.createRange();
+              var reaches = false;
+              try {
+                prefixRange.setStart(firstNode, 0);
+                prefixRange.setEnd(firstNode, mid);
+                reaches = rangeHasPage(prefixRange, target);
+              } catch (e2) {
+                reaches = false;
+              } finally {
+                prefixRange.detach();
               }
-
-              var lo = 1;
-              var hi = firstText.length;
-              var firstReach = firstText.length;
-              while (lo <= hi) {
-                var mid = Math.floor((lo + hi) / 2);
-                var prefixRange = document.createRange();
-                try {
-                  prefixRange.setStart(firstNode, 0);
-                  prefixRange.setEnd(firstNode, mid);
-                  if (rangeHasTargetPage(prefixRange)) {
-                    firstReach = mid;
-                    hi = mid - 1;
-                  } else {
-                    lo = mid + 1;
-                  }
-                } catch (e2) {
-                  lo = mid + 1;
-                } finally {
-                  prefixRange.detach();
-                }
+              if (reaches) {
+                firstReach = mid;
+                hi = mid - 1;
+              } else {
+                lo = mid + 1;
               }
-
-              // The first range that reaches the target contains the character
-              // immediately before its end offset. Include that character rather
-              // than starting at the range endpoint, which is what caused the
-              // historical single-letter loss at the page boundary.
-              if (firstReach < firstText.length) {
-                startOffset = Math.max(0, firstReach - 1);
-              }
-            } catch (e3) {
-              startOffset = 0;
-            } finally {
-              fullFirst.detach();
             }
+            if (firstReach > 0) startOffset = firstReach - 1;
 
             var result = '';
-            var started = false;
             for (var n = firstNodeIndex; n < nodes.length && result.length < 180; n++) {
               var source = nodes[n].textContent || '';
               var from = n === firstNodeIndex ? startOffset : 0;
-              var chunk = source.slice(from);
-              if (!chunk) continue;
-              var normalized = chunk.replace(/\s+/g, ' ').trim();
-              if (!normalized) continue;
-              result += (started ? ' ' : '') + normalized;
-              started = true;
+              if (from >= source.length) continue;
+              result += source.slice(from);
             }
 
+            // Normalize only after the DOM text has been collected. This preserves
+            // every source character first, then makes the stored display snippet
+            // stable across inline span boundaries and EPUB whitespace.
             return result.replace(/\s+/g, ' ').trim().slice(0, 180);
           }
 
@@ -2460,17 +2432,14 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             if (match < 0 || !positions[match]) return -1;
 
             try {
-              // Patch K: do not resolve a bookmark with a collapsed caret. WebView
-              // caret geometry can report the neighboring line/column at a text
-              // boundary. Resolve a real range covering the beginning of the
-              // semantic anchor instead; its first rendered fragment identifies
-              // the page containing the bookmarked content after reflow.
+              // Patch L: resolve a short, non-collapsed text range beginning at
+              // the semantic anchor. Using getClientRects()[0] identifies the
+              // first rendered fragment of the actual text instead of the union
+              // rectangle for a multi-line/multi-column range.
               var start = positions[match];
-              var endIndex = Math.min(positions.length - 1, match + Math.max(1, wanted.length) - 1);
-              var end = positions[endIndex];
               var range = document.createRange();
               range.setStart(start.node, start.offset);
-              range.setEnd(end.node, Math.min((end.node.textContent || '').length, end.offset + 1));
+              range.setEnd(start.node, Math.min((start.node.textContent || '').length, start.offset + 1));
               var page = pageOfRangeStart(range);
               range.detach();
               return page >= 0 ? page : -1;
@@ -3206,7 +3175,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                         withContext(Dispatchers.Main) {
                             // Also unwrap the mark from the current page if visible.
                             binding.webView.evaluateJavascript(
-                                "(function(){var m=document.querySelector('mark.livre-highlight[data-highlight-id=\"" + h.id + "\"]');if(m){var p=m.parentNode;while(m.firstChild)p.insertBefore(m.firstChild,m);p.removeChild(m);}})();",
+                                "(function(){document.querySelectorAll('.livre-highlight-overlay[data-highlight-id=\"' + h.id + '\"]').forEach(function(v){v.remove();});})();",
                                 null,
                             )
                             Snackbar
@@ -4460,16 +4429,10 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         binding.webView.evaluateJavascript(
             """(function(){
                 var text=$safeText,prefix=$safePrefix,suffix=$safeSuffix,color='$cssColor',id=$id,sp=$safeStartPath;
-                if(document.querySelector('mark.livre-highlight[data-highlight-id="'+id+'"]'))return true;
+                var old=document.querySelectorAll('.livre-highlight-overlay[data-highlight-id="'+id+'"]');
+                if(old.length)return true;
                 function textNodes(root){var w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,null,false);var a=[];while(w.nextNode())a.push(w.currentNode);return a;}
                 function locate(nodes,off){var acc=0;for(var i=0;i<nodes.length;i++){var len=nodes[i].textContent.length;if(off<=acc+len)return [nodes[i],off-acc];acc+=len;}return null;}
-                function markNodes(sn,so,en,eo){
-                    if(!sn||!en)return false;
-                    function make(){var m=document.createElement('mark');m.className='livre-highlight';m.style.backgroundColor=color;m.style.borderRadius='2px';m.dataset.highlightId=id;m.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();LivreHighlight.onHighlightTap(id);});return m;}
-                    try{var r=document.createRange();r.setStart(sn,so);r.setEnd(en,eo);r.surroundContents(make());return true;}catch(e){}
-                    try{var r2=document.createRange();r2.setStart(sn,so);r2.setEnd(en,eo);var m2=make();m2.appendChild(r2.extractContents());r2.insertNode(m2);return true;}catch(e2){}
-                    return false;
-                }
                 function resolveEl(p){
                     if(!p)return null;
                     var parts=p.split('/');var node=document.body;var started=false;
@@ -4486,45 +4449,101 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 function contextScore(all,pos){
                     var score=0;
                     if(prefix){
-                        var before=all.slice(Math.max(0,pos-prefix.length),pos);
-                        var common=0;
+                        var before=all.slice(Math.max(0,pos-prefix.length),pos);var common=0;
                         while(common<before.length&&common<prefix.length&&before.charAt(before.length-1-common)===prefix.charAt(prefix.length-1-common))common++;
-                        score+=common*2;
-                        if(before===prefix)score+=10000;
+                        score+=common*2;if(before===prefix)score+=10000;
                     }
                     if(suffix){
-                        var after=all.slice(pos+text.length,pos+text.length+suffix.length);
-                        var commonAfter=0;
+                        var after=all.slice(pos+text.length,pos+text.length+suffix.length);var commonAfter=0;
                         while(commonAfter<after.length&&commonAfter<suffix.length&&after.charAt(commonAfter)===suffix.charAt(commonAfter))commonAfter++;
-                        score+=commonAfter*2;
-                        if(after===suffix)score+=10000;
+                        score+=commonAfter*2;if(after===suffix)score+=10000;
                     }
                     return score;
                 }
                 function bestOccurrence(all,needle){
-                    if(!needle)return -1;
-                    var best=-1,bestScore=-1;
-                    var from=0,pos;
-                    while((pos=all.indexOf(needle,from))>=0){
-                        var score=contextScore(all,pos);
-                        if(score>bestScore){bestScore=score;best=pos;}
-                        from=pos+Math.max(1,needle.length);
-                    }
+                    if(!needle)return -1;var best=-1,bestScore=-1,from=0,pos;
+                    while((pos=all.indexOf(needle,from))>=0){var score=contextScore(all,pos);if(score>bestScore){bestScore=score;best=pos;}from=pos+Math.max(1,needle.length);}
                     return best;
                 }
-                var el=resolveEl(sp);
-                if(el){
-                    var nodes=textNodes(el);var all='';nodes.forEach(function(n){all+=n.textContent;});
-                    var pos=bestOccurrence(all,text);
-                    if(pos>=0){var a=locate(nodes,pos);var b=locate(nodes,pos+text.length);
-                        if(a&&b&&markNodes(a[0],a[1],b[0],b[1]))return true;}
+                function paintRange(sn,so,en,eo){
+                    if(!sn||!en)return false;
+                    var range=document.createRange();
+                    try{
+                        range.setStart(sn,so);range.setEnd(en,eo);
+                        var rects=range.getClientRects();
+                        if(!rects||!rects.length){range.detach();return false;}
+                        var host=document.getElementById('livre-highlight-overlay-host');
+                        if(!host){
+                            host=document.createElement('div');
+                            host.id='livre-highlight-overlay-host';
+                            host.style.position='fixed';host.style.left='0';host.style.top='0';host.style.width='0';host.style.height='0';host.style.zIndex='2147482999';host.style.pointerEvents='none';
+                            document.documentElement.appendChild(host);
+                        }
+                        var created=[];
+                        for(var i=0;i<rects.length;i++){
+                            var r=rects[i];
+                            if(!r||r.width<=0||r.height<=0)continue;
+                            var v=document.createElement('div');
+                            v.className='livre-highlight-overlay';
+                            v.dataset.highlightId=id;
+                            v.style.left=r.left+'px';v.style.top=r.top+'px';v.style.width=r.width+'px';v.style.height=r.height+'px';
+                            v.style.backgroundColor=color;v.style.borderRadius='2px';v.style.opacity='0.4';v.style.pointerEvents='none';
+                            host.appendChild(v);created.push(v);
+                        }
+                        if(!created.length){range.detach();return false;}
+                        function refresh(){
+                            if(!document.body.contains(created[0]))return;
+                            var rr=range.getClientRects ? range.getClientRects() : [];
+                            for(var k=0;k<created.length;k++){
+                                var q=rr[k];if(!q){created[k].style.display='none';continue;}
+                                created[k].style.display='block';created[k].style.left=q.left+'px';created[k].style.top=q.top+'px';created[k].style.width=q.width+'px';created[k].style.height=q.height+'px';
+                            }
+                        }
+                        // Keep the visual paint synchronized with horizontal page turns
+                        // without ever changing the EPUB DOM or its pagination.
+                        created.forEach(function(v){v.__livreHighlightRange={range:range};});
+                        return true;
+                    }catch(e){try{range.detach();}catch(ignore){}return false;}
                 }
-                var dnodes=textNodes(document.body);var dall='';dnodes.forEach(function(n){dall+=n.textContent;});
-                var tp=bestOccurrence(dall,text);
-                if(tp<0)return false;
-                var ep=tp+text.length;
-                var a2=locate(dnodes,tp);var b2=locate(dnodes,ep);
-                return !!(a2&&b2&&markNodes(a2[0],a2[1],b2[0],b2[1]));
+                function installRefresh(){
+                    if(window.__livreHighlightRefreshInstalled)return;
+                    window.__livreHighlightRefreshInstalled=true;
+                    window.__livreHighlightRefresh=function(){
+                        var host=document.getElementById('livre-highlight-overlay-host');if(!host)return;
+                        var overlays=host.querySelectorAll('.livre-highlight-overlay');
+                        var groups={};
+                        for(var i=0;i<overlays.length;i++){
+                            var ov=overlays[i],gid=ov.getAttribute('data-highlight-id');
+                            if(!groups[gid])groups[gid]=[];groups[gid].push(ov);
+                        }
+                        Object.keys(groups).forEach(function(gid){
+                            var group=groups[gid];var first=group[0],a=first.__livreHighlightRange;if(!a||!a.range)return;
+                            try{var r=a.range;var rects=r.getClientRects();
+                                for(var j=0;j<group.length;j++){var q=rects[j];if(!q){group[j].style.display='none';continue;}group[j].style.display='block';group[j].style.left=q.left+'px';group[j].style.top=q.top+'px';group[j].style.width=q.width+'px';group[j].style.height=q.height+'px';}
+                            }catch(e){group.forEach(function(v){v.style.display='none';});}
+                        });
+                    };
+                    body.addEventListener('scroll',window.__livreHighlightRefresh,{passive:true});
+                    window.addEventListener('resize',window.__livreHighlightRefresh);
+                    body.addEventListener('click',function(e){
+                        var host=document.getElementById('livre-highlight-overlay-host');if(!host)return;
+                        var overlays=host.querySelectorAll('.livre-highlight-overlay');
+                        for(var i=0;i<overlays.length;i++){
+                            var r=overlays[i].getBoundingClientRect();
+                            if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){
+                                var hid=overlays[i].getAttribute('data-highlight-id');
+                                if(hid){e.preventDefault();e.stopPropagation();LivreHighlight.onHighlightTap(parseInt(hid,10));return;}
+                            }
+                        }
+                    });
+                }
+                function finish(){installRefresh();if(window.__livreHighlightRefresh)window.__livreHighlightRefresh();return true;}
+                var el=resolveEl(sp);
+                if(el){var nodes=textNodes(el),all='';nodes.forEach(function(n){all+=n.textContent;});var pos=bestOccurrence(all,text);
+                    if(pos>=0){var a=locate(nodes,pos),b=locate(nodes,pos+text.length);if(a&&b&&paintRange(a[0],a[1],b[0],b[1]))return finish();}
+                }
+                var dnodes=textNodes(document.body),dall='';dnodes.forEach(function(n){dall+=n.textContent;});var tp=bestOccurrence(dall,text);if(tp<0)return false;
+                var a2=locate(dnodes,tp),b2=locate(dnodes,tp+text.length);if(!a2||!b2)return false;return paintRange(a2[0],a2[1],b2[0],b2[1])?finish():false;
             })();""",
             null,
         )
@@ -4712,7 +4731,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                             withContext(Dispatchers.Main) {
                                 // Remove the highlight from the WebView.
                                 binding.webView.evaluateJavascript(
-                                    """(function(){var m=document.querySelector('mark.livre-highlight[data-highlight-id="$highlightId"]');if(m){var p=m.parentNode;while(m.firstChild)p.insertBefore(m.firstChild,m);p.removeChild(m);}})();""",
+                                    """(function(){document.querySelectorAll('.livre-highlight-overlay[data-highlight-id="$highlightId"]').forEach(function(v){v.remove();});})()""",
                                     null,
                                 )
                                 Snackbar
