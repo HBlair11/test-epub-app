@@ -2289,162 +2289,188 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             }
           }
 
-          function normalizeAnchorText(text) {
-            return String(text || '').replace(/\s+/g, ' ').trim();
-          }
-
           function pageSnippet(page) {
             if (!body) return '';
-            var target = Math.max(0, Math.floor(page || 0));
-            var actual = currentPage();
-            if (target !== actual) gotoPage(target, false);
+            try {
+              var target = Math.max(0, Math.floor(page || 0));
+              var actual = currentPage();
+              if (target !== actual) gotoPage(target, false);
 
-            // Whole-page bookmarks use a semantic anchor rather than treating the
-            // rendered page number as the bookmark identity. Find the first real
-            // text position rendered on this page, advance to the next complete
-            // word when the page begins inside a word, then collect a substantial
-            // passage from the DOM. The passage keeps both its beginning and end
-            // so reflow navigation can verify that the match is the same passage.
-            var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
-            var nodes = [];
-            var node;
-            while ((node = walker.nextNode())) {
-              if ((node.textContent || '').length) nodes.push(node);
-            }
-            if (!nodes.length) return '';
+              // Whole-page bookmarks are content anchors, not layout/page-number
+              // anchors. First resolve the first rendered DOM position on this page.
+              var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
+              var nodes = [];
+              var totalLength = 0;
+              var node;
+              while ((node = walker.nextNode())) {
+                var text = node.textContent || '';
+                if (!text) continue;
+                nodes.push({ node: node, start: totalLength });
+                totalLength += text.length;
+              }
+              if (!nodes.length || !totalLength) return '';
 
-            function firstVisibleOffset(n) {
-              var text = n.textContent || '';
-              for (var i = 0; i < text.length; i++) {
+              function positionForIndex(index) {
+                var safe = Math.max(0, Math.min(index, totalLength));
+                var lo = 0, hi = nodes.length - 1;
+                while (lo <= hi) {
+                  var mid = Math.floor((lo + hi) / 2);
+                  var item = nodes[mid];
+                  if (safe < item.start) hi = mid - 1;
+                  else if (mid + 1 < nodes.length && safe >= nodes[mid + 1].start) lo = mid + 1;
+                  else return { node: item.node, offset: safe - item.start };
+                }
+                var last = nodes[nodes.length - 1];
+                return { node: last.node, offset: (last.node.textContent || '').length };
+              }
+
+              function pageAtIndex(index) {
+                var pos = positionForIndex(index);
                 var range = document.createRange();
                 try {
-                  range.setStart(n, i);
-                  range.setEnd(n, Math.min(i + 1, text.length));
-                  var rects = range.getClientRects();
-                  for (var r = 0; r < rects.length; r++) {
-                    var rect = rects[r];
-                    if (rect.width <= 0 && rect.height <= 0) continue;
-                    if (rect.right <= 0 || rect.left >= window.innerWidth ||
-                        rect.bottom <= 0 || rect.top >= window.innerHeight) continue;
-                    var renderedPage = pageOfRangeStart(range);
-                    if (renderedPage === target) return i;
-                  }
+                  range.setStart(pos.node, pos.offset);
+                  range.collapse(true);
+                  return pageOfRangeStart(range);
+                } catch (e) {
+                  return -1;
                 } finally {
                   range.detach();
                 }
               }
-              return -1;
-            }
 
-            var startNode = null;
-            var startOffset = -1;
-            for (var ni = 0; ni < nodes.length; ni++) {
-              var candidate = firstVisibleOffset(nodes[ni]);
-              if (candidate >= 0) {
-                startNode = nodes[ni];
-                startOffset = candidate;
-                break;
+              var low = 0, high = totalLength, first = totalLength;
+              while (low <= high) {
+                var mid = Math.floor((low + high) / 2);
+                var midPage = pageAtIndex(mid);
+                if (midPage >= target) {
+                  first = mid;
+                  high = mid - 1;
+                } else {
+                  low = mid + 1;
+                }
               }
-            }
-            if (!startNode) return '';
+              if (first >= totalLength) return '';
 
-            // If the rendered page begins halfway through a word, do not save the
-            // partial word. Move to the first complete word whose first character
-            // is actually on this page.
-            var startText = startNode.textContent || '';
-            var startNodeIndex = nodes.indexOf(startNode);
-            var previousChar = startOffset > 0
-                ? startText.charAt(startOffset - 1)
-                : (startNodeIndex > 0 ? (nodes[startNodeIndex - 1].textContent || '').slice(-1) : '');
-            var partialWord = /\S/.test(previousChar) && /\S/.test(startText.charAt(startOffset));
-            if (partialWord) {
-              while (startOffset < startText.length && !/\s/.test(startText.charAt(startOffset))) {
-                startOffset++;
+              // Move forward from the pagination boundary until the first real
+              // rendered character is reached. This avoids tiny inline text-node
+              // boundaries and never reconstructs text from individual glyphs.
+              var boundary = first;
+              while (boundary < totalLength && pageAtIndex(boundary) < target) boundary++;
+              if (boundary >= totalLength) return '';
+
+              // A page can begin in the middle of a word. The durable anchor starts
+              // at the first complete word visible on that page, while retaining the
+              // exact DOM-derived boundary separately for the initial layout.
+              var start = boundary;
+              var startPos = positionForIndex(start);
+              var startText = startPos.node.textContent || '';
+              var local = startPos.offset;
+              if (local > 0 && /\S/.test(startText.charAt(local - 1))) {
+                while (start > 0) {
+                  var prev = positionForIndex(start - 1);
+                  var ch = (prev.node.textContent || '').charAt(prev.offset);
+                  if (/\s/.test(ch)) break;
+                  start--;
+                }
+                while (start < boundary) {
+                  var cur = positionForIndex(start);
+                  var ch2 = (cur.node.textContent || '').charAt(cur.offset);
+                  if (!/\s/.test(ch2)) break;
+                  start++;
+                }
               }
-              while (startOffset < startText.length && /\s/.test(startText.charAt(startOffset))) {
-                startOffset++;
+
+              // Read a normalized DOM window from the page-start word. Keeping a
+              // substantial window plus both ends makes accidental/common phrase
+              // matches much less likely after reflow.
+              var WINDOW = 1400;
+              var chunks = [];
+              var remaining = WINDOW;
+              var currentNodeIndex = 0;
+              var startPosition = positionForIndex(start);
+              for (var ni = 0; ni < nodes.length; ni++) {
+                if (nodes[ni].node === startPosition.node) {
+                  currentNodeIndex = ni;
+                  break;
+                }
               }
-              if (startOffset >= startText.length) {
-                var nextIndex = nodes.indexOf(startNode) + 1;
-                if (nextIndex >= nodes.length) return '';
-                startNode = nodes[nextIndex];
-                startOffset = 0;
+              for (var n = currentNodeIndex; n < nodes.length && remaining > 0; n++) {
+                var source = nodes[n].node.textContent || '';
+                var from = n === currentNodeIndex ? startPosition.offset : 0;
+                var chunk = source.slice(from).replace(/\s+/g, ' ').trim();
+                if (!chunk) continue;
+                chunks.push(chunk);
+                remaining -= chunk.length + 1;
               }
+
+              var passage = chunks.join(' ').replace(/\s+/g, ' ').trim();
+              if (!passage) return '';
+
+              // Prefer the first two complete sentences. If fewer than two complete
+              // sentences remain in the available passage, keep the complete
+              // paragraph and then extend into following DOM text for uniqueness.
+              var sentenceEnd = 0;
+              var sentenceCount = 0;
+              for (var si = 0; si < passage.length; si++) {
+                var c = passage.charAt(si);
+                if (c === '.' || c === '!' || c === '?') {
+                  var next = si + 1 >= passage.length || /\s/.test(passage.charAt(si + 1));
+                  if (next) {
+                    sentenceCount++;
+                    if (sentenceCount >= 2) {
+                      sentenceEnd = si + 1;
+                      break;
+                    }
+                  }
+                }
+              }
+
+              var anchorBody = sentenceEnd > 0 ? passage.slice(0, sentenceEnd) : passage;
+              if (sentenceEnd === 0) {
+                // No two complete sentences were available. The larger normalized
+                // passage acts as the paragraph/continuation anchor.
+                anchorBody = passage;
+              }
+              if (anchorBody.length < 600 && passage.length > anchorBody.length) {
+                anchorBody = passage;
+              }
+              anchorBody = anchorBody.slice(0, WINDOW).trim();
+
+              // Store beginning and ending verification windows separately. The
+              // exact fields are internal and are never displayed by BookmarkAdapter.
+              var begin = anchorBody.slice(0, 220);
+              var end = anchorBody.slice(Math.max(0, anchorBody.length - 220));
+              return JSON.stringify({
+                v: 1,
+                start: begin,
+                end: end,
+                text: anchorBody,
+                page: target
+              });
+            } catch (e) {
+              // Bookmark creation must never be able to take down the reader. A
+              // failure simply preserves Patch J's existing fallback behavior.
+              return '';
             }
-
-            var startIndex = nodes.indexOf(startNode);
-            if (startIndex < 0) return '';
-
-            // Capture forward text without relying on visual word fragments. This
-            // preserves words split across EPUB inline spans and keeps paragraph /
-            // sentence content continuous across DOM text-node boundaries.
-            var raw = '';
-            for (var j = startIndex; j < nodes.length && raw.length < 1800; j++) {
-              var source = nodes[j].textContent || '';
-              var from = j === startIndex ? startOffset : 0;
-              if (from >= source.length) continue;
-              raw += source.slice(from) + ' ';
-            }
-            var passage = normalizeAnchorText(raw);
-            if (!passage) return '';
-
-            // Prefer the first two complete sentences. If fewer than two complete
-            // sentences remain, keep the entire remaining paragraph and then enough
-            // following text to make the anchor distinctive.
-            var sentenceEnd = [];
-            var sentencePattern = /[.!?]+(?:["'”’»)]*)?(?=\s|$)/g;
-            var match;
-            while ((match = sentencePattern.exec(passage)) !== null && sentenceEnd.length < 2) {
-              sentenceEnd.push(match.index + match[0].length);
-            }
-            var selectedEnd = sentenceEnd.length >= 2 ? sentenceEnd[1] : -1;
-
-            if (selectedEnd < 0) {
-              var paragraphBoundary = passage.search(/\s{2,}/);
-              // DOM normalization collapses whitespace, so use a paragraph-sized
-              // window when no second sentence is available rather than inventing a
-              // short UI snippet.
-              selectedEnd = Math.min(passage.length, 1200);
-              if (paragraphBoundary > 0) selectedEnd = Math.max(selectedEnd, paragraphBoundary);
-            }
-
-            // Add surrounding text after the preferred passage up to a reasonable
-            // limit. This improves uniqueness without making the stored anchor
-            // excessively large.
-            var anchorText = passage.slice(0, Math.min(passage.length, Math.max(selectedEnd, 900)));
-            anchorText = normalizeAnchorText(anchorText);
-            if (!anchorText) return '';
-
-            var head = anchorText.slice(0, 220);
-            var tail = anchorText.slice(Math.max(0, anchorText.length - 220));
-            return JSON.stringify({
-              v: 1,
-              head: head,
-              body: anchorText,
-              tail: tail,
-              length: anchorText.length
-            });
           }
 
           function pageForTextAnchor(anchor, fallbackPage) {
             if (!anchor || !body) return fallbackPage || 0;
+            var raw = String(anchor);
+            var parsed = null;
+            try { parsed = JSON.parse(raw); } catch (e) { parsed = null; }
+            var wanted = (parsed && parsed.text ? String(parsed.text) : raw)
+              .replace(/\s+/g, ' ').trim().toLowerCase();
+            var wantedStart = parsed && parsed.start ? String(parsed.start).replace(/\s+/g, ' ').trim().toLowerCase() : wanted.slice(0, 220);
+            var wantedEnd = parsed && parsed.end ? String(parsed.end).replace(/\s+/g, ' ').trim().toLowerCase() : wanted.slice(Math.max(0, wanted.length - 220));
+            if (!wanted) return fallbackPage || 0;
 
-            var rawAnchor = String(anchor);
-            var structured = null;
-            try {
-              var parsed = JSON.parse(rawAnchor);
-              if (parsed && parsed.v === 1 && parsed.head && parsed.body && parsed.tail) {
-                structured = parsed;
-              }
-            } catch (e) {
-              structured = null;
-            }
-
-            var wanted = normalizeAnchorText(structured ? structured.body : rawAnchor).toLowerCase();
-            var head = normalizeAnchorText(structured ? structured.head : rawAnchor).toLowerCase();
-            var tail = normalizeAnchorText(structured ? structured.tail : rawAnchor).toLowerCase();
-            if (!wanted || !head) return fallbackPage || 0;
-
+            // Build one normalized DOM text stream and remember the exact text-node
+            // position represented by every normalized character. This lets the
+            // bookmark survive font, margin, line-height and pagination changes.
+            // We then locate the actual occurrence and ask the browser for the
+            // rendered page of that occurrence; no stored page number is used as
+            // the primary location.
             var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
             var stream = '';
             var positions = [];
@@ -2468,49 +2494,43 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
               }
             }
 
-            // Search the beginning anchor first. For structured anchors, verify the
-            // ending portion occurs near the same match. This prevents a common word
-            // or sentence from sending the reader to the wrong occurrence.
             var candidates = [];
             var searchFrom = 0;
-            while (head.length && searchFrom <= stream.length) {
-              var hit = stream.indexOf(head, searchFrom);
-              if (hit < 0) break;
-              candidates.push(hit);
-              searchFrom = hit + 1;
-              if (candidates.length >= 40) break;
+            while (searchFrom <= stream.length) {
+              var found = stream.indexOf(wantedStart || wanted, searchFrom);
+              if (found < 0) break;
+              candidates.push(found);
+              searchFrom = found + Math.max(1, (wantedStart || wanted).length);
             }
 
-            function scoreCandidate(hit) {
-              if (!structured) return 0;
-              var expectedEnd = hit + wanted.length;
-              var score = 0;
-              var nearStart = Math.max(hit, expectedEnd - 320);
-              var nearEnd = Math.min(stream.length, expectedEnd + 520);
-              if (tail && stream.slice(nearStart, nearEnd).indexOf(tail) >= 0) score += 100;
-              var bodyPrefix = wanted.slice(0, Math.min(160, wanted.length));
-              if (bodyPrefix && stream.indexOf(bodyPrefix, hit) === hit) score += 20;
-              return score;
+            if (!candidates.length && wanted.length > 80) {
+              var prefix = wanted.slice(0, 80);
+              var foundPrefix = stream.indexOf(prefix);
+              if (foundPrefix >= 0) candidates.push(foundPrefix);
             }
+            if (!candidates.length) return fallbackPage || 0;
 
-            var best = -1;
+            // Prefer a candidate whose ending verification window also occurs at the
+            // expected relative distance. This prevents a common opening phrase from
+            // selecting an unrelated occurrence elsewhere in the chapter.
+            var best = candidates[0];
             var bestScore = -1;
-            for (var c = 0; c < candidates.length; c++) {
-              var score = scoreCandidate(candidates[c]);
+            for (var ci = 0; ci < candidates.length; ci++) {
+              var candidate = candidates[ci];
+              var score = 0;
+              if (wantedEnd) {
+                var tailStart = Math.min(stream.length, candidate + Math.max(0, wanted.length - wantedEnd.length));
+                var nearby = stream.slice(Math.max(0, tailStart - 40), Math.min(stream.length, tailStart + wantedEnd.length + 40));
+                if (nearby.indexOf(wantedEnd) >= 0) score += 4;
+              }
+              if (wanted.length > 0 && stream.slice(candidate, candidate + wanted.length) === wanted) score += 2;
               if (score > bestScore) {
                 bestScore = score;
-                best = candidates[c];
+                best = candidate;
               }
             }
 
-            if (best < 0) {
-              // Legacy Patch J whole-page bookmarks stored plain text. Preserve that
-              // behavior so existing bookmarks remain navigable after this patch.
-              var prefix = wanted.slice(0, Math.min(100, wanted.length));
-              best = prefix ? stream.indexOf(prefix) : -1;
-            }
-            if (best < 0 || !positions[best]) return fallbackPage || 0;
-
+            if (!positions[best]) return fallbackPage || 0;
             try {
               var range = document.createRange();
               range.setStart(positions[best].node, positions[best].offset);
@@ -2521,6 +2541,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             } catch (e) {
               return fallbackPage || 0;
             }
+
           }
 
           function init() {

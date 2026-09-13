@@ -29,17 +29,14 @@ class BookmarkAdapter(
 
     inner class VH(val b: ItemBookmarkBinding) : RecyclerView.ViewHolder(b.root) {
         fun bind(item: BookmarkEntity) {
-            val date = DateFormat.getDateInstance(DateFormat.SHORT).format(Date(item.createdAt))
             if (item.bookmarkType == BookmarkEntity.TYPE_WHOLE_PAGE) {
-                val wholePageNumber = currentList.count {
-                    it.bookmarkType == BookmarkEntity.TYPE_WHOLE_PAGE &&
-                        (it.createdAt < item.createdAt ||
-                            (it.createdAt == item.createdAt && it.id <= item.id))
-                }.coerceAtLeast(1)
-                b.title.text = "Bookmark $wholePageNumber"
+                val wholePagePosition = currentList.filter { it.bookmarkType == BookmarkEntity.TYPE_WHOLE_PAGE }
+                    .indexOfFirst { it.id == item.id } + 1
+                b.title.text = "Bookmark ${if (wholePagePosition > 0) wholePagePosition else 1}"
             } else {
                 b.title.text = item.snippet.ifBlank { item.chapterTitle }
             }
+            val date = DateFormat.getDateInstance(DateFormat.SHORT).format(Date(item.createdAt))
             b.subtitle.text = "${item.chapterTitle} · $date"
         }
     }
