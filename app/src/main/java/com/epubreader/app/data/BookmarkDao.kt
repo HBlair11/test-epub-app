@@ -23,4 +23,10 @@ interface BookmarkDao {
 
     @Query("SELECT EXISTS(SELECT 1 FROM bookmarks WHERE book_id = :bookId AND spine_index = :spineIndex AND ABS(scroll_ratio - :ratio) < 0.01)")
     suspend fun existsNear(bookId: Long, spineIndex: Int, ratio: Float): Boolean
+
+    @Query("SELECT EXISTS(SELECT 1 FROM bookmarks WHERE book_id = :bookId AND spine_index = :spineIndex AND page_in_chapter = :page AND snippet = :snippet)")
+    suspend fun existsNearWithSnippet(bookId: Long, spineIndex: Int, page: Int, snippet: String): Boolean
+
+    @Query("DELETE FROM bookmarks WHERE book_id = :bookId AND spine_index = :spineIndex AND page_in_chapter = :page AND snippet = :snippet")
+    suspend fun deleteNearWithSnippet(bookId: Long, spineIndex: Int, page: Int, snippet: String)
 }

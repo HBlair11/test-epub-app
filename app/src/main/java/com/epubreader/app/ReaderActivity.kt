@@ -2270,6 +2270,39 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             body.style.setProperty('-webkit-column-fill', 'auto', 'important');
           }
 
+          function pageSnippet(page) {
+            if (!body) return '';
+            var target = Math.max(0, Math.floor(page || 0));
+            var startX = target * advance();
+            var endX = startX + advance();
+            var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null, false);
+            var pieces = [];
+            var total = 0;
+            while (walker.nextNode() && total < 220) {
+              var node = walker.currentNode;
+              var value = node.textContent || '';
+              if (!value.trim()) continue;
+              for (var i = 0; i < value.length && total < 220; i++) {
+                var range = document.createRange();
+                range.setStart(node, i);
+                range.setEnd(node, i + 1);
+                var rects = range.getClientRects();
+                var visible = false;
+                for (var j = 0; j < rects.length; j++) {
+                  var rect = rects[j];
+                  var cx = rect.left + (body.scrollLeft || 0) + rect.width / 2;
+                  if (cx >= startX - 1 && cx < endX + 1 && rect.bottom > 0 && rect.top < (window.innerHeight || 1)) {
+                    visible = true;
+                    break;
+                  }
+                }
+                range.detach();
+                if (visible) { pieces.push(value.charAt(i)); total++; }
+              }
+            }
+            return pieces.join('').replace(/\s+/g, ' ').trim().slice(0, 180);
+          }
+
           function pageForTextAnchor(anchor, fallbackPage) {
             if (!anchor) return fallbackPage || 0;
             var wanted = String(anchor).replace(/\\s+/g,' ').trim().toLowerCase();
@@ -2317,6 +2350,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
               gotoElementById: gotoElementById,
               pageForElementById: pageForElementById,
               pageForTextAnchor: pageForTextAnchor,
+              pageSnippet: pageSnippet,
               highlightPageById: highlightPageById,
               gotoHighlightById: gotoHighlightById
             };
@@ -3240,49 +3274,71 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         val idx = spineIndex
         val title = sectionLabel()
         binding.webView.evaluateJavascript(
-            "(function(){if(!window.Caesura) return '';return window.Caesura.currentPage()+','+window.Caesura.ratio();})();"
+            "(function(){if(!window.Caesura) return '';var p=window.Caesura.currentPage();var r=window.Caesura.ratio();var t=window.Caesura.pageSnippet(p);return JSON.stringify({page:p,ratio:r,snippet:t});})();"
+        ) { result ->
+            val raw = result?.trim()?.removeSurrounding("\"")?.replace("\\"", "\"") ?: ""
+            val json = runCatching { org.json.JSONObject(raw) }.getOrNull()
+            val page = json?.optInt("page", currentPageInChapter)?.coerceAtLeast(0) ?: currentPageInChapter
+            val ratio = json?.optDouble("ratio", currentScrollRatio.toDouble())?.toFloat()?.coerceIn(0f, 1f) ?: currentScrollRatio
+            val snippet = json?.optString("snippet").orEmpty().trim()
+            lifecycleScope.launch(Dispatchers.IO) {
+                if (db.bookmarkDao().existsNear(bookId, idx, ratio)) {
+                    db.bookmarkDao().deleteNear(bookId, idx, ratio)
+                    withContext(Dispatchers.Main) {
+                        Snackbar.make(binding.root, getString(R.string.delete), Snackbar.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+                db.bookmarkDao().insert(
+                    BookmarkEntity(
+                        bookId = bookId,
+                        spineIndex = idx,
+                        scrollRatio = ratio,
+                        pageInChapter = page,
+                        chapterTitle = title,
+                        snippet = snippet.ifBlank { title },
+                    )
+                )
+                withContext(Dispatchers.Main) {
+                    Snackbar.make(binding.root, R.string.bookmark_added, Snackbar.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun addBookmarkFromSelection(selection: ReaderSelectionLocator) {
+        val text = selection.text.trim()
+        if (text.isBlank()) return
+        val href = selection.spineHref
+        val idx = epub?.spine?.indexOfFirst { it.href == href }?.takeIf { it >= 0 } ?: spineIndex
+        val title = sectionLabel()
+        binding.webView.evaluateJavascript(
+            "if(window.Caesura){window.Caesura.currentPage()+','+window.Caesura.ratio();}"
         ) { result ->
             val values = result?.trim()?.removeSurrounding("\"")?.split(',')
             val page = values?.getOrNull(0)?.toIntOrNull()?.coerceAtLeast(0) ?: currentPageInChapter
             val ratio = values?.getOrNull(1)?.toFloatOrNull()?.coerceIn(0f, 1f) ?: currentScrollRatio
             lifecycleScope.launch(Dispatchers.IO) {
-            if (db.bookmarkDao().existsNear(bookId, idx, ratio)) {
-                db.bookmarkDao().deleteNear(bookId, idx, ratio)
-                withContext(Dispatchers.Main) {
-                    Snackbar.make(
-                        binding.root,
-                        getString(R.string.delete),
-                        Snackbar.LENGTH_SHORT
-                    ).show()
-                }
-                return@launch
-            }
-            withContext(Dispatchers.Main) {
-                binding.webView.evaluateJavascript(
-                    "(function(){var s=window.getSelection?window.getSelection().toString():'';return (s||document.body.innerText||'').slice(0,80).replace(/\\\\s+/g,' ');})();"
-                ) { result ->
-                    val snippet = result?.trim('\"')?.replace("\\\"", "\"")?.replace("\\n", " ") ?: ""
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        db.bookmarkDao().insert(
-                            BookmarkEntity(
-                                bookId = bookId,
-                                spineIndex = idx,
-                                scrollRatio = ratio,
-                                pageInChapter = page,
-                                chapterTitle = title,
-                                snippet = snippet
-                            )
-                        )
-                        withContext(Dispatchers.Main) {
-                            Snackbar.make(
-                                binding.root,
-                                R.string.bookmark_added,
-                                Snackbar.LENGTH_SHORT
-                            ).show()
-                        }
+                if (db.bookmarkDao().existsNearWithSnippet(bookId, idx, page, text)) {
+                    db.bookmarkDao().deleteNearWithSnippet(bookId, idx, page, text)
+                    withContext(Dispatchers.Main) {
+                        Snackbar.make(binding.root, R.string.delete, Snackbar.LENGTH_SHORT).show()
                     }
+                    return@launch
                 }
-            }
+                db.bookmarkDao().insert(
+                    BookmarkEntity(
+                        bookId = bookId,
+                        spineIndex = idx,
+                        scrollRatio = ratio,
+                        pageInChapter = page,
+                        chapterTitle = title,
+                        snippet = text,
+                    )
+                )
+                withContext(Dispatchers.Main) {
+                    Snackbar.make(binding.root, R.string.bookmark_added, Snackbar.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -3849,6 +3905,13 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         popup.menu.add(getString(R.string.selection_select_all)).setOnMenuItemClickListener {
             binding.webView.evaluateJavascript("if(window.getSelection){var s=window.getSelection();s.selectAllChildren(document.body);}", null)
             popup.dismiss()
+            true
+        }
+        popup.menu.add(getString(R.string.add_bookmark)).setOnMenuItemClickListener {
+            val selected = selection ?: currentReaderSelection
+            popup.dismiss()
+            dismissReaderSelectionToolbar(true)
+            if (selected != null) addBookmarkFromSelection(selected)
             true
         }
         popup.show()

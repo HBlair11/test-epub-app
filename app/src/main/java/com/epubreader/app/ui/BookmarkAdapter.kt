@@ -30,9 +30,8 @@ class BookmarkAdapter(
     inner class VH(val b: ItemBookmarkBinding) : RecyclerView.ViewHolder(b.root) {
         fun bind(item: BookmarkEntity) {
             b.title.text = item.snippet.ifBlank { item.chapterTitle }
-            val pct = (item.scrollRatio * 100).toInt()
             val date = DateFormat.getDateInstance(DateFormat.SHORT).format(Date(item.createdAt))
-            b.subtitle.text = "${item.chapterTitle} · $pct% · $date"
+            b.subtitle.text = "${item.chapterTitle} · $date"
         }
     }
 
