@@ -29,16 +29,8 @@ class BookmarkAdapter(
 
     inner class VH(val b: ItemBookmarkBinding) : RecyclerView.ViewHolder(b.root) {
         fun bind(item: BookmarkEntity) {
+            b.title.text = item.snippet.ifBlank { item.chapterTitle }
             val date = DateFormat.getDateInstance(DateFormat.SHORT).format(Date(item.createdAt))
-            if (item.bookmarkType == BookmarkEntity.TYPE_WHOLE_PAGE) {
-                val wholePageCount = currentList.count { it.bookmarkType == BookmarkEntity.TYPE_WHOLE_PAGE }
-                val wholePageBefore = currentList.take(bindingAdapterPosition.coerceAtLeast(0))
-                    .count { it.bookmarkType == BookmarkEntity.TYPE_WHOLE_PAGE }
-                val number = (wholePageCount - wholePageBefore).coerceAtLeast(1)
-                b.title.text = "Bookmark $number"
-            } else {
-                b.title.text = item.snippet.ifBlank { item.chapterTitle }
-            }
             b.subtitle.text = "${item.chapterTitle} · $date"
         }
     }
