@@ -15,6 +15,16 @@ class BookmarkAdapter(
     private val onClick: (BookmarkEntity) -> Unit
 ) : ListAdapter<BookmarkEntity, BookmarkAdapter.VH>(DIFF) {
 
+    private var wholePageNumbers: Map<Long, Int> = emptyMap()
+
+    override fun submitList(list: List<BookmarkEntity>?) {
+        val ordered = list.orEmpty()
+            .filter { it.bookmarkType == BookmarkEntity.TYPE_WHOLE_PAGE }
+            .sortedWith(compareBy<BookmarkEntity> { it.createdAt }.thenBy { it.id })
+        wholePageNumbers = ordered.mapIndexed { index, item -> item.id to (index + 1) }.toMap()
+        super.submitList(list)
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         val b = ItemBookmarkBinding.inflate(LayoutInflater.from(parent.context), parent, false)
         return VH(b)
@@ -29,12 +39,10 @@ class BookmarkAdapter(
 
     inner class VH(val b: ItemBookmarkBinding) : RecyclerView.ViewHolder(b.root) {
         fun bind(item: BookmarkEntity) {
-            if (item.bookmarkType == BookmarkEntity.TYPE_WHOLE_PAGE) {
-                val wholePagePosition = currentList.filter { it.bookmarkType == BookmarkEntity.TYPE_WHOLE_PAGE }
-                    .indexOfFirst { it.id == item.id } + 1
-                b.title.text = "Bookmark ${if (wholePagePosition > 0) wholePagePosition else 1}"
+            b.title.text = if (item.bookmarkType == BookmarkEntity.TYPE_WHOLE_PAGE) {
+                "Bookmark ${wholePageNumbers[item.id] ?: 1}"
             } else {
-                b.title.text = item.snippet.ifBlank { item.chapterTitle }
+                item.snippet.ifBlank { item.chapterTitle }
             }
             val date = DateFormat.getDateInstance(DateFormat.SHORT).format(Date(item.createdAt))
             b.subtitle.text = "${item.chapterTitle} · $date"

@@ -177,6 +177,7 @@ class ReaderActivity : AppCompatActivity() {
     /** Semantic bookmark anchor used when navigating bookmarks after reflow. */
     private var pendingBookmarkAnchor: String? = null
     private var pendingBookmarkFallbackPage: Int = 0
+    private var pendingBookmarkIsWholePage: Boolean = false
     private var manualSeekTouch = false
     private var manualSeekFinished = false
     /** Exact page requested by the user. A stale WebView poll must not overwrite this
@@ -2291,178 +2292,187 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
 
           function pageSnippet(page) {
             if (!body) return '';
-            try {
-              var target = Math.max(0, Math.floor(page || 0));
-              var actual = currentPage();
-              if (target !== actual) gotoPage(target, false);
+            var target = Math.max(0, Math.floor(page || 0));
+            var actual = currentPage();
+            if (target !== actual) gotoPage(target, false);
 
-              // Whole-page bookmarks are content anchors, not layout/page-number
-              // anchors. First resolve the first rendered DOM position on this page.
-              var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
-              var nodes = [];
-              var totalLength = 0;
-              var node;
-              while ((node = walker.nextNode())) {
-                var text = node.textContent || '';
-                if (!text) continue;
-                nodes.push({ node: node, start: totalLength });
-                totalLength += text.length;
+            var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
+            var nodes = [];
+            var totalLength = 0;
+            var node;
+            while ((node = walker.nextNode())) {
+              var text = node.textContent || '';
+              if (!text) continue;
+              nodes.push({ node: node, start: totalLength });
+              totalLength += text.length;
+            }
+            if (!nodes.length || !totalLength) return '';
+
+            function positionForIndex(index) {
+              var safe = Math.max(0, Math.min(index, totalLength));
+              var lo = 0, hi = nodes.length - 1;
+              while (lo <= hi) {
+                var mid = Math.floor((lo + hi) / 2);
+                if (safe < nodes[mid].start) hi = mid - 1;
+                else if (mid + 1 < nodes.length && safe >= nodes[mid + 1].start) lo = mid + 1;
+                else return { node: nodes[mid].node, offset: safe - nodes[mid].start };
               }
-              if (!nodes.length || !totalLength) return '';
+              var last = nodes[nodes.length - 1];
+              return { node: last.node, offset: (last.node.textContent || '').length };
+            }
 
-              function positionForIndex(index) {
-                var safe = Math.max(0, Math.min(index, totalLength));
-                var lo = 0, hi = nodes.length - 1;
-                while (lo <= hi) {
-                  var mid = Math.floor((lo + hi) / 2);
-                  var item = nodes[mid];
-                  if (safe < item.start) hi = mid - 1;
-                  else if (mid + 1 < nodes.length && safe >= nodes[mid + 1].start) lo = mid + 1;
-                  else return { node: item.node, offset: safe - item.start };
+            function pageAtIndex(index) {
+              var pos = positionForIndex(index);
+              var range = document.createRange();
+              try {
+                range.setStart(pos.node, pos.offset);
+                range.collapse(true);
+                return pageOfRangeStart(range);
+              } finally { range.detach(); }
+            }
+
+            var low = 0, high = totalLength, first = totalLength;
+            while (low <= high) {
+              var mid = Math.floor((low + high) / 2);
+              if (pageAtIndex(mid) >= target) { first = mid; high = mid - 1; }
+              else low = mid + 1;
+            }
+            if (first === totalLength) return '';
+
+            var boundary = first;
+            while (boundary < totalLength && pageAtIndex(boundary) < target) boundary++;
+            if (boundary >= totalLength) return '';
+
+            // If the pagination boundary is inside a word, move to its first
+            // complete word rather than storing the tail of that word.
+            function charAt(index) {
+              if (index < 0 || index >= totalLength) return '';
+              var p = positionForIndex(index);
+              return (p.node.textContent || '').charAt(p.offset);
+            }
+            if (boundary > 0 && !/\s/.test(charAt(boundary - 1)) && !/\s/.test(charAt(boundary))) {
+              while (boundary < totalLength && !/\s/.test(charAt(boundary))) boundary++;
+              while (boundary < totalLength && /\s/.test(charAt(boundary))) boundary++;
+            } else {
+              while (boundary < totalLength && /\s/.test(charAt(boundary))) boundary++;
+            }
+
+            var pos = positionForIndex(boundary);
+            var currentNodeIndex = 0;
+            for (var ni = 0; ni < nodes.length; ni++) {
+              if (nodes[ni].node === pos.node) { currentNodeIndex = ni; break; }
+            }
+
+            var text = '';
+            var sentences = 0;
+            var previousSpace = true;
+            for (var n = currentNodeIndex; n < nodes.length && text.length < 1400; n++) {
+              var source = nodes[n].node.textContent || '';
+              var from = n === currentNodeIndex ? pos.offset : 0;
+              for (var i = from; i < source.length && text.length < 1400; i++) {
+                var ch = source.charAt(i);
+                if (/\s/.test(ch)) {
+                  if (!previousSpace && text.length) text += ' ';
+                  previousSpace = true;
+                  continue;
                 }
-                var last = nodes[nodes.length - 1];
-                return { node: last.node, offset: (last.node.textContent || '').length };
-              }
-
-              function pageAtIndex(index) {
-                var pos = positionForIndex(index);
-                var range = document.createRange();
-                try {
-                  range.setStart(pos.node, pos.offset);
-                  range.collapse(true);
-                  return pageOfRangeStart(range);
-                } catch (e) {
-                  return -1;
-                } finally {
-                  range.detach();
-                }
-              }
-
-              var low = 0, high = totalLength, first = totalLength;
-              while (low <= high) {
-                var mid = Math.floor((low + high) / 2);
-                var midPage = pageAtIndex(mid);
-                if (midPage >= target) {
-                  first = mid;
-                  high = mid - 1;
-                } else {
-                  low = mid + 1;
-                }
-              }
-              if (first >= totalLength) return '';
-
-              // Move forward from the pagination boundary until the first real
-              // rendered character is reached. This avoids tiny inline text-node
-              // boundaries and never reconstructs text from individual glyphs.
-              var boundary = first;
-              while (boundary < totalLength && pageAtIndex(boundary) < target) boundary++;
-              if (boundary >= totalLength) return '';
-
-              // A page can begin in the middle of a word. The durable anchor starts
-              // at the first complete word visible on that page, while retaining the
-              // exact DOM-derived boundary separately for the initial layout.
-              var start = boundary;
-              var startPos = positionForIndex(start);
-              var startText = startPos.node.textContent || '';
-              var local = startPos.offset;
-              if (local > 0 && /\S/.test(startText.charAt(local - 1))) {
-                while (start > 0) {
-                  var prev = positionForIndex(start - 1);
-                  var ch = (prev.node.textContent || '').charAt(prev.offset);
-                  if (/\s/.test(ch)) break;
-                  start--;
-                }
-                while (start < boundary) {
-                  var cur = positionForIndex(start);
-                  var ch2 = (cur.node.textContent || '').charAt(cur.offset);
-                  if (!/\s/.test(ch2)) break;
-                  start++;
-                }
-              }
-
-              // Read a normalized DOM window from the page-start word. Keeping a
-              // substantial window plus both ends makes accidental/common phrase
-              // matches much less likely after reflow.
-              var WINDOW = 1400;
-              var chunks = [];
-              var remaining = WINDOW;
-              var currentNodeIndex = 0;
-              var startPosition = positionForIndex(start);
-              for (var ni = 0; ni < nodes.length; ni++) {
-                if (nodes[ni].node === startPosition.node) {
-                  currentNodeIndex = ni;
-                  break;
+                text += ch;
+                previousSpace = false;
+                if (/[.!?]/.test(ch) && (i + 1 >= source.length || /\s/.test(source.charAt(i + 1)))) {
+                  sentences++;
+                  if (sentences >= 2 && text.length >= 160) break;
                 }
               }
-              for (var n = currentNodeIndex; n < nodes.length && remaining > 0; n++) {
-                var source = nodes[n].node.textContent || '';
-                var from = n === currentNodeIndex ? startPosition.offset : 0;
-                var chunk = source.slice(from).replace(/\s+/g, ' ').trim();
-                if (!chunk) continue;
-                chunks.push(chunk);
-                remaining -= chunk.length + 1;
-              }
+              if (sentences >= 2 && text.length >= 160) break;
+            }
+            text = text.replace(/\s+/g, ' ').trim();
+            if (!text) return '';
 
-              var passage = chunks.join(' ').replace(/\s+/g, ' ').trim();
-              if (!passage) return '';
+            // Compact internal anchor: enough beginning/end context to identify
+            // the location, without requiring the entire passage to match.
+            var bodyText = text.slice(0, 1000);
+            var startWindow = bodyText.slice(0, 180);
+            var endWindow = bodyText.slice(-180);
+            return JSON.stringify({ v: 1, start: startWindow, text: bodyText, end: endWindow });
+          }
 
-              // Prefer the first two complete sentences. If fewer than two complete
-              // sentences remain in the available passage, keep the complete
-              // paragraph and then extend into following DOM text for uniqueness.
-              var sentenceEnd = 0;
-              var sentenceCount = 0;
-              for (var si = 0; si < passage.length; si++) {
-                var c = passage.charAt(si);
-                if (c === '.' || c === '!' || c === '?') {
-                  var next = si + 1 >= passage.length || /\s/.test(passage.charAt(si + 1));
-                  if (next) {
-                    sentenceCount++;
-                    if (sentenceCount >= 2) {
-                      sentenceEnd = si + 1;
-                      break;
-                    }
+          function pageForWholePageAnchor(anchor, fallbackPage) {
+            if (!anchor || !body) return fallbackPage || 0;
+            var data = null;
+            try { data = JSON.parse(String(anchor)); } catch (e) { data = null; }
+            if (!data || data.v !== 1 || !data.start) return pageForTextAnchor(anchor, fallbackPage);
+
+            var wantedStart = String(data.start).replace(/\s+/g, ' ').trim().toLowerCase();
+            var wantedEnd = String(data.end || '').replace(/\s+/g, ' ').trim().toLowerCase();
+            var wantedText = String(data.text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+            if (!wantedStart) return fallbackPage || 0;
+
+            var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
+            var stream = '';
+            var positions = [];
+            var node;
+            var pendingSpace = false;
+            while ((node = walker.nextNode())) {
+              var source = node.textContent || '';
+              for (var i = 0; i < source.length; i++) {
+                var ch = source.charAt(i);
+                if (/\s/.test(ch)) {
+                  if (!pendingSpace && stream.length) {
+                    stream += ' ';
+                    positions.push({ node: node, offset: i });
+                    pendingSpace = true;
                   }
+                } else {
+                  stream += ch.toLowerCase();
+                  positions.push({ node: node, offset: i });
+                  pendingSpace = false;
                 }
               }
+            }
 
-              var anchorBody = sentenceEnd > 0 ? passage.slice(0, sentenceEnd) : passage;
-              if (sentenceEnd === 0) {
-                // No two complete sentences were available. The larger normalized
-                // passage acts as the paragraph/continuation anchor.
-                anchorBody = passage;
+            var candidates = [];
+            var from = 0;
+            while (from < stream.length) {
+              var hit = stream.indexOf(wantedStart, from);
+              if (hit < 0) break;
+              var score = 0;
+              var searchEnd = Math.min(stream.length, hit + Math.max(900, wantedText.length + 240));
+              if (wantedText) {
+                var middle = wantedText.slice(0, Math.min(360, wantedText.length));
+                if (middle && stream.indexOf(middle, hit) >= 0) score += 3;
               }
-              if (anchorBody.length < 600 && passage.length > anchorBody.length) {
-                anchorBody = passage;
+              if (wantedEnd) {
+                var endHit = stream.indexOf(wantedEnd, hit + wantedStart.length);
+                if (endHit >= 0 && endHit <= searchEnd + 360) score += 5;
               }
-              anchorBody = anchorBody.slice(0, WINDOW).trim();
+              candidates.push({ index: hit, score: score });
+              from = hit + Math.max(1, wantedStart.length);
+            }
+            if (!candidates.length) return fallbackPage || 0;
+            candidates.sort(function(a, b) { return b.score - a.score; });
+            var match = candidates[0].index;
+            if (!positions[match]) return fallbackPage || 0;
 
-              // Store beginning and ending verification windows separately. The
-              // exact fields are internal and are never displayed by BookmarkAdapter.
-              var begin = anchorBody.slice(0, 220);
-              var end = anchorBody.slice(Math.max(0, anchorBody.length - 220));
-              return JSON.stringify({
-                v: 1,
-                start: begin,
-                end: end,
-                text: anchorBody,
-                page: target
-              });
+            try {
+              var range = document.createRange();
+              var p = positions[match];
+              range.setStart(p.node, p.offset);
+              range.setEnd(p.node, Math.min((p.node.textContent || '').length, p.offset + 1));
+              var page = pageOfRangeStart(range);
+              if (page < 0) {
+                range.setEnd(p.node, Math.min((p.node.textContent || '').length, p.offset + 8));
+                page = pageOfRangeStart(range);
+              }
+              range.detach();
+              return page >= 0 ? page : (fallbackPage || 0);
             } catch (e) {
-              // Bookmark creation must never be able to take down the reader. A
-              // failure simply preserves Patch J's existing fallback behavior.
-              return '';
+              return fallbackPage || 0;
             }
           }
 
           function pageForTextAnchor(anchor, fallbackPage) {
             if (!anchor || !body) return fallbackPage || 0;
-            var raw = String(anchor);
-            var parsed = null;
-            try { parsed = JSON.parse(raw); } catch (e) { parsed = null; }
-            var wanted = (parsed && parsed.text ? String(parsed.text) : raw)
-              .replace(/\s+/g, ' ').trim().toLowerCase();
-            var wantedStart = parsed && parsed.start ? String(parsed.start).replace(/\s+/g, ' ').trim().toLowerCase() : wanted.slice(0, 220);
-            var wantedEnd = parsed && parsed.end ? String(parsed.end).replace(/\s+/g, ' ').trim().toLowerCase() : wanted.slice(Math.max(0, wanted.length - 220));
+            var wanted = String(anchor).replace(/\s+/g,' ').trim().toLowerCase();
             if (!wanted) return fallbackPage || 0;
 
             // Build one normalized DOM text stream and remember the exact text-node
@@ -2494,46 +2504,19 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
               }
             }
 
-            var candidates = [];
-            var searchFrom = 0;
-            while (searchFrom <= stream.length) {
-              var found = stream.indexOf(wantedStart || wanted, searchFrom);
-              if (found < 0) break;
-              candidates.push(found);
-              searchFrom = found + Math.max(1, (wantedStart || wanted).length);
+            var match = stream.indexOf(wanted);
+            if (match < 0) {
+              // A long whole-page snippet may contain punctuation/spacing that
+              // changed at an inline DOM boundary. A shorter prefix remains a
+              // useful semantic fallback without returning to page-number logic.
+              var prefix = wanted.slice(0, Math.min(80, wanted.length));
+              match = prefix ? stream.indexOf(prefix) : -1;
             }
+            if (match < 0 || !positions[match]) return fallbackPage || 0;
 
-            if (!candidates.length && wanted.length > 80) {
-              var prefix = wanted.slice(0, 80);
-              var foundPrefix = stream.indexOf(prefix);
-              if (foundPrefix >= 0) candidates.push(foundPrefix);
-            }
-            if (!candidates.length) return fallbackPage || 0;
-
-            // Prefer a candidate whose ending verification window also occurs at the
-            // expected relative distance. This prevents a common opening phrase from
-            // selecting an unrelated occurrence elsewhere in the chapter.
-            var best = candidates[0];
-            var bestScore = -1;
-            for (var ci = 0; ci < candidates.length; ci++) {
-              var candidate = candidates[ci];
-              var score = 0;
-              if (wantedEnd) {
-                var tailStart = Math.min(stream.length, candidate + Math.max(0, wanted.length - wantedEnd.length));
-                var nearby = stream.slice(Math.max(0, tailStart - 40), Math.min(stream.length, tailStart + wantedEnd.length + 40));
-                if (nearby.indexOf(wantedEnd) >= 0) score += 4;
-              }
-              if (wanted.length > 0 && stream.slice(candidate, candidate + wanted.length) === wanted) score += 2;
-              if (score > bestScore) {
-                bestScore = score;
-                best = candidate;
-              }
-            }
-
-            if (!positions[best]) return fallbackPage || 0;
             try {
               var range = document.createRange();
-              range.setStart(positions[best].node, positions[best].offset);
+              range.setStart(positions[match].node, positions[match].offset);
               range.collapse(true);
               var page = pageOfRangeStart(range);
               range.detach();
@@ -2541,7 +2524,6 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             } catch (e) {
               return fallbackPage || 0;
             }
-
           }
 
           function init() {
@@ -2565,6 +2547,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
               gotoElementById: gotoElementById,
               pageForElementById: pageForElementById,
               pageForTextAnchor: pageForTextAnchor,
+              pageForWholePageAnchor: pageForWholePageAnchor,
               pageSnippet: pageSnippet,
               highlightPageById: highlightPageById,
               gotoHighlightById: gotoHighlightById
@@ -2858,6 +2841,8 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         val bookmarkAnchor = pendingBookmarkAnchor
         pendingBookmarkAnchor = null
         val bookmarkFallbackPage = pendingBookmarkFallbackPage
+        val bookmarkIsWholePage = pendingBookmarkIsWholePage
+        pendingBookmarkIsWholePage = false
         if (reflowAnchor != null) {
             val safeText = org.json.JSONObject.quote(reflowAnchor.text)
             binding.webView.evaluateJavascript(
@@ -2879,7 +2864,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         } else if (bookmarkAnchor != null) {
             val safeText = org.json.JSONObject.quote(bookmarkAnchor)
             binding.webView.evaluateJavascript(
-                "if(window.Caesura){window.Caesura.pageForTextAnchor($safeText,$bookmarkFallbackPage); } else $bookmarkFallbackPage"
+                "if(window.Caesura){window.Caesura.${if (bookmarkIsWholePage) "pageForWholePageAnchor" else "pageForTextAnchor"}($safeText,$bookmarkFallbackPage); } else $bookmarkFallbackPage"
             ) { result ->
                 val page = result?.trim()?.removeSurrounding("\"")?.toIntOrNull()
                     ?: bookmarkFallbackPage
@@ -3493,6 +3478,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 pendingTargetPageInChapter = null
                 restoreRatio = null
                 pendingBookmarkAnchor = b.snippet.trim().takeIf { it.isNotBlank() }
+                pendingBookmarkIsWholePage = b.bookmarkType == BookmarkEntity.TYPE_WHOLE_PAGE
                 pendingBookmarkFallbackPage = b.pageInChapter.coerceAtLeast(0)
                 pendingHistoryCursorAfterRestore = true
                 loadChapter(b.spineIndex)
@@ -3518,6 +3504,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             pendingFragment = null
             pendingTargetPageInChapter = null
             pendingBookmarkAnchor = b.snippet.trim().takeIf { it.isNotBlank() }
+            pendingBookmarkIsWholePage = b.bookmarkType == BookmarkEntity.TYPE_WHOLE_PAGE
             pendingBookmarkFallbackPage = fallbackPage
             pendingHistoryCursorAfterRestore = true
             capturePageSnapshot(forward = false)
