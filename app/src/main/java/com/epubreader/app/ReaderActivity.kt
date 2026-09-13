@@ -2278,65 +2278,47 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
 
             var width = window.innerWidth || 1;
             var height = window.innerHeight || 1;
-            var positions = [];
+            var left = 0;
+            var right = width;
+            var top = 0;
+            var bottom = height;
+            var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
+            var nodes = [];
 
-            function caretAt(x, y) {
+            function hasVisibleFragment(node) {
               try {
-                if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);
-                if (document.caretPositionFromPoint) {
-                  var p = document.caretPositionFromPoint(x, y);
-                  if (!p) return null;
-                  var r = document.createRange();
-                  r.setStart(p.offsetNode, p.offset);
-                  r.collapse(true);
-                  return r;
+                var range = document.createRange();
+                range.selectNodeContents(node);
+                var rects = range.getClientRects();
+                for (var i = 0; i < rects.length; i++) {
+                  var r = rects[i];
+                  if (r.right > left && r.left < right && r.bottom > top && r.top < bottom) {
+                    range.detach();
+                    return true;
+                  }
                 }
+                range.detach();
               } catch (e) {}
-              return null;
+              return false;
             }
 
-            // Sample the rendered page itself and collect caret positions from
-            // visible text. This avoids rebuilding words from individual DOM
-            // character ranges, which can lose glyphs in some WebView text runs.
-            for (var y = 8; y < height - 8; y += 18) {
-              for (var x = 6; x < width - 6; x += 36) {
-                var range = caretAt(x, y);
-                if (!range || !range.startContainer) continue;
-                var node = range.startContainer;
-                if (node.nodeType !== Node.TEXT_NODE) continue;
-                if (!(node.textContent || '').trim()) continue;
-                var rect = range.getBoundingClientRect ? range.getBoundingClientRect() : null;
-                if (!rect || rect.width < 0 || rect.height < 0) continue;
-                if (rect.right < 0 || rect.left > width || rect.bottom < 0 || rect.top > height) continue;
-                positions.push(range);
-              }
+            var node;
+            while ((node = walker.nextNode())) {
+              if (!node.textContent || !node.textContent.trim()) continue;
+              if (hasVisibleFragment(node)) nodes.push(node);
             }
 
-            if (!positions.length) return '';
+            if (!nodes.length) return '';
 
-            var first = positions[0];
-            var last = positions[0];
-            for (var i = 1; i < positions.length; i++) {
-              var candidate = positions[i];
-              try {
-                if (first.compareBoundaryPoints(Range.START_TO_START, candidate) > 0) first = candidate;
-                if (last.compareBoundaryPoints(Range.START_TO_START, candidate) < 0) last = candidate;
-              } catch (e) {}
-            }
-
+            // Read the actual DOM text from the visible text nodes. We deliberately
+            // do not sample caret positions or rebuild the string from individual
+            // rendered characters; the node's textContent is the source of truth.
             var result = '';
-            try {
-              var selected = document.createRange();
-              selected.setStart(first.startContainer, first.startOffset);
-              selected.setEnd(last.startContainer, last.startOffset);
-              result = selected.toString();
-              selected.detach();
-            } catch (e) {
-              result = '';
-            }
-
-            for (var j = 0; j < positions.length; j++) {
-              try { positions[j].detach(); } catch (e) {}
+            for (var n = 0; n < nodes.length; n++) {
+              var text = nodes[n].textContent || '';
+              if (!text.trim()) continue;
+              result += (result ? ' ' : '') + text.replace(/\s+/g, ' ').trim();
+              if (result.length >= 180) break;
             }
 
             return result.replace(/\s+/g, ' ').trim().slice(0, 180);
