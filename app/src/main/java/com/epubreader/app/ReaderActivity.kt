@@ -3276,7 +3276,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         binding.webView.evaluateJavascript(
             "(function(){if(!window.Caesura) return '';var p=window.Caesura.currentPage();var r=window.Caesura.ratio();var t=window.Caesura.pageSnippet(p);return JSON.stringify({page:p,ratio:r,snippet:t});})();"
         ) { result ->
-            val raw = result?.trim()?.removeSurrounding("\"")?.replace("\\"", "\"") ?: ""
+            val raw = runCatching { org.json.JSONTokener(result?.trim().orEmpty()).nextValue() as? String }.getOrNull() ?: ""
             val json = runCatching { org.json.JSONObject(raw) }.getOrNull()
             val page = json?.optInt("page", currentPageInChapter)?.coerceAtLeast(0) ?: currentPageInChapter
             val ratio = json?.optDouble("ratio", currentScrollRatio.toDouble())?.toFloat()?.coerceIn(0f, 1f) ?: currentScrollRatio
