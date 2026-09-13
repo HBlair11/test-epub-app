@@ -33,6 +33,14 @@ interface BookmarkDao {
     @Query("SELECT * FROM bookmarks WHERE book_id = :bookId AND spine_index = :spineIndex AND bookmark_type = 0 AND ((page_in_chapter >= 0 AND page_in_chapter = :page) OR (page_in_chapter < 0 AND ABS(scroll_ratio - :ratio) < 0.01)) ORDER BY id DESC LIMIT 1")
     suspend fun findWholePage(bookId: Long, spineIndex: Int, page: Int, ratio: Float): BookmarkEntity?
 
+    /** Semantic whole-page lookup used for duplicate detection after reader reflow. */
+    @Query("SELECT * FROM bookmarks WHERE book_id = :bookId AND spine_index = :spineIndex AND bookmark_type = 0 AND snippet = :snippet ORDER BY id DESC LIMIT 1")
+    suspend fun findWholePageBySnippet(bookId: Long, spineIndex: Int, snippet: String): BookmarkEntity?
+
     @Query("SELECT * FROM bookmarks WHERE book_id = :bookId AND spine_index = :spineIndex AND page_in_chapter = :page AND bookmark_type = 1 AND snippet = :snippet ORDER BY id DESC LIMIT 1")
     suspend fun findText(bookId: Long, spineIndex: Int, page: Int, snippet: String): BookmarkEntity?
+
+    /** Semantic selected-text lookup used for duplicate detection after reader reflow. */
+    @Query("SELECT * FROM bookmarks WHERE book_id = :bookId AND spine_index = :spineIndex AND bookmark_type = 1 AND snippet = :snippet ORDER BY id DESC LIMIT 1")
+    suspend fun findTextBySnippet(bookId: Long, spineIndex: Int, snippet: String): BookmarkEntity?
 }

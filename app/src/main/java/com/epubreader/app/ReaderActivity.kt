@@ -174,6 +174,9 @@ class ReaderActivity : AppCompatActivity() {
     )
 
     private var pendingReflowAnchor: ReflowAnchor? = null
+    /** Semantic bookmark anchor used when navigating bookmarks after reflow. */
+    private var pendingBookmarkAnchor: String? = null
+    private var pendingBookmarkFallbackPage: Int = 0
     private var manualSeekTouch = false
     private var manualSeekFinished = false
     /** Exact page requested by the user. A stale WebView poll must not overwrite this
@@ -2270,84 +2273,183 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             body.style.setProperty('-webkit-column-fill', 'auto', 'important');
           }
 
+          function pageOfRangeStart(range) {
+            try {
+              var rect = range.getBoundingClientRect();
+              if (!rect || (!rect.width && !rect.height)) {
+                var rects = range.getClientRects();
+                if (!rects.length) return -1;
+                rect = rects[0];
+              }
+              var bodyRect = body.getBoundingClientRect();
+              var absoluteX = (body.scrollLeft || 0) + rect.left - bodyRect.left;
+              return Math.max(0, Math.floor(absoluteX / advance()));
+            } catch (e) {
+              return -1;
+            }
+          }
+
           function pageSnippet(page) {
             if (!body) return '';
             var target = Math.max(0, Math.floor(page || 0));
             var actual = currentPage();
             if (target !== actual) gotoPage(target, false);
 
-            var width = window.innerWidth || 1;
-            var height = window.innerHeight || 1;
-            var left = 0;
-            var right = width;
-            var top = 0;
-            var bottom = height;
+            // Patch J: find the first DOM text position that actually begins on
+            // the requested rendered page, then read forward from that position.
+            // We never rebuild the snippet from visible characters or reject
+            // individual text nodes. This matters for EPUBs that split a word
+            // across inline spans/text nodes and for paragraphs that cross a
+            // pagination boundary.
             var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
             var nodes = [];
-
-            function hasVisibleFragment(node) {
-              try {
-                var range = document.createRange();
-                range.selectNodeContents(node);
-                var rects = range.getClientRects();
-                for (var i = 0; i < rects.length; i++) {
-                  var r = rects[i];
-                  if (r.right > left && r.left < right && r.bottom > top && r.top < bottom) {
-                    range.detach();
-                    return true;
-                  }
-                }
-                range.detach();
-              } catch (e) {}
-              return false;
-            }
-
+            var totalLength = 0;
             var node;
             while ((node = walker.nextNode())) {
-              if (!node.textContent || !node.textContent.trim()) continue;
-              if (hasVisibleFragment(node)) nodes.push(node);
+              var text = node.textContent || '';
+              if (!text) continue;
+              nodes.push({ node: node, start: totalLength });
+              totalLength += text.length;
+            }
+            if (!nodes.length || totalLength === 0) return '';
+
+            function positionForIndex(index) {
+              var safe = Math.max(0, Math.min(index, totalLength));
+              var lo = 0, hi = nodes.length - 1;
+              while (lo <= hi) {
+                var mid = Math.floor((lo + hi) / 2);
+                var item = nodes[mid];
+                if (safe < item.start) hi = mid - 1;
+                else if (mid + 1 < nodes.length && safe >= nodes[mid + 1].start) lo = mid + 1;
+                else return { node: item.node, offset: safe - item.start };
+              }
+              var last = nodes[nodes.length - 1];
+              return { node: last.node, offset: (last.node.textContent || '').length };
             }
 
-            if (!nodes.length) return '';
+            function pageAtIndex(index) {
+              var pos = positionForIndex(index);
+              var range = document.createRange();
+              try {
+                range.setStart(pos.node, pos.offset);
+                range.collapse(true);
+                return pageOfRangeStart(range);
+              } finally {
+                range.detach();
+              }
+            }
 
-            // Read the actual DOM text from the visible text nodes. We deliberately
-            // do not sample caret positions or rebuild the string from individual
-            // rendered characters; the node's textContent is the source of truth.
+            // Pagination is monotonic in DOM order, so locate the first text
+            // position on the target page with a binary search rather than
+            // testing every character or dropping tiny text nodes.
+            var low = 0;
+            var high = totalLength;
+            var first = totalLength;
+            while (low <= high) {
+              var mid = Math.floor((low + high) / 2);
+              var midPage = pageAtIndex(mid);
+              if (midPage >= target) {
+                first = mid;
+                high = mid - 1;
+              } else {
+                low = mid + 1;
+              }
+            }
+
+            // A collapsed range can land on a boundary with no measurable rect.
+            // In that case, walk forward through DOM text positions until a real
+            // rendered position is found. This is only boundary resolution; the
+            // snippet itself still comes directly from the DOM text.
+            if (first === totalLength) return '';
+            var boundary = first;
+            var boundaryPage = pageAtIndex(boundary);
+            while (boundary < totalLength && boundaryPage < target) {
+              boundary += 1;
+              boundaryPage = pageAtIndex(boundary);
+            }
+            if (boundary >= totalLength || boundaryPage < target) return '';
+
+            var pos = positionForIndex(boundary);
             var result = '';
-            for (var n = 0; n < nodes.length; n++) {
-              var text = nodes[n].textContent || '';
-              if (!text.trim()) continue;
-              result += (result ? ' ' : '') + text.replace(/\s+/g, ' ').trim();
+            var remaining = 180;
+            var current = pos;
+            var started = false;
+            var currentNodeIndex = 0;
+            for (var ni = 0; ni < nodes.length; ni++) {
+              if (nodes[ni].node === current.node) {
+                currentNodeIndex = ni;
+                break;
+              }
+            }
+
+            for (var n = currentNodeIndex; n < nodes.length && remaining > 0; n++) {
+              var source = nodes[n].node.textContent || '';
+              var from = n === currentNodeIndex ? current.offset : 0;
+              var chunk = source.slice(from);
+              if (!chunk) continue;
+              result += (started ? ' ' : '') + chunk.replace(/\s+/g, ' ').trim();
+              started = true;
               if (result.length >= 180) break;
+              remaining = 180 - result.length;
             }
 
             return result.replace(/\s+/g, ' ').trim().slice(0, 180);
           }
 
           function pageForTextAnchor(anchor, fallbackPage) {
-            if (!anchor) return fallbackPage || 0;
-            var wanted = String(anchor).replace(/\\s+/g,' ').trim().toLowerCase();
+            if (!anchor || !body) return fallbackPage || 0;
+            var wanted = String(anchor).replace(/\s+/g,' ').trim().toLowerCase();
             if (!wanted) return fallbackPage || 0;
-            var blocks = document.body.querySelectorAll('p,li,blockquote,h1,h2,h3,h4,h5,h6,div,td,th');
-            var best = null, bestLen = Infinity;
-            for (var i=0;i<blocks.length;i++) {
-              var text = (blocks[i].textContent || '').replace(/\\s+/g,' ').trim();
-              if (!text) continue;
-              var lower = text.toLowerCase();
-              if (lower.indexOf(wanted) >= 0 && text.length < bestLen) { best = blocks[i]; bestLen = text.length; }
-            }
-            if (!best) {
-              for (var j=0;j<blocks.length;j++) {
-                var candidate=(blocks[j].textContent||'').replace(/\\s+/g,' ').trim().toLowerCase();
-                if (candidate && (candidate.indexOf(wanted.slice(0,Math.min(40,wanted.length)))>=0 || wanted.indexOf(candidate.slice(0,Math.min(40,candidate.length)))>=0)) { best=blocks[j]; break; }
+
+            // Build one normalized DOM text stream and remember the exact text-node
+            // position represented by every normalized character. This lets the
+            // bookmark survive font, margin, line-height and pagination changes.
+            // We then locate the actual occurrence and ask the browser for the
+            // rendered page of that occurrence; no stored page number is used as
+            // the primary location.
+            var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
+            var stream = '';
+            var positions = [];
+            var node;
+            var pendingSpace = false;
+            while ((node = walker.nextNode())) {
+              var text = node.textContent || '';
+              for (var i = 0; i < text.length; i++) {
+                var ch = text.charAt(i);
+                if (/\s/.test(ch)) {
+                  if (!pendingSpace && stream.length) {
+                    stream += ' ';
+                    positions.push({ node: node, offset: i });
+                    pendingSpace = true;
+                  }
+                } else {
+                  stream += ch.toLowerCase();
+                  positions.push({ node: node, offset: i });
+                  pendingSpace = false;
+                }
               }
             }
-            if (best) {
-              var x=0, node=best;
-              while(node){ x += node.offsetLeft || 0; node=node.offsetParent; }
-              return Math.floor(x / advance());
+
+            var match = stream.indexOf(wanted);
+            if (match < 0) {
+              // A long whole-page snippet may contain punctuation/spacing that
+              // changed at an inline DOM boundary. A shorter prefix remains a
+              // useful semantic fallback without returning to page-number logic.
+              var prefix = wanted.slice(0, Math.min(80, wanted.length));
+              match = prefix ? stream.indexOf(prefix) : -1;
             }
-            return fallbackPage || 0;
+            if (match < 0 || !positions[match]) return fallbackPage || 0;
+
+            try {
+              var range = document.createRange();
+              range.setStart(positions[match].node, positions[match].offset);
+              range.collapse(true);
+              var page = pageOfRangeStart(range);
+              range.detach();
+              return page >= 0 ? page : (fallbackPage || 0);
+            } catch (e) {
+              return fallbackPage || 0;
+            }
           }
 
           function init() {
@@ -2661,6 +2763,9 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         pendingTargetPageInChapter = null
         val reflowAnchor = pendingReflowAnchor
         pendingReflowAnchor = null
+        val bookmarkAnchor = pendingBookmarkAnchor
+        pendingBookmarkAnchor = null
+        val bookmarkFallbackPage = pendingBookmarkFallbackPage
         if (reflowAnchor != null) {
             val safeText = org.json.JSONObject.quote(reflowAnchor.text)
             binding.webView.evaluateJavascript(
@@ -2673,6 +2778,37 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 ) {
                     binding.webView.alpha = 1f
                     dismissPageSnapshot()
+                    restoreRatio = null
+                    restoringHistoryLocation = false
+                    updateHistoryUi()
+                    handler.post { pollProgress() }
+                }
+            }
+        } else if (bookmarkAnchor != null) {
+            val safeText = org.json.JSONObject.quote(bookmarkAnchor)
+            binding.webView.evaluateJavascript(
+                "if(window.Caesura){window.Caesura.pageForTextAnchor($safeText,$bookmarkFallbackPage); } else $bookmarkFallbackPage"
+            ) { result ->
+                val page = result?.trim()?.removeSurrounding("\"")?.toIntOrNull()
+                    ?: bookmarkFallbackPage
+                binding.webView.evaluateJavascript(
+                    "if(window.Caesura){window.Caesura.gotoPage(${page.coerceAtLeast(0)},false);}"
+                ) {
+                    binding.webView.alpha = 1f
+                    dismissPageSnapshot()
+                    if (pendingHistoryCursorAfterRestore) {
+                        binding.webView.evaluateJavascript(
+                            "if(window.Caesura){window.Caesura.currentPage()+','+window.Caesura.ratio();}"
+                        ) { targetResult ->
+                            val targetValues = targetResult?.trim()?.removeSurrounding("\"")?.split(',')
+                            val targetPage = targetValues?.getOrNull(0)?.toIntOrNull()
+                            val targetRatio = targetValues?.getOrNull(1)?.toFloatOrNull()
+                            if (targetPage != null) {
+                                historyCursorLocation = ReaderLocation(spineIndex, targetPage, targetRatio ?: 0f)
+                                pendingHistoryCursorAfterRestore = false
+                            }
+                        }
+                    }
                     restoreRatio = null
                     restoringHistoryLocation = false
                     updateHistoryUi()
@@ -3263,28 +3399,34 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                 }
                 pendingFragment = null
                 pendingTargetPageInChapter = null
-                restoreRatio = b.scrollRatio
+                restoreRatio = null
+                pendingBookmarkAnchor = b.snippet.trim().takeIf { it.isNotBlank() }
+                pendingBookmarkFallbackPage = b.pageInChapter.coerceAtLeast(0)
                 pendingHistoryCursorAfterRestore = true
                 loadChapter(b.spineIndex)
                 return@evaluateJavascript
             }
 
             val count = pageCount ?: pagesInChapter.coerceAtLeast(1)
-            val targetPage = if (b.pageInChapter >= 0) {
+            val fallbackPage = if (b.pageInChapter >= 0) {
                 b.pageInChapter.coerceIn(0, count - 1)
             } else if (count > 1) {
                 kotlin.math.round(b.scrollRatio.coerceIn(0f, 1f) * (count - 1)).toInt()
             } else 0
 
-            if (!restoringHistoryLocation && current != null &&
-                actualPage != null && targetPage != actualPage
-            ) {
-                pushHistory(current.copy(pageInChapter = actualPage))
+            if (!restoringHistoryLocation && current != null && actualPage != null) {
+                // The semantic anchor is the primary bookmark location. We only
+                // know the destination page after resolving that anchor below.
+                // Record the page being left now if the bookmark is elsewhere.
+                if (b.snippet.isBlank() || fallbackPage != actualPage) {
+                    pushHistory(current.copy(pageInChapter = actualPage))
+                }
             }
 
             pendingFragment = null
-            pendingTargetPageInChapter = targetPage
-            restoreRatio = null
+            pendingTargetPageInChapter = null
+            pendingBookmarkAnchor = b.snippet.trim().takeIf { it.isNotBlank() }
+            pendingBookmarkFallbackPage = fallbackPage
             pendingHistoryCursorAfterRestore = true
             capturePageSnapshot(forward = false)
             applyPendingFragmentOrRestore()
@@ -3303,7 +3445,9 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             val ratio = json?.optDouble("ratio", currentScrollRatio.toDouble())?.toFloat()?.coerceIn(0f, 1f) ?: currentScrollRatio
             val snippet = json?.optString("snippet").orEmpty().trim()
             lifecycleScope.launch(Dispatchers.IO) {
-                val existing = db.bookmarkDao().findWholePage(bookId, idx, page, ratio)
+                val existing = db.bookmarkDao().findWholePageBySnippet(bookId, idx, snippet).let { semantic ->
+                    semantic ?: db.bookmarkDao().findWholePage(bookId, idx, page, ratio)
+                }
                 if (existing != null) {
                     withContext(Dispatchers.Main) {
                         Snackbar
@@ -3358,7 +3502,9 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             val page = values?.getOrNull(0)?.toIntOrNull()?.coerceAtLeast(0) ?: currentPageInChapter
             val ratio = values?.getOrNull(1)?.toFloatOrNull()?.coerceIn(0f, 1f) ?: currentScrollRatio
             lifecycleScope.launch(Dispatchers.IO) {
-                val existing = db.bookmarkDao().findText(bookId, idx, page, text)
+                val existing = db.bookmarkDao().findTextBySnippet(bookId, idx, text).let { semantic ->
+                    semantic ?: db.bookmarkDao().findText(bookId, idx, page, text)
+                }
                 if (existing != null) {
                     withContext(Dispatchers.Main) {
                         Snackbar
