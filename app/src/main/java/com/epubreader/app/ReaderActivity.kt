@@ -2035,8 +2035,9 @@ h1,h2,h3,h4,h5,h6 { color:${ink} !important; line-height:1.25 !important; break-
 /* Highlight marks: subtle background, no layout disruption. */
 mark.livre-highlight {
   color:inherit !important;
-  break-inside:avoid;
-  -webkit-column-break-inside:avoid;
+  display:inline !important;
+  break-inside:auto !important;
+  -webkit-column-break-inside:auto !important;
 }
 </style>""".trimIndent() + darkTextOverride(prefs.theme, ink)
     }
@@ -2295,111 +2296,129 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             var actual = currentPage();
             if (target !== actual) gotoPage(target, false);
 
-            // Patch J: find the first DOM text position that actually begins on
-            // the requested rendered page, then read forward from that position.
-            // We never rebuild the snippet from visible characters or reject
-            // individual text nodes. This matters for EPUBs that split a word
-            // across inline spans/text nodes and for paragraphs that cross a
-            // pagination boundary.
+            // Patch K: resolve the first text position on the rendered column by
+            // inspecting complete text-node layout fragments. We deliberately do
+            // not sample individual characters or discard text nodes by geometry.
+            // A text node may cross a pagination boundary, so once the first node
+            // belonging to this page is found, a prefix Range is used only to find
+            // the boundary offset inside that node. The snippet itself is then
+            // read directly from DOM text, preserving every character (including
+            // the previously lost 's').
             var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
             var nodes = [];
-            var totalLength = 0;
             var node;
             while ((node = walker.nextNode())) {
-              var text = node.textContent || '';
-              if (!text) continue;
-              nodes.push({ node: node, start: totalLength });
-              totalLength += text.length;
+              if (node.textContent) nodes.push(node);
             }
-            if (!nodes.length || totalLength === 0) return '';
+            if (!nodes.length) return '';
 
-            function positionForIndex(index) {
-              var safe = Math.max(0, Math.min(index, totalLength));
-              var lo = 0, hi = nodes.length - 1;
+            function pageOfRect(rect) {
+              if (!rect || (!rect.width && !rect.height)) return -1;
+              var bodyRect = body.getBoundingClientRect();
+              var absoluteX = (body.scrollLeft || 0) + rect.left - bodyRect.left;
+              return Math.max(0, Math.floor(absoluteX / advance()));
+            }
+
+            function rangeHasTargetPage(range) {
+              var rects = range.getClientRects();
+              for (var i = 0; i < rects.length; i++) {
+                if (pageOfRect(rects[i]) === target) return true;
+              }
+              return false;
+            }
+
+            var firstNodeIndex = -1;
+            for (var i = 0; i < nodes.length; i++) {
+              var full = document.createRange();
+              try {
+                full.selectNodeContents(nodes[i]);
+                if (rangeHasTargetPage(full)) {
+                  firstNodeIndex = i;
+                  break;
+                }
+              } catch (e) {
+              } finally {
+                full.detach();
+              }
+            }
+            if (firstNodeIndex < 0) return '';
+
+            var firstNode = nodes[firstNodeIndex];
+            var firstText = firstNode.textContent || '';
+            var startOffset = 0;
+
+            // If the node crosses from an earlier page into the target page,
+            // locate the first target-page character without using collapsed
+            // caret geometry. Prefix ranges retain normal glyph/line layout and
+            // are much less susceptible to the one-character caret artifact.
+            var fullFirst = document.createRange();
+            try {
+              fullFirst.selectNodeContents(firstNode);
+              var fullRects = fullFirst.getClientRects();
+              var startsOnTarget = false;
+              for (var fr = 0; fr < fullRects.length; fr++) {
+                if (pageOfRect(fullRects[fr]) === target) {
+                  startsOnTarget = pageOfRect(fullRects[fr]) === target &&
+                    (fr === 0 || pageOfRect(fullRects[fr - 1]) !== target);
+                  if (startsOnTarget && fr === 0) break;
+                }
+              }
+
+              var lo = 1;
+              var hi = firstText.length;
+              var firstReach = firstText.length;
               while (lo <= hi) {
                 var mid = Math.floor((lo + hi) / 2);
-                var item = nodes[mid];
-                if (safe < item.start) hi = mid - 1;
-                else if (mid + 1 < nodes.length && safe >= nodes[mid + 1].start) lo = mid + 1;
-                else return { node: item.node, offset: safe - item.start };
+                var prefixRange = document.createRange();
+                try {
+                  prefixRange.setStart(firstNode, 0);
+                  prefixRange.setEnd(firstNode, mid);
+                  if (rangeHasTargetPage(prefixRange)) {
+                    firstReach = mid;
+                    hi = mid - 1;
+                  } else {
+                    lo = mid + 1;
+                  }
+                } catch (e2) {
+                  lo = mid + 1;
+                } finally {
+                  prefixRange.detach();
+                }
               }
-              var last = nodes[nodes.length - 1];
-              return { node: last.node, offset: (last.node.textContent || '').length };
-            }
 
-            function pageAtIndex(index) {
-              var pos = positionForIndex(index);
-              var range = document.createRange();
-              try {
-                range.setStart(pos.node, pos.offset);
-                range.collapse(true);
-                return pageOfRangeStart(range);
-              } finally {
-                range.detach();
+              // The first range that reaches the target contains the character
+              // immediately before its end offset. Include that character rather
+              // than starting at the range endpoint, which is what caused the
+              // historical single-letter loss at the page boundary.
+              if (firstReach < firstText.length) {
+                startOffset = Math.max(0, firstReach - 1);
               }
+            } catch (e3) {
+              startOffset = 0;
+            } finally {
+              fullFirst.detach();
             }
 
-            // Pagination is monotonic in DOM order, so locate the first text
-            // position on the target page with a binary search rather than
-            // testing every character or dropping tiny text nodes.
-            var low = 0;
-            var high = totalLength;
-            var first = totalLength;
-            while (low <= high) {
-              var mid = Math.floor((low + high) / 2);
-              var midPage = pageAtIndex(mid);
-              if (midPage >= target) {
-                first = mid;
-                high = mid - 1;
-              } else {
-                low = mid + 1;
-              }
-            }
-
-            // A collapsed range can land on a boundary with no measurable rect.
-            // In that case, walk forward through DOM text positions until a real
-            // rendered position is found. This is only boundary resolution; the
-            // snippet itself still comes directly from the DOM text.
-            if (first === totalLength) return '';
-            var boundary = first;
-            var boundaryPage = pageAtIndex(boundary);
-            while (boundary < totalLength && boundaryPage < target) {
-              boundary += 1;
-              boundaryPage = pageAtIndex(boundary);
-            }
-            if (boundary >= totalLength || boundaryPage < target) return '';
-
-            var pos = positionForIndex(boundary);
             var result = '';
-            var remaining = 180;
-            var current = pos;
             var started = false;
-            var currentNodeIndex = 0;
-            for (var ni = 0; ni < nodes.length; ni++) {
-              if (nodes[ni].node === current.node) {
-                currentNodeIndex = ni;
-                break;
-              }
-            }
-
-            for (var n = currentNodeIndex; n < nodes.length && remaining > 0; n++) {
-              var source = nodes[n].node.textContent || '';
-              var from = n === currentNodeIndex ? current.offset : 0;
+            for (var n = firstNodeIndex; n < nodes.length && result.length < 180; n++) {
+              var source = nodes[n].textContent || '';
+              var from = n === firstNodeIndex ? startOffset : 0;
               var chunk = source.slice(from);
               if (!chunk) continue;
-              result += (started ? ' ' : '') + chunk.replace(/\s+/g, ' ').trim();
+              var normalized = chunk.replace(/\s+/g, ' ').trim();
+              if (!normalized) continue;
+              result += (started ? ' ' : '') + normalized;
               started = true;
-              if (result.length >= 180) break;
-              remaining = 180 - result.length;
             }
 
             return result.replace(/\s+/g, ' ').trim().slice(0, 180);
           }
 
           function pageForTextAnchor(anchor, fallbackPage) {
-            if (!anchor || !body) return fallbackPage || 0;
+            if (!anchor || !body) return -1;
             var wanted = String(anchor).replace(/\s+/g,' ').trim().toLowerCase();
-            if (!wanted) return fallbackPage || 0;
+            if (!wanted) return -1;
 
             // Build one normalized DOM text stream and remember the exact text-node
             // position represented by every normalized character. This lets the
@@ -2438,17 +2457,25 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
               var prefix = wanted.slice(0, Math.min(80, wanted.length));
               match = prefix ? stream.indexOf(prefix) : -1;
             }
-            if (match < 0 || !positions[match]) return fallbackPage || 0;
+            if (match < 0 || !positions[match]) return -1;
 
             try {
+              // Patch K: do not resolve a bookmark with a collapsed caret. WebView
+              // caret geometry can report the neighboring line/column at a text
+              // boundary. Resolve a real range covering the beginning of the
+              // semantic anchor instead; its first rendered fragment identifies
+              // the page containing the bookmarked content after reflow.
+              var start = positions[match];
+              var endIndex = Math.min(positions.length - 1, match + Math.max(1, wanted.length) - 1);
+              var end = positions[endIndex];
               var range = document.createRange();
-              range.setStart(positions[match].node, positions[match].offset);
-              range.collapse(true);
+              range.setStart(start.node, start.offset);
+              range.setEnd(end.node, Math.min((end.node.textContent || '').length, end.offset + 1));
               var page = pageOfRangeStart(range);
               range.detach();
-              return page >= 0 ? page : (fallbackPage || 0);
+              return page >= 0 ? page : -1;
             } catch (e) {
-              return fallbackPage || 0;
+              return -1;
             }
           }
 
@@ -2789,8 +2816,8 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             binding.webView.evaluateJavascript(
                 "if(window.Caesura){window.Caesura.pageForTextAnchor($safeText,$bookmarkFallbackPage); } else $bookmarkFallbackPage"
             ) { result ->
-                val page = result?.trim()?.removeSurrounding("\"")?.toIntOrNull()
-                    ?: bookmarkFallbackPage
+                val resolvedPage = result?.trim()?.removeSurrounding("\"")?.toIntOrNull()
+                val page = if (resolvedPage != null && resolvedPage >= 0) resolvedPage else bookmarkFallbackPage
                 binding.webView.evaluateJavascript(
                     "if(window.Caesura){window.Caesura.gotoPage(${page.coerceAtLeast(0)},false);}"
                 ) {
@@ -4399,7 +4426,9 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         lifecycleScope.launch(Dispatchers.IO) {
             val id = com.epubreader.app.data.BookRepository(applicationContext).addHighlight(highlight)
             withContext(Dispatchers.Main) {
-                injectHighlightIntoWebView(id, selection.text, selection.prefix, selection.suffix, color, selection.startPath, selection.endPath)
+                handler.postDelayed({
+                    injectHighlightIntoWebView(id, selection.text, selection.prefix, selection.suffix, color, selection.startPath, selection.endPath)
+                }, 60L)
                 Snackbar.make(binding.root, R.string.highlight_added, Snackbar.LENGTH_SHORT).show()
             }
         }
@@ -4407,7 +4436,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
 
     /** Injects a single highlight into the WebView immediately after creation.
      *
-     * Patch v37 anchoring strategy (most-specific first):
+     * Patch v37/K anchoring strategy (most-specific first):
      *  1. Resolve the stored start element path and search for the text
      *     within that element only - this keeps a repeated phrase from
      *     matching an earlier occurrence elsewhere in the chapter.
@@ -4589,8 +4618,15 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             if (highlights.isEmpty()) return@launch
             withContext(Dispatchers.Main) {
                 highlights.forEach { h ->
-                    injectHighlightIntoWebView(h.id, h.text, h.prefix, h.suffix, h.color, h.startPath, h.endPath)
+                    handler.postDelayed({
+                        injectHighlightIntoWebView(h.id, h.text, h.prefix, h.suffix, h.color, h.startPath, h.endPath)
+                    }, 80L)
                 }
+                handler.postDelayed({
+                    highlights.forEach { h ->
+                        injectHighlightIntoWebView(h.id, h.text, h.prefix, h.suffix, h.color, h.startPath, h.endPath)
+                    }
+                }, 180L)
                 val targetId = pendingHighlightId
                 if (targetId != null && highlights.any { it.id == targetId }) {
                     pendingHighlightId = null
