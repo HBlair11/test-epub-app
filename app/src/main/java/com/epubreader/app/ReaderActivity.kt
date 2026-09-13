@@ -2276,16 +2276,22 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             var startX = target * advance();
             var endX = startX + advance();
             var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null, false);
-            var pieces = [];
+            var words = [];
             var total = 0;
             while (walker.nextNode() && total < 220) {
               var node = walker.currentNode;
               var value = node.textContent || '';
               if (!value.trim()) continue;
-              for (var i = 0; i < value.length && total < 220; i++) {
+              var matches = value.match(/\S+/g) || [];
+              var searchFrom = 0;
+              for (var i = 0; i < matches.length && total < 220; i++) {
+                var word = matches[i];
+                var offset = value.indexOf(word, searchFrom);
+                if (offset < 0) continue;
+                searchFrom = offset + word.length;
                 var range = document.createRange();
-                range.setStart(node, i);
-                range.setEnd(node, i + 1);
+                range.setStart(node, offset);
+                range.setEnd(node, offset + word.length);
                 var rects = range.getClientRects();
                 var visible = false;
                 for (var j = 0; j < rects.length; j++) {
@@ -2297,10 +2303,15 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                   }
                 }
                 range.detach();
-                if (visible) { pieces.push(value.charAt(i)); total++; }
+                if (visible) {
+                  var next = words.length ? (words.join(' ') + ' ' + word) : word;
+                  if (next.length > 180) break;
+                  words.push(word);
+                  total = next.length;
+                }
               }
             }
-            return pieces.join('').replace(/\s+/g, ' ').trim().slice(0, 180);
+            return words.join(' ').replace(/\s+/g, ' ').trim().slice(0, 180);
           }
 
           function pageForTextAnchor(anchor, fallbackPage) {
@@ -3282,10 +3293,20 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             val ratio = json?.optDouble("ratio", currentScrollRatio.toDouble())?.toFloat()?.coerceIn(0f, 1f) ?: currentScrollRatio
             val snippet = json?.optString("snippet").orEmpty().trim()
             lifecycleScope.launch(Dispatchers.IO) {
-                if (db.bookmarkDao().existsNear(bookId, idx, ratio)) {
-                    db.bookmarkDao().deleteNear(bookId, idx, ratio)
+                val existing = db.bookmarkDao().findWholePage(bookId, idx, page, ratio)
+                if (existing != null) {
                     withContext(Dispatchers.Main) {
-                        Snackbar.make(binding.root, getString(R.string.delete), Snackbar.LENGTH_SHORT).show()
+                        Snackbar
+                            .make(binding.root, R.string.bookmark_exists, Snackbar.LENGTH_LONG)
+                            .setAction(R.string.delete) {
+                                lifecycleScope.launch(Dispatchers.IO) {
+                                    db.bookmarkDao().delete(existing)
+                                    withContext(Dispatchers.Main) {
+                                        Snackbar.make(binding.root, R.string.bookmark_deleted, Snackbar.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                            .show()
                     }
                     return@launch
                 }
@@ -3297,6 +3318,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                         pageInChapter = page,
                         chapterTitle = title,
                         snippet = snippet.ifBlank { title },
+                        bookmarkType = BookmarkEntity.TYPE_WHOLE_PAGE,
                     )
                 )
                 withContext(Dispatchers.Main) {
@@ -3319,10 +3341,20 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             val page = values?.getOrNull(0)?.toIntOrNull()?.coerceAtLeast(0) ?: currentPageInChapter
             val ratio = values?.getOrNull(1)?.toFloatOrNull()?.coerceIn(0f, 1f) ?: currentScrollRatio
             lifecycleScope.launch(Dispatchers.IO) {
-                if (db.bookmarkDao().existsNearWithSnippet(bookId, idx, page, text)) {
-                    db.bookmarkDao().deleteNearWithSnippet(bookId, idx, page, text)
+                val existing = db.bookmarkDao().findText(bookId, idx, page, text)
+                if (existing != null) {
                     withContext(Dispatchers.Main) {
-                        Snackbar.make(binding.root, R.string.delete, Snackbar.LENGTH_SHORT).show()
+                        Snackbar
+                            .make(binding.root, R.string.bookmark_exists, Snackbar.LENGTH_LONG)
+                            .setAction(R.string.delete) {
+                                lifecycleScope.launch(Dispatchers.IO) {
+                                    db.bookmarkDao().delete(existing)
+                                    withContext(Dispatchers.Main) {
+                                        Snackbar.make(binding.root, R.string.bookmark_deleted, Snackbar.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                            .show()
                     }
                     return@launch
                 }
@@ -3334,6 +3366,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                         pageInChapter = page,
                         chapterTitle = title,
                         snippet = text,
+                        bookmarkType = BookmarkEntity.TYPE_TEXT,
                     )
                 )
                 withContext(Dispatchers.Main) {

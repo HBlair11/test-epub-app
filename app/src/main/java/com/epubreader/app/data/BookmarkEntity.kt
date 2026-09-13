@@ -27,5 +27,12 @@ data class BookmarkEntity(
     @ColumnInfo(name = "page_in_chapter") val pageInChapter: Int = -1,
     @ColumnInfo(name = "chapter_title") val chapterTitle: String,
     @ColumnInfo(name = "snippet") val snippet: String,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis()
-)
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+    /** 0 = whole-page bookmark, 1 = selected-text bookmark. */
+    @ColumnInfo(name = "bookmark_type") val bookmarkType: Int = TYPE_WHOLE_PAGE,
+) {
+    companion object {
+        const val TYPE_WHOLE_PAGE = 0
+        const val TYPE_TEXT = 1
+    }
+}

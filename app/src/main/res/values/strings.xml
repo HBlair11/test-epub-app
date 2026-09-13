@@ -253,6 +253,7 @@
     <string name="search_no_results">No results</string>
     <string name="search_results_label">Results</string>
     <string name="bookmark_added">Bookmark added</string>
+    <string name="bookmark_exists">Bookmark exists</string>
 
     <!-- Patch 18 (Addition #3): EPUB-only import + "Open with" handling -->
     <string name="import_unsupported_file">Only EPUB files can be imported.</string>
