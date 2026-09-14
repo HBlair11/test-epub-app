@@ -324,9 +324,9 @@ class BookshelfViewModel(
         val sorted = when (sort) {
             PrefsManager.SortOption.RECENTLY_ADDED ->
                 if (asc) {
-                    list.sortedWith(compareBy<BookEntity> { it.sourceLastModified }.thenBy { it.id })
-                } else {
                     list.sortedWith(compareByDescending<BookEntity> { it.sourceLastModified }.thenByDescending { it.id })
+                } else {
+                    list.sortedWith(compareBy<BookEntity> { it.sourceLastModified }.thenBy { it.id })
                 }
 
             PrefsManager.SortOption.RECENTLY_READ ->

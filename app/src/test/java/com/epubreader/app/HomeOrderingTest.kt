@@ -23,7 +23,7 @@ class HomeOrderingTest {
     }
 
     @Test
-    fun libraryModifiedAscendingUsesSourceLastModifiedAndIgnoresAddedDate() {
+    fun libraryModifiedNewerFirstUsesSourceLastModifiedAndIgnoresAddedDate() {
         val newerFileOlderImport = BookEntity(id = 1, title = "Newer file", author = "A", path = "new", checksum = "1", addedDate = 10L, sourceLastModified = 2000L)
         val olderFileNewerImport = BookEntity(id = 2, title = "Older file", author = "B", path = "old", checksum = "2", addedDate = 9999L, sourceLastModified = 1000L)
 
@@ -33,7 +33,7 @@ class HomeOrderingTest {
             true,
         )
 
-        assertEquals(listOf(2L, 1L), result.map { it.id })
+        assertEquals(listOf(1L, 2L), result.map { it.id })
     }
 
     /** Home Recent sort: sourceLastModified DESC, then id DESC. */
@@ -45,13 +45,13 @@ class HomeOrderingTest {
     }
 
     @Test
-    fun libraryModifiedUsesSourceLastModifiedDescending() {
+    fun libraryModifiedOlderFirstUsesSourceLastModifiedAscending() {
         val older = BookEntity(id = 1, title = "Older", author = "A", path = "old", checksum = "1", addedDate = 100L, sourceLastModified = 1000L)
         val newer = BookEntity(id = 2, title = "Newer", author = "B", path = "new", checksum = "2", addedDate = 200L, sourceLastModified = 2000L)
 
         val result = applySort(listOf(older, newer), PrefsManager.SortOption.RECENTLY_ADDED, false)
 
-        assertEquals(listOf(2L, 1L), result.map { it.id })
+        assertEquals(listOf(1L, 2L), result.map { it.id })
     }
 
     @Test
