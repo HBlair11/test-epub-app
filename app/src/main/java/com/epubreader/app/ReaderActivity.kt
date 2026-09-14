@@ -2118,6 +2118,50 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             return colW() + gapW();
           }
 
+          // Selection must never expose Chromium's horizontal column auto-scroll.
+          // Keep the selection gesture on the page where it started while leaving
+          // normal text selection, including vertical movement within that page,
+          // untouched. This only constrains body.scrollLeft during an active
+          // selection; normal pagination remains unchanged.
+          var selectionPageLock = -1;
+          var selectionPageLockActive = false;
+          var selectionPageLockFrame = 0;
+
+          function setSelectionPageLock(active, page) {
+            selectionPageLockActive = !!active;
+            if (!selectionPageLockActive) {
+              selectionPageLock = -1;
+              if (selectionPageLockFrame) {
+                cancelAnimationFrame(selectionPageLockFrame);
+                selectionPageLockFrame = 0;
+              }
+              return true;
+            }
+
+            if (typeof page === 'number' && isFinite(page)) {
+              selectionPageLock = Math.max(0, Math.floor(page));
+            } else if (selectionPageLock < 0) {
+              selectionPageLock = currentPage();
+            }
+
+            function enforceSelectionPage() {
+              if (!selectionPageLockActive || !body) {
+                selectionPageLockFrame = 0;
+                return;
+              }
+              var target = Math.max(0, selectionPageLock) * advance();
+              if (Math.abs((body.scrollLeft || 0) - target) > 1) {
+                body.scrollLeft = target;
+              }
+              selectionPageLockFrame = requestAnimationFrame(enforceSelectionPage);
+            }
+
+            if (!selectionPageLockFrame) {
+              selectionPageLockFrame = requestAnimationFrame(enforceSelectionPage);
+            }
+            return true;
+          }
+
           function pageCount() {
             if (!body) return 1;
             var scrollWidth = body.scrollWidth || body.offsetWidth || 1;
@@ -2588,6 +2632,22 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
           function init() {
             body = document.body;
 
+            // Chromium may horizontally auto-scroll a CSS-column layout while a
+            // selection is being extended. Start the page lock on the first
+            // non-empty selection change so the internal column boundary never
+            // becomes visible. The lock is horizontal only and does not interfere
+            // with moving the selection vertically within the current page.
+            document.addEventListener('selectionchange', function () {
+              try {
+                var sel = window.getSelection ? window.getSelection() : null;
+                if (sel && sel.rangeCount && sel.toString().trim()) {
+                  if (!selectionPageLockActive) setSelectionPageLock(true, currentPage());
+                } else if (selectionPageLockActive) {
+                  setSelectionPageLock(false);
+                }
+              } catch (e) {}
+            });
+
             if (!body) {
               setTimeout(init, 30);
               return;
@@ -2608,6 +2668,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
               pageForTextAnchor: pageForTextAnchor,
               pageForWholePageAnchor: pageForWholePageAnchor,
               pageSnippet: pageSnippet,
+              setSelectionPageLock: setSelectionPageLock,
               highlightPageById: highlightPageById,
               gotoHighlightById: gotoHighlightById
             };
@@ -3978,6 +4039,10 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         super.onActionModeStarted(mode)
         currentSelectionActionMode = mode
         definitionPopup?.dismiss()
+        binding.webView.evaluateJavascript(
+            "if(window.Caesura&&window.Caesura.setSelectionPageLock){window.Caesura.setSelectionPageLock(true);}",
+            null,
+        )
         // LivreWebView suppresses the native floating menu through the ActionMode
         // callback lifecycle, without calling ActionMode.hide()/finish() or mutating
         // the live menu from asynchronous touch callbacks. This keeps Chromium's
@@ -3987,6 +4052,10 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
 
     override fun onActionModeFinished(mode: ActionMode) {
         super.onActionModeFinished(mode)
+        binding.webView.evaluateJavascript(
+            "if(window.Caesura&&window.Caesura.setSelectionPageLock){window.Caesura.setSelectionPageLock(false);}",
+            null,
+        )
         if (currentSelectionActionMode === mode) currentSelectionActionMode = null
         selectionToolbarPopup?.dismiss()
         selectionToolbarPopup = null
@@ -4269,6 +4338,10 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
      *  Highlights / Search / Settings / TTS overlay / chapter change) and on a
      *  fresh tap on the page, so the selection toolbar never lingers. */
     private fun clearReaderSelection() {
+        binding.webView.evaluateJavascript(
+            "if(window.Caesura&&window.Caesura.setSelectionPageLock){window.Caesura.setSelectionPageLock(false);}",
+            null,
+        )
         dismissReaderSelectionToolbar(false)
         currentSelectionActionMode?.finish()
         currentSelectionActionMode = null
