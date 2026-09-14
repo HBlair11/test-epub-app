@@ -42,11 +42,19 @@ class BookmarkAdapter(
             b.title.text = if (item.bookmarkType == BookmarkEntity.TYPE_WHOLE_PAGE) {
                 "Bookmark ${wholePageNumbers[item.id] ?: 1}"
             } else {
-                item.snippet.ifBlank { item.chapterTitle }
+                selectedTextForDisplay(item.snippet).ifBlank { item.chapterTitle }
             }
             val date = DateFormat.getDateInstance(DateFormat.SHORT).format(Date(item.createdAt))
             b.subtitle.text = "${item.chapterTitle} · $date"
         }
+    }
+
+    private fun selectedTextForDisplay(snippet: String): String {
+        val marker = "__LIVRE_SELECTED_V1__"
+        if (!snippet.startsWith(marker)) return snippet
+        return runCatching {
+            org.json.JSONObject(snippet.removePrefix(marker)).optString("text").ifBlank { snippet }
+        }.getOrDefault(snippet)
     }
 
     companion object {

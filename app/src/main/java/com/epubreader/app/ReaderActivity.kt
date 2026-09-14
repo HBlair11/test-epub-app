@@ -481,7 +481,7 @@ class ReaderActivity : AppCompatActivity() {
         // CSS pixels) so the definition card can anchor to it instead of a
         // fixed-position bottom sheet.
         binding.webView.evaluateJavascript(
-            "(function(){var s=window.getSelection&&window.getSelection();if(!s||s.rangeCount===0||!s.toString().trim())return;var r=s.getRangeAt(0);var rect=r.getBoundingClientRect();function p(n){if(n&&n.nodeType!==1)n=n.parentNode;var a=[];while(n&&n.nodeType===1){var i=0,q=n.previousSibling;while(q){if(q.nodeType===n.nodeType&&q.nodeName===n.nodeName)i++;q=q.previousSibling;}a.unshift(n.nodeName.toLowerCase()+':'+i);n=n.parentNode;}return a.join('/');}var walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);var allText='',nodes=[];while(walker.nextNode()){nodes.push({node:walker.currentNode,start:allText.length});allText+=walker.currentNode.textContent;}var t=s.toString().trim();var selStart=0,selEnd=0;var sc=r.startContainer,ec=r.endContainer;for(var i=0;i<nodes.length;i++){if(nodes[i].node===sc)selStart=nodes[i].start+r.startOffset;if(nodes[i].node===ec){selEnd=nodes[i].start+r.endOffset;break;}}var prefix=allText.slice(Math.max(0,selStart-40),selStart);var suffix=allText.slice(selEnd,selEnd+40);LivreSelection.onSelectionPayload(t," + escapedHref + ",p(r.startContainer),r.startOffset,p(r.endContainer),r.endOffset,prefix,suffix,Math.round(rect.left),Math.round(rect.top),Math.round(rect.right),Math.round(rect.bottom));})();",
+            "(function(){var s=window.getSelection&&window.getSelection();if(!s||s.rangeCount===0||!s.toString().trim())return;var r=s.getRangeAt(0);var rect=r.getBoundingClientRect();function p(n){var isText=n&&n.nodeType===3;if(isText){var parent=n.parentNode;var base=p(parent),ti=0,q=n.previousSibling;while(q){if(q.nodeType===3)ti++;q=q.previousSibling;}return base+'/#text:'+ti;}if(n&&n.nodeType!==1)n=n.parentNode;var a=[];while(n&&n.nodeType===1){var i=0,q=n.previousSibling;while(q){if(q.nodeType===n.nodeType&&q.nodeName===n.nodeName)i++;q=q.previousSibling;}a.unshift(n.nodeName.toLowerCase()+':'+i);n=n.parentNode;}return a.join('/');}var walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);var allText='',nodes=[];while(walker.nextNode()){nodes.push({node:walker.currentNode,start:allText.length});allText+=walker.currentNode.textContent;}var t=s.toString().trim();var selStart=0,selEnd=0;var sc=r.startContainer,ec=r.endContainer;for(var i=0;i<nodes.length;i++){if(nodes[i].node===sc)selStart=nodes[i].start+r.startOffset;if(nodes[i].node===ec){selEnd=nodes[i].start+r.endOffset;break;}}var prefix=allText.slice(Math.max(0,selStart-40),selStart);var suffix=allText.slice(selEnd,selEnd+40);LivreSelection.onSelectionPayload(t," + escapedHref + ",p(r.startContainer),r.startOffset,p(r.endContainer),r.endOffset,prefix,suffix,Math.round(rect.left),Math.round(rect.top),Math.round(rect.right),Math.round(rect.bottom));})();",
             null
         )
     }
@@ -2476,7 +2476,62 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
 
           function pageForTextAnchor(anchor, fallbackPage) {
             if (!anchor || !body) return fallbackPage || 0;
-            var wanted = String(anchor).replace(/\s+/g,' ').trim().toLowerCase();
+            var rawAnchor = String(anchor);
+            var selectedMarker = '__LIVRE_SELECTED_V1__';
+            if (rawAnchor.indexOf(selectedMarker) === 0) {
+              try {
+                var selected = JSON.parse(rawAnchor.slice(selectedMarker.length));
+                var sp = String(selected.startPath || '');
+                var ep = String(selected.endPath || '');
+                var so = parseInt(selected.startOffset || 0, 10);
+                var eo = parseInt(selected.endOffset || 0, 10);
+                function resolveSelectedPoint(path, offset) {
+                  var parts = path.split('/');
+                  var last = parts[parts.length - 1] || '';
+                  if (last.indexOf('#text:') !== 0) return null;
+                  var parentPath = parts.slice(0, -1).join('/');
+                  var node = document.body;
+                  var parentParts = parentPath.split('/');
+                  var started = false;
+                  for (var pi = 0; pi < parentParts.length; pi++) {
+                    var seg = parentParts[pi].split(':');
+                    var tag = seg[0];
+                    var idx = parseInt(seg[1] || '0', 10);
+                    if (tag === 'body') { started = true; continue; }
+                    if (!started) continue;
+                    var kids = node.children, seen = 0, found = null;
+                    for (var cj = 0; cj < kids.length; cj++) {
+                      if (kids[cj].tagName.toLowerCase() === tag) {
+                        if (seen === idx) { found = kids[cj]; break; }
+                        seen++;
+                      }
+                    }
+                    if (!found) return null;
+                    node = found;
+                  }
+                  var textIndex = parseInt(last.slice(6), 10);
+                  if (!isFinite(textIndex) || textIndex < 0) return null;
+                  var walker2 = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null);
+                  var direct = [], tn;
+                  while ((tn = walker2.nextNode())) if (tn.parentNode === node) direct.push(tn);
+                  var target = direct[textIndex];
+                  if (!target) return null;
+                  var len = (target.textContent || '').length;
+                  return { node: target, offset: Math.max(0, Math.min(offset, len)) };
+                }
+                var startPoint = resolveSelectedPoint(sp, so);
+                var endPoint = resolveSelectedPoint(ep, eo);
+                if (startPoint && endPoint) {
+                  var range = document.createRange();
+                  range.setStart(startPoint.node, startPoint.offset);
+                  range.setEnd(endPoint.node, endPoint.offset);
+                  var page = pageOfRangeStart(range);
+                  range.detach();
+                  if (page >= 0) return page;
+                }
+              } catch (e) {}
+            }
+            var wanted = rawAnchor.replace(/\s+/g,' ').trim().toLowerCase();
             if (!wanted) return fallbackPage || 0;
 
             // Build one normalized DOM text stream and remember the exact text-node
@@ -3271,7 +3326,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                                         withContext(Dispatchers.Main) {
                                             val currentHref = epub?.spine?.getOrNull(spineIndex)?.href
                                             if (currentHref == h.spineHref) {
-                                                injectHighlightIntoWebView(h.id, h.text, h.prefix, h.suffix, h.color, h.startPath, h.endPath)
+                                                injectHighlightIntoWebView(h.id, h.text, h.prefix, h.suffix, h.color, h.startPath, h.endPath, h.startOffset, h.endOffset)
                                             }
                                         }
                                     }
@@ -3576,6 +3631,15 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         val text = selection.text.trim()
         if (text.isBlank()) return
         val href = selection.spineHref
+        val selectionAnchor = "__LIVRE_SELECTED_V1__" + org.json.JSONObject().apply {
+            put("text", text)
+            put("startPath", selection.startPath)
+            put("startOffset", selection.startOffset)
+            put("endPath", selection.endPath)
+            put("endOffset", selection.endOffset)
+            put("prefix", selection.prefix)
+            put("suffix", selection.suffix)
+        }.toString()
         val idx = epub?.spine?.indexOfFirst { it.href == href }?.takeIf { it >= 0 } ?: spineIndex
         val title = sectionLabel()
         binding.webView.evaluateJavascript(
@@ -3585,8 +3649,8 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             val page = values?.getOrNull(0)?.toIntOrNull()?.coerceAtLeast(0) ?: currentPageInChapter
             val ratio = values?.getOrNull(1)?.toFloatOrNull()?.coerceIn(0f, 1f) ?: currentScrollRatio
             lifecycleScope.launch(Dispatchers.IO) {
-                val existing = db.bookmarkDao().findTextBySnippet(bookId, idx, text).let { semantic ->
-                    semantic ?: db.bookmarkDao().findText(bookId, idx, page, text)
+                val existing = db.bookmarkDao().findTextBySnippet(bookId, idx, selectionAnchor).let { semantic ->
+                    semantic ?: db.bookmarkDao().findText(bookId, idx, page, selectionAnchor)
                 }
                 if (existing != null) {
                     withContext(Dispatchers.Main) {
@@ -3618,7 +3682,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                         scrollRatio = ratio,
                         pageInChapter = page,
                         chapterTitle = title,
-                        snippet = text,
+                        snippet = selectionAnchor,
                         bookmarkType = BookmarkEntity.TYPE_TEXT,
                     )
                 )
@@ -4482,7 +4546,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         lifecycleScope.launch(Dispatchers.IO) {
             val id = com.epubreader.app.data.BookRepository(applicationContext).addHighlight(highlight)
             withContext(Dispatchers.Main) {
-                injectHighlightIntoWebView(id, selection.text, selection.prefix, selection.suffix, color, selection.startPath, selection.endPath)
+                injectHighlightIntoWebView(id, selection.text, selection.prefix, selection.suffix, color, selection.startPath, selection.endPath, selection.startOffset, selection.endOffset)
                 Snackbar.make(binding.root, R.string.highlight_added, Snackbar.LENGTH_SHORT).show()
             }
         }
@@ -4505,15 +4569,18 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         color: Int,
         startPath: String = "",
         endPath: String = "",
+        startOffset: Int = 0,
+        endOffset: Int = 0,
     ) {
         val cssColor = highlightCssColor(color)
         val safeText = org.json.JSONObject.quote(text)
         val safePrefix = org.json.JSONObject.quote(prefix)
         val safeSuffix = org.json.JSONObject.quote(suffix)
         val safeStartPath = org.json.JSONObject.quote(startPath)
+        val safeEndPath = org.json.JSONObject.quote(endPath)
         binding.webView.evaluateJavascript(
             """(function(){
-                var text=$safeText,prefix=$safePrefix,suffix=$safeSuffix,color='$cssColor',id=$id,sp=$safeStartPath;
+                var text=$safeText,prefix=$safePrefix,suffix=$safeSuffix,color='$cssColor',id=$id,sp=$safeStartPath,ep=$safeEndPath,so=$startOffset,eo=$endOffset;
                 if(document.querySelector('mark.livre-highlight[data-highlight-id="'+id+'"]'))return true;
 
                 /*
@@ -4669,11 +4736,61 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                     return node;
                 }
 
+                function resolveTextPoint(path,offset){
+                    if(!path)return null;
+                    var parts=path.split('/');
+                    var last=parts[parts.length-1];
+                    if(last.indexOf('#text:')!==0)return null;
+                    var parentPath=parts.slice(0,-1).join('/');
+                    var parent=resolveEl(parentPath);
+                    if(!parent)return null;
+                    var wantedIndex=parseInt(last.slice(6),10);
+                    if(!isFinite(wantedIndex)||wantedIndex<0)return null;
+                    var walker=document.createTreeWalker(parent,NodeFilter.SHOW_TEXT,null,false);
+                    var direct=[],n;
+                    while((n=walker.nextNode())){
+                        if(n.parentNode===parent)direct.push(n);
+                    }
+                    var node=direct[wantedIndex]||null;
+                    if(!node)return null;
+                    var len=(node.textContent||'').length;
+                    return {node:node,offset:Math.max(0,Math.min(offset||0,len))};
+                }
+
+                function wrapExactPoints(startPoint,endPoint){
+                    if(!startPoint||!endPoint)return false;
+                    var data=normalizedStream(document.body);
+                    var startIndex=-1,endIndex=-1;
+                    for(var i=0;i<data.points.length;i++){
+                        var pt=data.points[i];
+                        if(pt.node===startPoint.node&&pt.offset===startPoint.offset){startIndex=i;break;}
+                    }
+                    if(startIndex<0){
+                        for(var j=0;j<data.points.length;j++){
+                            var pt2=data.points[j];
+                            if(pt2.node===startPoint.node&&pt2.offset>=startPoint.offset){startIndex=j;break;}
+                        }
+                    }
+                    for(var k=startIndex>=0?startIndex:0;k<data.points.length;k++){
+                        var pt3=data.points[k];
+                        if(pt3.node===endPoint.node&&pt3.offset===Math.max(0,endPoint.offset-1)){endIndex=k+1;break;}
+                    }
+                    if(startIndex<0||endIndex<=startIndex)return false;
+                    return wrapStreamRange(data,startIndex,endIndex);
+                }
+
                 var wanted=normalize(text);
                 if(!wanted)return false;
 
-                /* Prefer the saved start element so a repeated phrase elsewhere
-                   in the chapter is not selected accidentally. */
+                /* First use the exact text-node locator captured from the live selection.
+                   This disambiguates a common word/phrase that appears multiple times
+                   inside the same paragraph or inline element. */
+                var exactStart=resolveTextPoint(sp,so);
+                var exactEnd=resolveTextPoint(ep,eo);
+                if(exactStart&&exactEnd&&wrapExactPoints(exactStart,exactEnd))return true;
+
+                /* Legacy/path fallback: keep the existing local-element + context strategy
+                   for highlights created before the exact text-node locator existed. */
                 var startEl=resolveEl(sp);
                 if(startEl){
                     var local=normalizedStream(startEl);
@@ -4779,7 +4896,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             if (highlights.isEmpty()) return@launch
             withContext(Dispatchers.Main) {
                 highlights.forEach { h ->
-                    injectHighlightIntoWebView(h.id, h.text, h.prefix, h.suffix, h.color, h.startPath, h.endPath)
+                    injectHighlightIntoWebView(h.id, h.text, h.prefix, h.suffix, h.color, h.startPath, h.endPath, h.startOffset, h.endOffset)
                 }
                 val targetId = pendingHighlightId
                 if (targetId != null && highlights.any { it.id == targetId }) {
@@ -4877,7 +4994,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                                             withContext(Dispatchers.Main) {
                                                 val currentHref = epub?.spine?.getOrNull(spineIndex)?.href
                                                 if (currentHref == highlight.spineHref) {
-                                                    injectHighlightIntoWebView(highlight.id, highlight.text, highlight.prefix, highlight.suffix, highlight.color, highlight.startPath, highlight.endPath)
+                                                    injectHighlightIntoWebView(highlight.id, highlight.text, highlight.prefix, highlight.suffix, highlight.color, highlight.startPath, highlight.endPath, highlight.startOffset, highlight.endOffset)
                                                 }
                                             }
                                         }
