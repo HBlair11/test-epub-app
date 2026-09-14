@@ -77,8 +77,8 @@ class BookAdapter(
                 b.progressBadge.visibility = View.GONE
             }
 
-            // Progress bar
-            if (progress > 0f) {
+            // Progress bar: completed books show only the checkmark.
+            if (progress > 0f && progress < 0.90f) {
                 b.progressTrack.visibility = View.VISIBLE
                 b.progressFill.visibility = View.VISIBLE
 
