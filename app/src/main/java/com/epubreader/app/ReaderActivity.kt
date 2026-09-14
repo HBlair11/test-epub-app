@@ -2036,8 +2036,12 @@ h1,h2,h3,h4,h5,h6 { color:${ink} !important; line-height:1.25 !important; break-
 /* Highlight marks: subtle background, no layout disruption. */
 mark.livre-highlight {
   color:inherit !important;
-  break-inside:avoid;
-  -webkit-column-break-inside:avoid;
+  display:inline !important;
+  padding:0 !important;
+  margin:0 !important;
+  border:0 !important;
+  font:inherit !important;
+  line-height:inherit !important;
 }
 </style>""".trimIndent() + darkTextOverride(prefs.theme, ink)
     }
@@ -4511,70 +4515,177 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
             """(function(){
                 var text=$safeText,prefix=$safePrefix,suffix=$safeSuffix,color='$cssColor',id=$id,sp=$safeStartPath;
                 if(document.querySelector('mark.livre-highlight[data-highlight-id="'+id+'"]'))return true;
-                function textNodes(root){var w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,null,false);var a=[];while(w.nextNode())a.push(w.currentNode);return a;}
-                function locate(nodes,off){var acc=0;for(var i=0;i<nodes.length;i++){var len=nodes[i].textContent.length;if(off<=acc+len)return [nodes[i],off-acc];acc+=len;}return null;}
-                function markNodes(sn,so,en,eo){
-                    if(!sn||!en)return false;
-                    function make(){var m=document.createElement('mark');m.className='livre-highlight';m.style.backgroundColor=color;m.style.borderRadius='2px';m.dataset.highlightId=id;m.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();LivreHighlight.onHighlightTap(id);});return m;}
-                    try{var r=document.createRange();r.setStart(sn,so);r.setEnd(en,eo);r.surroundContents(make());return true;}catch(e){}
-                    try{var r2=document.createRange();r2.setStart(sn,so);r2.setEnd(en,eo);var m2=make();m2.appendChild(r2.extractContents());r2.insertNode(m2);return true;}catch(e2){}
-                    return false;
-                }
-                function resolveEl(p){
-                    if(!p)return null;
-                    var parts=p.split('/');var node=document.body;var started=false;
-                    for(var i=0;i<parts.length;i++){
-                        var seg=parts[i].split(':');var tag=seg[0];var idx=parseInt(seg[1]||'0',10);
-                        if(tag==='body'){started=true;continue;}
-                        if(!started)continue;
-                        var kids=node.children,seen=0,found=null;
-                        for(var j=0;j<kids.length;j++){if(kids[j].tagName.toLowerCase()===tag){if(seen===idx){found=kids[j];break;}seen++;}}
-                        if(!found)return null;node=found;
+
+                /*
+                 * Persistent highlights are decorations only. Never extract or
+                 * surround a multi-node Range. EPUBs commonly place words in
+                 * nested inline elements, and range-subtree operations can
+                 * reparent those elements and change layout/pagination.
+                 */
+                function textNodes(root){
+                    var w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,null,false),a=[],n;
+                    while((n=w.nextNode())){
+                        if(n.parentNode)a.push(n);
                     }
-                    return node;
+                    return a;
                 }
-                function contextScore(all,pos){
+
+                /* Build a searchable stream while retaining the exact DOM point
+                   for every non-whitespace character. Whitespace is collapsed so
+                   selections crossing line/paragraph boundaries can be matched
+                   without assuming that the browser's selection string uses the
+                   same newline representation as the EPUB DOM. */
+                function normalizedStream(root){
+                    var nodes=textNodes(root),chars=[],points=[],pendingSpace=false;
+                    for(var ni=0;ni<nodes.length;ni++){
+                        var n=nodes[ni],source=n.textContent||'';
+                        for(var i=0;i<source.length;i++){
+                            var ch=source.charAt(i);
+                            if(/\s/.test(ch)){
+                                if(chars.length&&!pendingSpace){
+                                    chars.push(' ');
+                                    points.push({node:n,offset:i,synthetic:true});
+                                }
+                                pendingSpace=true;
+                            }else{
+                                chars.push(ch.toLowerCase());
+                                points.push({node:n,offset:i,synthetic:false});
+                                pendingSpace=false;
+                            }
+                        }
+                    }
+                    while(chars.length&&chars[0]===' '){chars.shift();points.shift();}
+                    while(chars.length&&chars[chars.length-1]===' '){chars.pop();points.pop();}
+                    return {nodes:nodes,text:chars.join(''),points:points};
+                }
+
+                function normalize(s){
+                    return String(s||'').replace(/\s+/g,' ').trim().toLowerCase();
+                }
+
+                function contextScore(all,pos,needle){
                     var score=0;
-                    if(prefix){
-                        var before=all.slice(Math.max(0,pos-prefix.length),pos);
+                    var pfx=normalize(prefix),sfx=normalize(suffix);
+                    if(pfx){
+                        var before=all.slice(Math.max(0,pos-pfx.length),pos);
                         var common=0;
-                        while(common<before.length&&common<prefix.length&&before.charAt(before.length-1-common)===prefix.charAt(prefix.length-1-common))common++;
+                        while(common<before.length&&common<pfx.length&&before.charAt(before.length-1-common)===pfx.charAt(pfx.length-1-common))common++;
                         score+=common*2;
-                        if(before===prefix)score+=10000;
+                        if(before===pfx)score+=10000;
                     }
-                    if(suffix){
-                        var after=all.slice(pos+text.length,pos+text.length+suffix.length);
+                    if(sfx){
+                        var after=all.slice(pos+needle.length,pos+needle.length+sfx.length);
                         var commonAfter=0;
-                        while(commonAfter<after.length&&commonAfter<suffix.length&&after.charAt(commonAfter)===suffix.charAt(commonAfter))commonAfter++;
+                        while(commonAfter<after.length&&commonAfter<sfx.length&&after.charAt(commonAfter)===sfx.charAt(commonAfter))commonAfter++;
                         score+=commonAfter*2;
-                        if(after===suffix)score+=10000;
+                        if(after===sfx)score+=10000;
                     }
                     return score;
                 }
+
                 function bestOccurrence(all,needle){
                     if(!needle)return -1;
-                    var best=-1,bestScore=-1;
-                    var from=0,pos;
-                    while((pos=all.indexOf(needle,from))>=0){
-                        var score=contextScore(all,pos);
+                    var wanted=normalize(needle);
+                    if(!wanted)return -1;
+                    var best=-1,bestScore=-1,from=0,pos;
+                    while((pos=all.indexOf(wanted,from))>=0){
+                        var score=contextScore(all,pos,wanted);
                         if(score>bestScore){bestScore=score;best=pos;}
-                        from=pos+Math.max(1,needle.length);
+                        from=pos+Math.max(1,wanted.length);
                     }
                     return best;
                 }
-                var el=resolveEl(sp);
-                if(el){
-                    var nodes=textNodes(el);var all='';nodes.forEach(function(n){all+=n.textContent;});
-                    var pos=bestOccurrence(all,text);
-                    if(pos>=0){var a=locate(nodes,pos);var b=locate(nodes,pos+text.length);
-                        if(a&&b&&markNodes(a[0],a[1],b[0],b[1]))return true;}
+
+                function wrapTextNodePart(node,startOffset,endOffset){
+                    if(!node||!node.parentNode)return false;
+                    var len=(node.textContent||'').length;
+                    var a=Math.max(0,Math.min(startOffset,len));
+                    var b=Math.max(a,Math.min(endOffset,len));
+                    if(b<=a)return false;
+                    try{
+                        var selected=node;
+                        if(b<len)node.splitText(b);
+                        if(a>0)selected=node.splitText(a);
+                        var mark=document.createElement('mark');
+                        mark.className='livre-highlight';
+                        mark.style.backgroundColor=color;
+                        mark.style.borderRadius='2px';
+                        mark.style.display='inline';
+                        mark.style.padding='0';
+                        mark.style.margin='0';
+                        mark.style.border='0';
+                        mark.style.font='inherit';
+                        mark.style.lineHeight='inherit';
+                        mark.dataset.highlightId=id;
+                        mark.addEventListener('click',function(e){
+                            e.preventDefault();
+                            e.stopPropagation();
+                            LivreHighlight.onHighlightTap(id);
+                        });
+                        selected.parentNode.insertBefore(mark,selected);
+                        mark.appendChild(selected);
+                        return true;
+                    }catch(e){
+                        return false;
+                    }
                 }
-                var dnodes=textNodes(document.body);var dall='';dnodes.forEach(function(n){dall+=n.textContent;});
-                var tp=bestOccurrence(dall,text);
-                if(tp<0)return false;
-                var ep=tp+text.length;
-                var a2=locate(dnodes,tp);var b2=locate(dnodes,ep);
-                return !!(a2&&b2&&markNodes(a2[0],a2[1],b2[0],b2[1]));
+
+                function wrapStreamRange(data,startIndex,endIndex){
+                    if(startIndex<0||endIndex<=startIndex||!data.points[startIndex]||!data.points[endIndex-1])return false;
+                    var first=data.points[startIndex],last=data.points[endIndex-1];
+                    var startNode=first.node,endNode=last.node;
+                    var startOffset=first.offset;
+                    var endOffset=last.offset+1;
+                    var startNodeIndex=data.nodes.indexOf(startNode),endNodeIndex=data.nodes.indexOf(endNode);
+                    if(startNodeIndex<0||endNodeIndex<startNodeIndex)return false;
+                    var changed=false;
+                    for(var i=endNodeIndex;i>=startNodeIndex;i--){
+                        var node=data.nodes[i];
+                        if(!node||!node.parentNode)continue;
+                        var a=(i===startNodeIndex)?startOffset:0;
+                        var b=(i===endNodeIndex)?endOffset:(node.textContent||'').length;
+                        if(b>a)changed=wrapTextNodePart(node,a,b)||changed;
+                    }
+                    return changed;
+                }
+
+                function resolveEl(path){
+                    if(!path)return null;
+                    var parts=path.split('/'),node=document.body,started=false;
+                    for(var i=0;i<parts.length;i++){
+                        var seg=parts[i].split(':'),tag=seg[0],idx=parseInt(seg[1]||'0',10);
+                        if(tag==='body'){started=true;continue;}
+                        if(!started)continue;
+                        var kids=node.children,seen=0,found=null;
+                        for(var j=0;j<kids.length;j++){
+                            if(kids[j].tagName.toLowerCase()===tag){
+                                if(seen===idx){found=kids[j];break;}
+                                seen++;
+                            }
+                        }
+                        if(!found)return null;
+                        node=found;
+                    }
+                    return node;
+                }
+
+                var wanted=normalize(text);
+                if(!wanted)return false;
+
+                /* Prefer the saved start element so a repeated phrase elsewhere
+                   in the chapter is not selected accidentally. */
+                var startEl=resolveEl(sp);
+                if(startEl){
+                    var local=normalizedStream(startEl);
+                    var localPos=bestOccurrence(local.text,wanted);
+                    if(localPos>=0&&wrapStreamRange(local,localPos,localPos+wanted.length))return true;
+                }
+
+                /* Fallback: search the complete chapter using the saved context. */
+                var data=normalizedStream(document.body);
+                var pos=bestOccurrence(data.text,wanted);
+                if(pos<0)return false;
+                return wrapStreamRange(data,pos,pos+wanted.length);
             })();""",
             null,
         )
@@ -4755,7 +4866,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                             withContext(Dispatchers.Main) {
                                 // Remove the highlight from the WebView.
                                 binding.webView.evaluateJavascript(
-                                    """(function(){var m=document.querySelector('mark.livre-highlight[data-highlight-id="$highlightId"]');if(m){var p=m.parentNode;while(m.firstChild)p.insertBefore(m.firstChild,m);p.removeChild(m);}})();""",
+                                    """(function(){var ms=document.querySelectorAll('mark.livre-highlight[data-highlight-id="$highlightId"]');for(var i=ms.length-1;i>=0;i--){var m=ms[i],p=m.parentNode;if(!p)continue;while(m.firstChild)p.insertBefore(m.firstChild,m);p.removeChild(m);}})();""",
                                     null,
                                 )
                                 Snackbar
