@@ -37,8 +37,20 @@ class BookAdapter(
 
     inner class BookGridHolder(private val b: ItemBookGridBinding) : RecyclerView.ViewHolder(b.root) {
         init {
-            itemView.setOnClickListener { onClick(getItem(bindingAdapterPosition)) }
-            itemView.setOnLongClickListener { onLongClick(getItem(bindingAdapterPosition)) }
+            itemView.setOnClickListener {
+                val position = bindingAdapterPosition
+                if (position != RecyclerView.NO_POSITION) {
+                    onClick(getItem(position))
+                }
+            }
+            itemView.setOnLongClickListener {
+                val position = bindingAdapterPosition
+                if (position != RecyclerView.NO_POSITION) {
+                    onLongClick(getItem(position))
+                } else {
+                    false
+                }
+            }
         }
 
         fun bind(book: BookEntity) {
@@ -87,9 +99,26 @@ class BookAdapter(
 
     inner class BookListHolder(private val b: ItemBookListBinding) : RecyclerView.ViewHolder(b.root) {
         init {
-            b.root.setOnClickListener { onClick(getItem(bindingAdapterPosition)) }
-            b.root.setOnLongClickListener { onLongClick(getItem(bindingAdapterPosition)) }
-            b.infoArea.setOnClickListener { onDetails(getItem(bindingAdapterPosition)) }
+            b.root.setOnClickListener {
+                val position = bindingAdapterPosition
+                if (position != RecyclerView.NO_POSITION) {
+                    onClick(getItem(position))
+                }
+            }
+            b.root.setOnLongClickListener {
+                val position = bindingAdapterPosition
+                if (position != RecyclerView.NO_POSITION) {
+                    onLongClick(getItem(position))
+                } else {
+                    false
+                }
+            }
+            b.infoArea.setOnClickListener {
+                val position = bindingAdapterPosition
+                if (position != RecyclerView.NO_POSITION) {
+                    onDetails(getItem(position))
+                }
+            }
         }
 
         fun bind(book: BookEntity) {

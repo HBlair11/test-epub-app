@@ -21,6 +21,7 @@ import com.epubreader.app.util.CurrentlyReadingUndoSnackbar
 import com.epubreader.app.databinding.ActivityBookDetailsBinding
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -31,6 +32,7 @@ class BookDetailsActivity : AppCompatActivity() {
     private lateinit var binding: ActivityBookDetailsBinding
     private var bookId: Long = -1L
     private var shouldRefreshOnResume = false
+    private var favoriteUpdateJob: Job? = null
 
     private val coverPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { applyPickedCover(it) }
@@ -250,8 +252,10 @@ class BookDetailsActivity : AppCompatActivity() {
         // FAVORITE
         // =========================
 
+        var favoriteState = book.isFavorite
+
         binding.btnFavorite.setImageResource(
-            if (book.isFavorite) {
+            if (favoriteState) {
                 R.drawable.ic_favorite
             } else {
                 R.drawable.ic_favorite_border
@@ -259,25 +263,23 @@ class BookDetailsActivity : AppCompatActivity() {
         )
 
         binding.btnFavorite.setOnClickListener {
+            favoriteState = !favoriteState
+            val newFavoriteState = favoriteState
 
-            val newFavoriteState = !book.isFavorite
+            binding.btnFavorite.setImageResource(
+                if (newFavoriteState) {
+                    R.drawable.ic_favorite
+                } else {
+                    R.drawable.ic_favorite_border
+                }
+            )
 
-            lifecycleScope.launch(Dispatchers.IO) {
-
+            favoriteUpdateJob?.cancel()
+            favoriteUpdateJob = lifecycleScope.launch(Dispatchers.IO) {
                 AppDatabase
                     .get(applicationContext)
                     .bookDao()
                     .setFavorite(book.id, newFavoriteState)
-
-                withContext(Dispatchers.Main) {
-                    binding.btnFavorite.setImageResource(
-                        if (newFavoriteState) {
-                            R.drawable.ic_favorite
-                        } else {
-                            R.drawable.ic_favorite_border
-                        }
-                    )
-                }
             }
         }
 
