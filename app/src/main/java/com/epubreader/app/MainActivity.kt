@@ -755,7 +755,10 @@ class MainActivity : AppCompatActivity() {
         viewModel.view.observe(this) { view -> applyView(view) }
 
         // View mode + column count apply immediately: reconfigure the adapter without refetching.
-        viewModel.viewModeGrid.observe(this) { reconfigureAdapter() }
+        viewModel.viewModeGrid.observe(this) {
+            reconfigureAdapter()
+            invalidateOptionsMenu()
+        }
         viewModel.gridColumns.observe(this) { reconfigureAdapter() }
 
         viewModel.homeContent.observe(this) { content ->
