@@ -192,7 +192,7 @@ class BookDetailsActivity : AppCompatActivity() {
                 View.VISIBLE
 
             val progressText =
-                if (book.progress >= 0.995f) {
+                if (book.progress >= 0.90f) {
                     getString(R.string.progress_completed)
                 } else {
                     "${(book.progress * 100).toInt()}% read"

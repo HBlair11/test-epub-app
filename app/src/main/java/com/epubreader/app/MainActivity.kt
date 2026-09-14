@@ -560,7 +560,7 @@ class MainActivity : AppCompatActivity() {
             }
             binding.homeContent.homeContinueLocation.visibility =
                 if (location.isBlank()) View.GONE else View.VISIBLE
-            binding.homeContent.homeContinueProgress.text = if (book.progress >= 0.995f) {
+            binding.homeContent.homeContinueProgress.text = if (book.progress >= 0.90f) {
                 getString(R.string.progress_completed)
             } else {
                 getString(R.string.home_progress_percent, (book.progress * 100).toInt())
@@ -1136,7 +1136,11 @@ class MainActivity : AppCompatActivity() {
         fieldKey: String,
     ) {
         val asc = viewModel.sortAscending.value ?: true
-        val labels = arrayOf(getString(R.string.sort_ascending), getString(R.string.sort_descending))
+        val labels = if (fieldKey == PrefsManager.SortOption.RECENTLY_ADDED) {
+            arrayOf(getString(R.string.sort_newer_first), getString(R.string.sort_older_first))
+        } else {
+            arrayOf(getString(R.string.sort_ascending), getString(R.string.sort_descending))
+        }
         AlertDialog
             .Builder(this)
             .setTitle("$fieldLabel · ${getString(R.string.sort_choose_order)}")

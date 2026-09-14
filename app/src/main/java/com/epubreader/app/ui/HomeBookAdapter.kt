@@ -55,7 +55,7 @@ class HomeBookAdapter(
             val progress = book.progress.coerceIn(0f, 1f)
             if (progress >= 0.90f) {
                 binding.progressBadge.visibility = View.VISIBLE
-                binding.progressBadge.text = if (progress >= 0.995f) "✓" else "${(progress * 100).toInt()}%"
+                binding.progressBadge.text = if (progress >= 0.90f) "✓" else "${(progress * 100).toInt()}%"
             } else {
                 binding.progressBadge.visibility = View.GONE
             }

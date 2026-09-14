@@ -104,9 +104,9 @@ class BookshelfViewModel(
         viewModelScope.launch { repo.markOpened(bookId) }
     }
 
-    /** Curated Home data. Home reuses the same Recently Added ordering used by the
-     * main Book Layout (added date descending, newest first) and uses the same
-     * Currently Reading query for the Continue Reading hero. */
+    /** Curated Home data. Home uses the same Recent ordering as the main Book
+     * Layout: source file modification time first, then stable id tie-breaking.
+     * Currently Reading continues to use the same query for the hero. */
     val homeContent: LiveData<HomeContent> = combine(
         repo.observeBooks(),
         repo.observeCurrentlyReading(),
@@ -209,9 +209,9 @@ class BookshelfViewModel(
     }
 
     /** Default sort for a view: Recently Opened for Currently Reading, Title A→Z
-     *  everywhere else — EXCEPT the Patch 16 "Recently Added" temp screen, which
-     *  defaults to newest-added first (descending) so the just-imported book is
-     *  at the top. Sort is session-only and never persisted. */
+     *  everywhere else — EXCEPT the transient Recent screen, which defaults to
+     *  newest source-file modification first. Sort is session-only and never
+     *  persisted. */
     private fun defaultSortFor(view: ShelfView): Pair<String, Boolean> =
         when (view) {
             is ShelfView.Home -> PrefsManager.SortOption.RECENTLY_READ to false
@@ -263,13 +263,11 @@ class BookshelfViewModel(
     }
 
     private fun buildHomeContent(books: List<BookEntity>, currentlyReading: List<BookEntity>): HomeContent {
-        // Home Recently Added: sort by file m-time (sourceLastModified) descending,
-        // then by import date (addedDate) descending, then by id descending.
-        // This matches the user's expectation: the most recently added/modified
-        // books appear first, same as the Library "Recently Added" sort.
+        // Home Recent: source file modification time is the sole recency key,
+        // with id only as a stable tie-breaker when modification times match.
+        // This is also the ordering used by the main Book Layout's Modified sort.
         val newest = books.sortedWith(
             compareByDescending<BookEntity> { it.sourceLastModified }
-                .thenByDescending { it.addedDate }
                 .thenByDescending { it.id }
         ).take(6)
         val favorites = books
@@ -319,18 +317,16 @@ class BookshelfViewModel(
     }
 
     private fun applySort(list: List<BookEntity>, sort: String, asc: Boolean): List<BookEntity> {
-        // Recently Added uses explicit ascending/descending comparators instead
-        // of sort-then-reverse so the secondary tie-breaker (id) keeps the same
-        // direction as the primary key (addedDate). This matches the DAO query
-        // observeHomeRecentlyAdded() (ORDER BY id DESC) and the HomeOrderingTest.
-        // Note: Home Recently Added uses its own m-time-based sort in
-        // buildHomeContent(); this sort applies to Library and other shelf views.
+        // Modified is represented by the existing RECENTLY_ADDED sort key to keep
+        // persisted/session state and the existing architecture unchanged. Its
+        // ordering is based only on sourceLastModified, with id as a stable
+        // tie-breaker. addedDate is intentionally not used for this sort.
         val sorted = when (sort) {
             PrefsManager.SortOption.RECENTLY_ADDED ->
                 if (asc) {
-                    list.sortedWith(compareBy { it.id }).reversed()
+                    list.sortedWith(compareBy<BookEntity> { it.sourceLastModified }.thenBy { it.id })
                 } else {
-                    list.sortedWith(compareByDescending { it.id })
+                    list.sortedWith(compareByDescending<BookEntity> { it.sourceLastModified }.thenByDescending { it.id })
                 }
 
             PrefsManager.SortOption.RECENTLY_READ ->
@@ -350,8 +346,8 @@ class BookshelfViewModel(
             else ->
                 list.sortedWith(compareBy<BookEntity> { it.sortTitle }.thenBy { it.sortAuthor })
         }
-        // For all sorts except RECENTLY_ADDED (which uses explicit direction
-        // comparators above), apply the ascending/descending toggle by reversing.
+        // For all sorts except RECENTLY_ADDED/Modified (which uses explicit
+        // direction comparators above), apply the ascending/descending toggle by reversing.
         return if (sort == PrefsManager.SortOption.RECENTLY_ADDED) {
             sorted
         } else {

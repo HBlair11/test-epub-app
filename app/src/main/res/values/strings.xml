@@ -7,7 +7,7 @@
     <string name="home_continue_heading">Continue Reading</string>
     <string name="home_continue_series">%1$s</string>
     <string name="home_continue_location">Location - %1$s</string>
-    <string name="home_recently_added">Recently Added</string>
+    <string name="home_recently_added">Recent</string>
     <string name="home_favorites">Favorites</string>
     <string name="home_top_authors">Top Authors</string>
     <string name="home_top_series">Top Series</string>
@@ -108,13 +108,15 @@
     <string name="empty_library">No books yet</string>
     <string name="search_no_matches">No matching books</string>
 
-    <string name="sort_recently_added">Recently Added</string>
+    <string name="sort_recently_added">Modified</string>
     <string name="sort_recently_read">Recently Opened</string>
     <string name="sort_title">Title</string>
     <string name="sort_author">Author</string>
     <string name="sort_series">Series</string>
     <string name="sort_ascending">Ascending</string>
     <string name="sort_descending">Descending</string>
+    <string name="sort_newer_first">Newer first</string>
+    <string name="sort_older_first">Older first</string>
     <string name="sort_choose_order">Choose order</string>
 
     <string name="view_mode_grid">Grid</string>

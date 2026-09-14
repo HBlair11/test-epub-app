@@ -200,10 +200,10 @@ interface BookDao {
     @Query("SELECT * FROM books WHERE is_favorite = 1 ORDER BY title COLLATE NOCASE")
     fun observeFavorites(): Flow<List<BookEntity>>
 
-    @Query("SELECT * FROM books WHERE progress >= 0.995 ORDER BY last_opened_date DESC")
+    @Query("SELECT * FROM books WHERE progress >= 0.90 ORDER BY last_opened_date DESC")
     fun observeFinished(): Flow<List<BookEntity>>
 
-    @Query("SELECT COUNT(*) FROM books WHERE progress >= 0.995")
+    @Query("SELECT COUNT(*) FROM books WHERE progress >= 0.90")
     suspend fun getFinishedCount(): Int
 
     @Query("SELECT * FROM books WHERE last_opened_date IS NULL ORDER BY added_date DESC")

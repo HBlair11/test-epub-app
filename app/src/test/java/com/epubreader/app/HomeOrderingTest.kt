@@ -7,33 +7,45 @@ import org.junit.Test
 
 class HomeOrderingTest {
 
-    /** Library/shelf view Recently Added sort: id DESC (primary key), with stable
-     *  ascending tie-break by id when asc=true. */
+    /** Library/shelf view Modified sort: sourceLastModified only, with id as a stable
+     * tie-breaker in the same direction as the primary key. */
     private fun applySort(list: List<BookEntity>, sort: String, asc: Boolean): List<BookEntity> {
         val sorted = when (sort) {
             PrefsManager.SortOption.RECENTLY_ADDED ->
                 if (asc) {
-                    list.sortedWith(compareBy { it.id }).reversed()
+                    list.sortedWith(compareBy<BookEntity> { it.sourceLastModified }.thenBy { it.id })
                 } else {
-                    list.sortedWith(compareByDescending { it.id })
+                    list.sortedWith(compareByDescending<BookEntity> { it.sourceLastModified }.thenByDescending { it.id })
                 }
             else -> list.sortedWith(compareBy<BookEntity> { it.sortTitle })
         }
         return if (sort == PrefsManager.SortOption.RECENTLY_ADDED) sorted else if (asc) sorted else sorted.reversed()
     }
 
-    /** Home Recently Added sort: sourceLastModified DESC, then addedDate DESC,
-     *  then id DESC. */
+    @Test
+    fun libraryModifiedAscendingUsesSourceLastModifiedAndIgnoresAddedDate() {
+        val newerFileOlderImport = BookEntity(id = 1, title = "Newer file", author = "A", path = "new", checksum = "1", addedDate = 10L, sourceLastModified = 2000L)
+        val olderFileNewerImport = BookEntity(id = 2, title = "Older file", author = "B", path = "old", checksum = "2", addedDate = 9999L, sourceLastModified = 1000L)
+
+        val result = applySort(
+            listOf(newerFileOlderImport, olderFileNewerImport),
+            PrefsManager.SortOption.RECENTLY_ADDED,
+            true,
+        )
+
+        assertEquals(listOf(2L, 1L), result.map { it.id })
+    }
+
+    /** Home Recent sort: sourceLastModified DESC, then id DESC. */
     private fun homeSort(list: List<BookEntity>): List<BookEntity> {
         return list.sortedWith(
             compareByDescending<BookEntity> { it.sourceLastModified }
-                .thenByDescending { it.addedDate }
                 .thenByDescending { it.id }
         )
     }
 
     @Test
-    fun libraryRecentlyAddedUsesIdDescending() {
+    fun libraryModifiedUsesSourceLastModifiedDescending() {
         val older = BookEntity(id = 1, title = "Older", author = "A", path = "old", checksum = "1", addedDate = 100L, sourceLastModified = 1000L)
         val newer = BookEntity(id = 2, title = "Newer", author = "B", path = "new", checksum = "2", addedDate = 200L, sourceLastModified = 2000L)
 
@@ -43,19 +55,19 @@ class HomeOrderingTest {
     }
 
     @Test
-    fun homeRecentlyAddedUsesMtimeDescendingThenId() {
+    fun homeRecentUsesMtimeDescendingThenId() {
         val older = BookEntity(id = 1, title = "Older", author = "A", path = "old", checksum = "1", addedDate = 100L, sourceLastModified = 1000L)
         val newer = BookEntity(id = 2, title = "Newer", author = "B", path = "new", checksum = "2", addedDate = 200L, sourceLastModified = 2000L)
         val sameTimeHigherId = BookEntity(id = 3, title = "Same time", author = "C", path = "same", checksum = "3", addedDate = 200L, sourceLastModified = 2000L)
 
         val result = homeSort(listOf(older, newer, sameTimeHigherId))
 
-        // Same m-time → tie-break by addedDate DESC → tie-break by id DESC
+        // Same m-time → stable tie-break by id DESC; addedDate is irrelevant.
         assertEquals(listOf(3L, 2L, 1L), result.map { it.id })
     }
 
     @Test
-    fun homeRecentlyAddedAscendingGivesOldestMtimeFirst() {
+    fun homeRecentAscendingGivesOldestMtimeFirst() {
         val older = BookEntity(id = 1, title = "Older", author = "A", path = "old", checksum = "1", addedDate = 100L, sourceLastModified = 1000L)
         val newer = BookEntity(id = 2, title = "Newer", author = "B", path = "new", checksum = "2", addedDate = 200L, sourceLastModified = 2000L)
 
