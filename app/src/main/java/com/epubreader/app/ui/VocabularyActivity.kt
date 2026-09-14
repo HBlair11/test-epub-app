@@ -35,6 +35,7 @@ class VocabularyActivity : AppCompatActivity() {
     private lateinit var adapter: VocabularyAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        com.epubreader.app.util.AppUiTheme.apply(this, com.epubreader.app.util.AppUiTheme.Screen.MAIN)
         super.onCreate(savedInstanceState)
         binding = ActivityVocabularyBinding.inflate(layoutInflater)
         setContentView(binding.root)

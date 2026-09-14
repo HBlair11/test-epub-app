@@ -18,7 +18,7 @@
         android:layout_marginTop="2dp"
         android:contentDescription="@string/add_bookmark"
         app:srcCompat="@drawable/ic_bookmark"
-        app:tint="@color/accent" />
+        app:tint="?attr/colorPrimary" />
 
     <LinearLayout
         android:layout_width="0dp"

@@ -37,7 +37,7 @@
                 android:paddingTop="2dp"
                 android:paddingEnd="6dp"
                 android:paddingBottom="2dp"
-                android:textColor="@color/dark_text"
+                android:textColor="?attr/appColorBadgeText"
                 android:textSize="10sp"
                 android:textStyle="bold"
                 android:visibility="gone" />
@@ -47,7 +47,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="3dp"
                 android:layout_gravity="bottom"
-                android:background="@color/progress_track"
+                android:background="?attr/appColorProgressTrack"
                 android:visibility="gone" />
 
             <View
@@ -55,7 +55,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="3dp"
                 android:layout_gravity="bottom|start"
-                android:background="@color/progress_fill"
+                android:background="?attr/appColorProgressFill"
                 android:pivotX="0"
                 android:visibility="gone" />
         </FrameLayout>

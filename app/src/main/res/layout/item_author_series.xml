@@ -18,7 +18,7 @@
         android:layout_width="22dp"
         android:layout_height="22dp"
         android:contentDescription="@string/app_name"
-        android:tint="@color/secondary"
+        android:tint="?attr/colorSecondary"
         app:srcCompat="@drawable/ic_person" />
 
     <LinearLayout
@@ -58,7 +58,7 @@
         android:paddingTop="4dp"
         android:paddingEnd="12dp"
         android:paddingBottom="4dp"
-        android:textColor="@color/dark_text"
+        android:textColor="?attr/appColorBadgeText"
         android:textSize="12sp"
         android:textStyle="bold" />
 
@@ -67,6 +67,6 @@
         android:layout_height="16dp"
         android:layout_marginStart="6dp"
         android:contentDescription="@null"
-        android:tint="@color/secondary"
+        android:tint="?attr/colorSecondary"
         app:srcCompat="@drawable/ic_chevron_right" />
 </LinearLayout>

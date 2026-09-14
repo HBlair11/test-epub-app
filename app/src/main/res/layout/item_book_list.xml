@@ -9,7 +9,7 @@
     app:cardBackgroundColor="?attr/colorSurface"
     app:cardCornerRadius="10dp"
     app:cardElevation="0dp"
-    app:strokeColor="@color/light_border"
+    app:strokeColor="?attr/appColorBorder"
     app:strokeWidth="0.5dp">
 
     <LinearLayout
@@ -65,7 +65,7 @@
                 android:layout_marginTop="1dp"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="@color/secondary"
+                android:textColor="?attr/colorSecondary"
                 android:textSize="11sp"
                 android:visibility="gone" />
 
@@ -105,7 +105,7 @@
                     android:paddingEnd="6dp"
                     android:paddingBottom="1dp"
                     android:text="@string/progress_completed"
-                    android:textColor="@color/dark_text"
+                    android:textColor="?attr/appColorBadgeText"
                     android:textSize="9sp"
                     android:textStyle="bold"
                     android:visibility="gone" />

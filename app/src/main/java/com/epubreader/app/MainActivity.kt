@@ -246,6 +246,7 @@ class MainActivity : AppCompatActivity() {
         ) { uris -> importMultiple(uris) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        com.epubreader.app.util.AppUiTheme.apply(this, com.epubreader.app.util.AppUiTheme.Screen.MAIN)
         prefs = PrefsManager(applicationContext)
         importer = EpubImporter(applicationContext)
         keepScreenOnController = com.epubreader.app.util.KeepScreenOnController(this, prefs)
@@ -1633,6 +1634,7 @@ class MainActivity : AppCompatActivity() {
         // is in the foreground (uses FLAG_KEEP_SCREEN_ON + a 10-minute countdown
         // that releases the flag so the system's normal timeout takes over again).
         addScreenOnToggle()
+        addWebAppThemeToggle()
         // About/Privacy sits below the Screen On toggle so the user encounters
         // the privacy-forward about screen as the last item in Settings.
         addSettingsRow(getString(R.string.settings_about), getString(R.string.settings_about_detail)) {
@@ -1714,6 +1716,49 @@ class MainActivity : AppCompatActivity() {
         switch.setOnCheckedChangeListener { _, isChecked ->
             prefs.keepScreenOn = isChecked
             keepScreenOnController.refresh()
+        }
+        row.addView(labelColumn)
+        row.addView(switch)
+        binding.emptyState.addView(row)
+        dynamicEmptyChildren.add(row)
+    }
+
+    // Optional web-app visual theme. The preference is persisted before the
+    // Activity is recreated so the same screen is rebuilt with the selected theme.
+    private fun addWebAppThemeToggle() {
+        val row = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, 12.dp(), 0, 0)
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+        }
+        val labelColumn = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                weight = 1f
+            }
+        }
+        android.widget.TextView(this).apply {
+            text = getString(R.string.settings_web_app_theme)
+            setTextColor(themeColor(android.R.attr.textColorPrimary))
+            textSize = 15f
+            labelColumn.addView(this)
+        }
+        android.widget.TextView(this).apply {
+            text = getString(R.string.settings_web_app_theme_summary)
+            setTextColor(themeColor(android.R.attr.textColorSecondary))
+            textSize = 12f
+            labelColumn.addView(this)
+        }
+        val switch = androidx.appcompat.widget.SwitchCompat(this).apply {
+            isChecked = prefs.webAppThemeEnabled
+        }
+        switch.setOnCheckedChangeListener { _, isChecked ->
+            prefs.webAppThemeEnabled = isChecked
+            recreate()
         }
         row.addView(labelColumn)
         row.addView(switch)

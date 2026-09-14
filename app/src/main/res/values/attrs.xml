@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App theme semantic colors. These allow the optional web theme to be
+         switched at runtime without changing the original colors.xml palette. -->
+    <attr name="appColorBorder" format="color" />
+    <attr name="appColorPop" format="color" />
+    <attr name="appColorPop2" format="color" />
+    <attr name="appColorCoverPlaceholder" format="color" />
+    <attr name="appColorCoverText" format="color" />
+    <attr name="appColorBadgeText" format="color" />
+    <attr name="appColorProgressTrack" format="color" />
+    <attr name="appColorProgressFill" format="color" />
+    <attr name="appColorCompleted" format="color" />
+    <attr name="appColorReaderChromeScrim" format="color" />
+</resources>

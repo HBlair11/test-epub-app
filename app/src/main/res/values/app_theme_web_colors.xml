@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Web-app theme palette: single source of truth for the optional UI theme.
+         EPUB content themes remain independent and are not changed by this palette. -->
+    <color name="web_theme_accent">#D88C9A</color>
+    <color name="web_theme_accent_dark">#C6707E</color>
+    <color name="web_theme_secondary">#B48EAE</color>
+    <color name="web_theme_pop">#F2D0A9</color>
+    <color name="web_theme_pop2">#8E7DBE</color>
+    <color name="web_theme_light_accent">#F1E3D3</color>
+    <color name="web_theme_light_bg">#FFEEF2</color>
+    <color name="web_theme_light_surface">#FFFFFF</color>
+    <color name="web_theme_light_surface_alt">#FFE4F3</color>
+    <color name="web_theme_light_border">#F1E3D3</color>
+    <color name="web_theme_light_text">#5A4650</color>
+    <color name="web_theme_light_text_muted">#B48EAE</color>
+    <color name="web_theme_light_text_faint">#D88C9A</color>
+
+    <color name="web_theme_reader_chrome_scrim">#80D88C9A</color>
+</resources>

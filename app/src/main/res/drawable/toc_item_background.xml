@@ -4,14 +4,14 @@
 
     <item android:state_pressed="true">
         <shape>
-            <solid android:color="@color/reader_chrome_surface" />
+            <solid android:color="?attr/colorSurface" />
             <corners android:radius="8dp" />
         </shape>
     </item>
 
     <item android:state_activated="true">
         <shape>
-            <solid android:color="@color/reader_chrome_surface" />
+            <solid android:color="?attr/colorSurface" />
             <corners android:radius="8dp" />
         </shape>
     </item>

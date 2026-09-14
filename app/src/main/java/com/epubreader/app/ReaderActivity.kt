@@ -264,6 +264,7 @@ class ReaderActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
+        com.epubreader.app.util.AppUiTheme.apply(this, com.epubreader.app.util.AppUiTheme.Screen.READER)
         prefs = PrefsManager(applicationContext)
         keepScreenOnController = com.epubreader.app.util.KeepScreenOnController(this, prefs)
         db = AppDatabase.get(applicationContext)
@@ -367,10 +368,11 @@ class ReaderActivity : AppCompatActivity() {
         return t.bgColor to t.inkHex
     }
 
-    /** Reader chrome background — STATIC (eggplant) for every reading theme and
-     *  for app day/night. Read from the color resource so palette changes in
-     *  colors.xml propagate here (single source of truth). */
-    private fun readerSurface(): Int = getColor(R.color.reader_chrome_bg)
+    /** Reader chrome background. The EPUB content theme remains independent;
+     *  this surface follows the selected app UI theme. */
+    private fun readerSurface(): Int = com.google.android.material.color.MaterialColors.getColor(
+        this, android.R.attr.colorBackground, androidx.core.content.ContextCompat.getColor(this, com.epubreader.app.R.color.reader_chrome_bg)
+    )
 
     private fun inkColor(): Int = Color.parseColor(readerColors().second)
 

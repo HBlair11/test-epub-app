@@ -21,9 +21,9 @@
         android:layout_height="?attr/actionBarSize"
         android:background="?android:colorBackground"
         app:title="@string/reader_settings_title"
-        app:titleTextColor="@color/reader_chrome_text"
+        app:titleTextColor="?android:textColorPrimary"
         app:navigationIcon="@drawable/ic_arrow_back"
-        app:navigationIconTint="@color/reader_chrome_text"
+        app:navigationIconTint="?android:textColorPrimary"
         app:navigationContentDescription="@string/action_back" />
 
     <androidx.core.widget.NestedScrollView
@@ -31,7 +31,7 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:background="@color/reader_chrome_bg"
+        android:background="?android:colorBackground"
         android:fillViewport="true"
         android:scrollbars="vertical">
 
@@ -55,7 +55,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:inputType="none"
-                    android:textColor="@color/reader_chrome_text"
+                    android:textColor="?android:textColorPrimary"
                     android:paddingStart="12dp"
                     android:paddingEnd="8dp" />
             </com.google.android.material.textfield.TextInputLayout>
@@ -72,7 +72,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:inputType="none"
-                    android:textColor="@color/reader_chrome_text"
+                    android:textColor="?android:textColorPrimary"
                     android:paddingStart="12dp"
                     android:paddingEnd="8dp" />
             </com.google.android.material.textfield.TextInputLayout>
@@ -89,7 +89,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:inputType="none"
-                    android:textColor="@color/reader_chrome_text"
+                    android:textColor="?android:textColorPrimary"
                     android:paddingStart="12dp"
                     android:paddingEnd="8dp" />
             </com.google.android.material.textfield.TextInputLayout>

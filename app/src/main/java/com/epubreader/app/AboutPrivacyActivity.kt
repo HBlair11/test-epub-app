@@ -8,6 +8,7 @@ import com.epubreader.app.util.SystemBarController
 
 class AboutPrivacyActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        com.epubreader.app.util.AppUiTheme.apply(this, com.epubreader.app.util.AppUiTheme.Screen.MAIN)
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_about_privacy)
         SystemBarController.apply(this)

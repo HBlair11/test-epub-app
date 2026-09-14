@@ -71,6 +71,7 @@ class ReaderSettingsActivity : AppCompatActivity() {
     private var lineTick: Int = 16
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        com.epubreader.app.util.AppUiTheme.apply(this, com.epubreader.app.util.AppUiTheme.Screen.READER_SETTINGS)
         super.onCreate(savedInstanceState)
         binding = ActivityReaderSettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)

@@ -259,8 +259,8 @@
             android:layout_height="wrap_content"
             android:paddingStart="@dimen/app_row_content_padding_h"
             android:paddingEnd="@dimen/app_row_content_padding_h"
-            android:progressTint="@color/reader_chrome_accent"
-            android:thumbTint="@color/reader_chrome_accent" />
+            android:progressTint="?attr/colorPrimary"
+            android:thumbTint="?attr/colorPrimary" />
 
         <!-- Percent + Add Bookmark row: same vertical breathing room as the
              icon-button rows above (app_chrome_padding_v on top). Text sits at
@@ -288,10 +288,10 @@
                 android:padding="4dp"
                 android:paddingEnd="@dimen/app_row_content_padding_h"
                 android:text="@string/add_bookmark"
-                android:textColor="@color/reader_chrome_text"
+                android:textColor="?android:textColorPrimary"
                 android:textSize="14sp"
                 app:drawableStartCompat="@drawable/ic_bookmark_add"
-                app:drawableTint="@color/reader_chrome_text" />
+                app:drawableTint="?android:textColorPrimary" />
         </LinearLayout>
     </LinearLayout>
 
@@ -430,8 +430,8 @@
             android:imeOptions="actionSearch"
             android:inputType="text"
             android:padding="@dimen/app_row_padding_h"
-            android:textColor="@color/reader_chrome_text"
-            android:textColorHint="@color/reader_chrome_text_muted"
+            android:textColor="?android:textColorPrimary"
+            android:textColorHint="?android:textColorPrimary_muted"
             android:textSize="15sp" />
 
         <FrameLayout
@@ -453,7 +453,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="@color/reader_chrome_bg"
+        android:background="?android:colorBackground"
         android:clickable="true"
         android:focusable="true"
         android:orientation="vertical"
@@ -487,7 +487,7 @@
                 android:paddingStart="@dimen/app_reader_icon_inset"
                 android:paddingEnd="@dimen/app_reader_icon_inset"
                 android:text="@string/tts_overlay_title"
-                android:textColor="@color/reader_chrome_text"
+                android:textColor="?android:textColorPrimary"
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
@@ -507,7 +507,7 @@
             android:maxLines="1"
             android:paddingStart="@dimen/app_row_content_padding_h"
             android:paddingEnd="@dimen/app_row_content_padding_h"
-            android:textColor="@color/reader_chrome_text"
+            android:textColor="?android:textColorPrimary"
             android:textSize="14sp"
             android:textStyle="bold" />
 
@@ -520,7 +520,7 @@
             android:paddingStart="@dimen/app_row_content_padding_h"
             android:paddingEnd="@dimen/app_row_content_padding_h"
             android:paddingTop="@dimen/app_row_padding_v"
-            android:textColor="@color/reader_chrome_text_muted"
+            android:textColor="?android:textColorPrimary_muted"
             android:textSize="12sp" />
 
         <!-- Status line: sentence position / sleep-timer countdown. -->
@@ -534,7 +534,7 @@
             android:paddingEnd="@dimen/app_row_content_padding_h"
             android:paddingTop="@dimen/app_row_padding_v"
             android:text="@string/action_read_aloud"
-            android:textColor="@color/reader_chrome_text_muted"
+            android:textColor="?android:textColorPrimary_muted"
             android:textSize="12sp" />
 
         <!-- Transport: previous sentence | play/pause | next sentence | stop.

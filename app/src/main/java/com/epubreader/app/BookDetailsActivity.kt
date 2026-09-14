@@ -45,6 +45,7 @@ class BookDetailsActivity : AppCompatActivity() {
             com.epubreader.app.util.KeepScreenOnController
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        com.epubreader.app.util.AppUiTheme.apply(this, com.epubreader.app.util.AppUiTheme.Screen.MAIN)
         super.onCreate(savedInstanceState)
 
         keepScreenOnController =

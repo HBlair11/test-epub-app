@@ -79,9 +79,9 @@
         <item name="android:layout_width">44dp</item>
         <item name="android:layout_height">44dp</item>
         <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
-        <!-- Tint is NOT set here. Icons are white vectors on dark reader chrome,
-             so they render white from their own color. Set app:tint on a view only
-             for a non-white tint or when used on a light background. -->
+        <!-- Follow the active reader-chrome text color so the optional web theme
+             can switch icon contrast without changing the vector assets. -->
+        <item name="android:tint">?android:textColorPrimary</item>
     </style>
     <style name="ReaderSelectionToolbarAction" parent="android:style/Widget.TextView">
         <item name="android:layout_width">wrap_content</item>
@@ -92,7 +92,7 @@
         <item name="android:layout_marginEnd">@dimen/app_selection_toolbar_action_margin_h</item>
         <item name="android:paddingStart">@dimen/app_selection_toolbar_action_padding_h</item>
         <item name="android:paddingEnd">@dimen/app_selection_toolbar_action_padding_h</item>
-        <item name="android:textColor">@color/reader_chrome_text</item>
+        <item name="android:textColor">?android:textColorPrimary</item>
         <item name="android:textSize">@dimen/app_selection_toolbar_text_size</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
@@ -108,7 +108,7 @@
         <item name="android:layout_marginEnd">@dimen/app_selection_toolbar_action_margin_h</item>
         <item name="android:minWidth">@dimen/app_selection_toolbar_action_min_width</item>
         <item name="android:background">?android:attr/selectableItemBackgroundBorderless</item>
-        <item name="android:tint">@color/reader_chrome_text</item>
+        <item name="android:tint">?android:textColorPrimary</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
     </style>

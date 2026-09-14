@@ -26,6 +26,16 @@
         <item name="colorOnSurface">@color/light_text</item>
         <item name="android:textColorPrimary">@color/light_text</item>
         <item name="android:textColorSecondary">@color/light_text_muted</item>
+        <item name="appColorBorder">@color/light_border</item>
+        <item name="appColorPop">@color/pop</item>
+        <item name="appColorPop2">@color/pop2</item>
+        <item name="appColorCoverPlaceholder">@color/cover_placeholder</item>
+        <item name="appColorCoverText">@color/cover_text</item>
+        <item name="appColorBadgeText">@color/dark_text</item>
+        <item name="appColorProgressTrack">@color/progress_track</item>
+        <item name="appColorProgressFill">@color/progress_fill</item>
+        <item name="appColorCompleted">@color/completed</item>
+        <item name="appColorReaderChromeScrim">@color/reader_chrome_scrim</item>
     </style>
 
     <!--
@@ -49,6 +59,7 @@
         <item name="colorOnSurface">@color/reader_chrome_text</item>
         <item name="android:textColorPrimary">@color/reader_chrome_text</item>
         <item name="android:textColorSecondary">@color/reader_chrome_text_muted</item>
+        <item name="appColorReaderChromeScrim">@color/reader_chrome_scrim</item>
         <!-- Settings sheet: static chrome (plum bg + white text + mint accents). -->
         <item name="bottomSheetDialogTheme">@style/Theme.EpubReader.Reader.Sheet</item>
     </style>
@@ -84,4 +95,89 @@
         <item name="android:textColorPrimary">@color/reader_chrome_text</item>
         <item name="android:textColorSecondary">@color/reader_chrome_text_muted</item>
     </style>
+    <!-- Optional web-app visual theme. It reuses the existing Android architecture
+         and changes only theme/color resources; EPUB reading content themes remain
+         untouched. -->
+    <style name="Theme.EpubReader.Web" parent="Theme.EpubReader">
+        <item name="android:windowBackground">@color/web_theme_light_bg</item>
+        <item name="android:colorBackground">@color/web_theme_light_bg</item>
+        <item name="colorPrimary">@color/web_theme_accent</item>
+        <item name="colorPrimaryVariant">@color/web_theme_accent_dark</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/web_theme_secondary</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="colorSurface">@color/web_theme_light_surface</item>
+        <item name="colorOnSurface">@color/web_theme_light_text</item>
+        <item name="android:textColorPrimary">@color/web_theme_light_text</item>
+        <item name="android:textColorSecondary">@color/web_theme_light_text_muted</item>
+        <item name="appColorBorder">@color/web_theme_light_border</item>
+        <item name="appColorPop">@color/web_theme_pop</item>
+        <item name="appColorPop2">@color/web_theme_pop2</item>
+        <item name="appColorCoverPlaceholder">@color/web_theme_light_surface_alt</item>
+        <item name="appColorCoverText">@color/web_theme_light_text</item>
+        <item name="appColorBadgeText">@color/web_theme_light_text</item>
+        <item name="appColorProgressTrack">@color/web_theme_secondary</item>
+        <item name="appColorProgressFill">@color/web_theme_accent</item>
+        <item name="appColorCompleted">@color/web_theme_secondary</item>
+        <item name="appColorReaderChromeScrim">@color/web_theme_reader_chrome_scrim</item>
+    </style>
+
+    <style name="Theme.EpubReader.Reader.Web" parent="Theme.EpubReader.Reader">
+        <item name="android:windowBackground">@color/web_theme_light_bg</item>
+        <item name="android:colorBackground">@color/web_theme_light_bg</item>
+        <item name="colorSurface">@color/web_theme_light_surface</item>
+        <item name="colorOnSurface">@color/web_theme_light_text</item>
+        <item name="colorPrimary">@color/web_theme_accent</item>
+        <item name="colorPrimaryVariant">@color/web_theme_accent_dark</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/web_theme_secondary</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="android:textColorPrimary">@color/web_theme_light_text</item>
+        <item name="android:textColorSecondary">@color/web_theme_light_text_muted</item>
+        <item name="appColorBorder">@color/web_theme_light_border</item>
+        <item name="appColorPop">@color/web_theme_pop</item>
+        <item name="appColorPop2">@color/web_theme_pop2</item>
+        <item name="appColorCoverPlaceholder">@color/web_theme_light_surface_alt</item>
+        <item name="appColorCoverText">@color/web_theme_light_text</item>
+        <item name="appColorBadgeText">@color/web_theme_light_text</item>
+        <item name="appColorProgressTrack">@color/web_theme_secondary</item>
+        <item name="appColorProgressFill">@color/web_theme_accent</item>
+        <item name="appColorCompleted">@color/web_theme_secondary</item>
+        <item name="appColorReaderChromeScrim">@color/web_theme_reader_chrome_scrim</item>
+        <item name="bottomSheetDialogTheme">@style/Theme.EpubReader.Reader.Web.Sheet</item>
+    </style>
+
+    <style name="Theme.EpubReader.Reader.Web.Sheet" parent="Theme.EpubReader.Reader.Sheet">
+        <item name="colorSurface">@color/web_theme_light_surface</item>
+        <item name="colorPrimary">@color/web_theme_accent</item>
+        <item name="colorPrimaryVariant">@color/web_theme_accent_dark</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="android:textColorPrimary">@color/web_theme_light_text</item>
+        <item name="android:textColorSecondary">@color/web_theme_light_text_muted</item>
+    </style>
+
+    <style name="Theme.EpubReader.Settings.Web" parent="Theme.EpubReader.Settings">
+        <item name="android:windowBackground">@color/web_theme_light_bg</item>
+        <item name="android:colorBackground">@color/web_theme_light_bg</item>
+        <item name="colorSurface">@color/web_theme_light_surface</item>
+        <item name="colorOnSurface">@color/web_theme_light_text</item>
+        <item name="colorPrimary">@color/web_theme_accent</item>
+        <item name="colorPrimaryVariant">@color/web_theme_accent_dark</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/web_theme_secondary</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="android:textColorPrimary">@color/web_theme_light_text</item>
+        <item name="android:textColorSecondary">@color/web_theme_light_text_muted</item>
+        <item name="appColorBorder">@color/web_theme_light_border</item>
+        <item name="appColorPop">@color/web_theme_pop</item>
+        <item name="appColorPop2">@color/web_theme_pop2</item>
+        <item name="appColorCoverPlaceholder">@color/web_theme_light_surface_alt</item>
+        <item name="appColorCoverText">@color/web_theme_light_text</item>
+        <item name="appColorBadgeText">@color/web_theme_light_text</item>
+        <item name="appColorProgressTrack">@color/web_theme_secondary</item>
+        <item name="appColorProgressFill">@color/web_theme_accent</item>
+        <item name="appColorCompleted">@color/web_theme_secondary</item>
+        <item name="appColorReaderChromeScrim">@color/web_theme_reader_chrome_scrim</item>
+    </style>
+
 </resources>

@@ -149,6 +149,13 @@ class PrefsManager(
             prefs.edit().putBoolean(KEY_KEEP_SCREEN_ON, value).apply()
         }
 
+    /** Optional web-app color theme for the main app and reader chrome. */
+    var webAppThemeEnabled: Boolean
+        get() = prefs.getBoolean(KEY_WEB_APP_THEME, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_WEB_APP_THEME, value).apply()
+        }
+
     /** Patch 17 (Addition #2): when true, in-chapter / cross-chapter page turns
      *  play a short slide animation that reads like turning a physical page;
      *  when false, pages change instantly with no animation. Default ON so the
@@ -199,6 +206,7 @@ class PrefsManager(
         const val KEY_BOTTOM_GUARD = "bottom_guard"
         const val KEY_FOLDER = "selected_folder_uri"
         const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
+        const val KEY_WEB_APP_THEME = "web_app_theme"
         const val KEY_PAGE_TURN_ANIM = "page_turn_animation"
         const val KEY_TTS_SPEED = "tts_speed"
         const val KEY_TTS_PITCH = "tts_pitch"

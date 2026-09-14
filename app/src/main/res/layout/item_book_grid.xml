@@ -43,7 +43,7 @@
                 android:paddingTop="2dp"
                 android:paddingEnd="6dp"
                 android:paddingBottom="2dp"
-                android:textColor="@color/dark_text"
+                android:textColor="?attr/appColorBadgeText"
                 android:textSize="10sp"
                 android:textStyle="bold"
                 android:visibility="gone"
@@ -55,7 +55,7 @@
                 android:id="@+id/progressTrack"
                 android:layout_width="0dp"
                 android:layout_height="3dp"
-                android:background="@color/progress_track"
+                android:background="?attr/appColorProgressTrack"
                 app:layout_constraintBottom_toBottomOf="@id/cover"
                 app:layout_constraintStart_toStartOf="@id/cover"
                 app:layout_constraintEnd_toEndOf="@id/cover" />
@@ -64,7 +64,7 @@
                 android:id="@+id/progressFill"
                 android:layout_width="0dp"
                 android:layout_height="3dp"
-                android:background="@color/progress_fill"
+                android:background="?attr/appColorProgressFill"
                 app:layout_constraintBottom_toBottomOf="@id/cover"
                 app:layout_constraintStart_toStartOf="@id/cover"
                 app:layout_constraintEnd_toEndOf="@id/progressTrack" />
