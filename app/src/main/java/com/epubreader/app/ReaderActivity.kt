@@ -3313,11 +3313,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                     lifecycleScope.launch(Dispatchers.IO) {
                         db.highlightDao().delete(h)
                         withContext(Dispatchers.Main) {
-                            // Also unwrap the mark from the current page if visible.
-                            binding.webView.evaluateJavascript(
-                                "(function(){var m=document.querySelector('mark.livre-highlight[data-highlight-id=\"" + h.id + "\"]');if(m){var p=m.parentNode;while(m.firstChild)p.insertBefore(m.firstChild,m);p.removeChild(m);}})();",
-                                null,
-                            )
+                            removeHighlightDecorationsFromWebView(h.id)
                             Snackbar
                                 .make(binding.root, R.string.highlight_deleted, Snackbar.LENGTH_LONG)
                                 .setAction(R.string.undo) {
@@ -4928,6 +4924,27 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
         }
     }
 
+    /** Removes every rendered fragment belonging to one persisted highlight.
+     *
+     * A single logical selection may be decorated by multiple <mark> nodes when
+     * it crosses EPUB text nodes or inline spans. Deletion must remove all of
+     * those decoration nodes without changing the underlying EPUB text.
+     */
+    private fun removeHighlightDecorationsFromWebView(highlightId: Long) {
+        binding.webView.evaluateJavascript(
+            """(function(){
+                var ms=document.querySelectorAll('mark.livre-highlight[data-highlight-id="$highlightId"]');
+                for(var i=ms.length-1;i>=0;i--){
+                    var m=ms[i],p=m.parentNode;
+                    if(!p)continue;
+                    while(m.firstChild)p.insertBefore(m.firstChild,m);
+                    p.removeChild(m);
+                }
+            })();""",
+            null,
+        )
+    }
+
     /** Shows a bottom sheet for viewing a highlight and adding/editing a note. */
     private fun showHighlightNoteSheet(highlightId: Long) {
         lifecycleScope.launch(Dispatchers.IO) {
@@ -4981,11 +4998,7 @@ body *:not(mark.livre-highlight):not(.livre-tts-word):not(.livre-tts-sentence) {
                         lifecycleScope.launch(Dispatchers.IO) {
                             repo.deleteHighlight(highlight)
                             withContext(Dispatchers.Main) {
-                                // Remove the highlight from the WebView.
-                                binding.webView.evaluateJavascript(
-                                    """(function(){var ms=document.querySelectorAll('mark.livre-highlight[data-highlight-id="$highlightId"]');for(var i=ms.length-1;i>=0;i--){var m=ms[i],p=m.parentNode;if(!p)continue;while(m.firstChild)p.insertBefore(m.firstChild,m);p.removeChild(m);}})();""",
-                                    null,
-                                )
+                                removeHighlightDecorationsFromWebView(highlightId)
                                 Snackbar
                                     .make(binding.root, R.string.highlight_deleted, Snackbar.LENGTH_LONG)
                                     .setAction(R.string.undo) {
