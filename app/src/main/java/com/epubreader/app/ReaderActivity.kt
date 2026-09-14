@@ -1,5 +1,6 @@
 package com.epubreader.app
 
+import com.epubreader.app.util.AppUiTheme
 import com.epubreader.app.util.SystemBarController
 
 import android.annotation.SuppressLint
@@ -264,7 +265,7 @@ class ReaderActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
-        com.epubreader.app.util.AppUiTheme.apply(this, com.epubreader.app.util.AppUiTheme.Screen.READER)
+        AppUiTheme.apply(this, AppUiTheme.Screen.READER)
         prefs = PrefsManager(applicationContext)
         keepScreenOnController = com.epubreader.app.util.KeepScreenOnController(this, prefs)
         db = AppDatabase.get(applicationContext)

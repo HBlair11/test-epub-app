@@ -431,7 +431,7 @@
             android:inputType="text"
             android:padding="@dimen/app_row_padding_h"
             android:textColor="?android:textColorPrimary"
-            android:textColorHint="?android:textColorPrimary_muted"
+            android:textColorHint="?android:textColorSecondary"
             android:textSize="15sp" />
 
         <FrameLayout
@@ -520,7 +520,7 @@
             android:paddingStart="@dimen/app_row_content_padding_h"
             android:paddingEnd="@dimen/app_row_content_padding_h"
             android:paddingTop="@dimen/app_row_padding_v"
-            android:textColor="?android:textColorPrimary_muted"
+            android:textColor="?android:textColorSecondary"
             android:textSize="12sp" />
 
         <!-- Status line: sentence position / sleep-timer countdown. -->
@@ -534,7 +534,7 @@
             android:paddingEnd="@dimen/app_row_content_padding_h"
             android:paddingTop="@dimen/app_row_padding_v"
             android:text="@string/action_read_aloud"
-            android:textColor="?android:textColorPrimary_muted"
+            android:textColor="?android:textColorSecondary"
             android:textSize="12sp" />
 
         <!-- Transport: previous sentence | play/pause | next sentence | stop.

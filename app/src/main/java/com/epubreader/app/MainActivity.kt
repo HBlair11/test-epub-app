@@ -1,5 +1,6 @@
 package com.epubreader.app
 
+import com.epubreader.app.util.AppUiTheme
 import com.epubreader.app.util.SystemBarController
 
 import android.content.Intent
@@ -246,7 +247,7 @@ class MainActivity : AppCompatActivity() {
         ) { uris -> importMultiple(uris) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        com.epubreader.app.util.AppUiTheme.apply(this, com.epubreader.app.util.AppUiTheme.Screen.MAIN)
+        AppUiTheme.apply(this, AppUiTheme.Screen.MAIN)
         prefs = PrefsManager(applicationContext)
         importer = EpubImporter(applicationContext)
         keepScreenOnController = com.epubreader.app.util.KeepScreenOnController(this, prefs)

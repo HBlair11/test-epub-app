@@ -1,5 +1,6 @@
 package com.epubreader.app.ui
 
+import com.epubreader.app.util.AppUiTheme
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -35,7 +36,7 @@ class VocabularyActivity : AppCompatActivity() {
     private lateinit var adapter: VocabularyAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        com.epubreader.app.util.AppUiTheme.apply(this, com.epubreader.app.util.AppUiTheme.Screen.MAIN)
+        AppUiTheme.apply(this, AppUiTheme.Screen.MAIN)
         super.onCreate(savedInstanceState)
         binding = ActivityVocabularyBinding.inflate(layoutInflater)
         setContentView(binding.root)

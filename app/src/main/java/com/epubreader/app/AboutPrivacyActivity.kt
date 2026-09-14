@@ -1,5 +1,6 @@
 package com.epubreader.app
 
+import com.epubreader.app.util.AppUiTheme
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
@@ -8,7 +9,7 @@ import com.epubreader.app.util.SystemBarController
 
 class AboutPrivacyActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        com.epubreader.app.util.AppUiTheme.apply(this, com.epubreader.app.util.AppUiTheme.Screen.MAIN)
+        AppUiTheme.apply(this, AppUiTheme.Screen.MAIN)
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_about_privacy)
         SystemBarController.apply(this)

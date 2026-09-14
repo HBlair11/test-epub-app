@@ -1,5 +1,6 @@
 package com.epubreader.app
 
+import com.epubreader.app.util.AppUiTheme
 import com.epubreader.app.util.SystemBarController
 
 import android.os.Bundle
@@ -14,7 +15,7 @@ class MetadataRefreshActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMetadataRefreshBinding
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        com.epubreader.app.util.AppUiTheme.apply(this, com.epubreader.app.util.AppUiTheme.Screen.MAIN)
+        AppUiTheme.apply(this, AppUiTheme.Screen.MAIN)
         super.onCreate(savedInstanceState)
 
         binding =
