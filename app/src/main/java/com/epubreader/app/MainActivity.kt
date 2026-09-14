@@ -98,8 +98,10 @@ class MainActivity : AppCompatActivity() {
     // flag, so the normal adapter submit path runs and the restore is applied
     // inside that path's commit callback (after the adapter has items).
     //
-    // Currently Reading is intentionally excluded: it always refreshes cleanly
-    // from the top on return (matches Patch 10 behaviour for that one view).
+    // Currently Reading is restored when returning from Book Details, so the
+    // bookshelf stays at the user's last scroll location. It remains excluded
+    // from the reader-return top-reset path: opening/reading a book from
+    // Currently Reading keeps its existing clean top-reset behaviour.
     //
     // Per-view saved scroll anchor. We store BOTH the first-visible row (for
     // exact same-layout restoration when the list order hasn't changed) and the
@@ -126,11 +128,11 @@ class MainActivity : AppCompatActivity() {
     private var viewBeforeRecentlyAdded: ShelfView? = null
     private var pendingRestoreBookId: Long? = null
 
-    // Patch 11: When opening a book FROM Currently Reading, we want the clean
-    // top-reset-on-return behaviour Patch 10 gave (that view is excluded from
-    // scroll restoration). Room may not re-emit in time (or at all) on resume,
-    // so this flag forces a scroll-to-top in onResume as a guaranteed fallback
-    // when returning from the reader to Currently Reading specifically.
+    // Patch 11: When opening a book FROM Currently Reading, keep the existing
+    // clean top-reset-on-return behaviour. Room may not re-emit in time (or at
+    // all) on resume, so this flag forces a scroll-to-top in onResume as a
+    // guaranteed fallback when returning from the reader specifically.
+    // Book Details uses the normal saved-scroll restoration path instead.
     private var pendingReadingTopReset = false
 
     private val homeAdapters = mutableMapOf<Int, HomeBookAdapter>()
@@ -142,9 +144,10 @@ class MainActivity : AppCompatActivity() {
     private var lastHomeContent: HomeContent? = null
 
     // A list of shelf views that should be restored on return from a sub-activity.
-    // Reading is deliberately NOT in this set.
+    // Currently Reading is included for the Book Details return path.
     private fun isRestoreEligible(view: ShelfView): Boolean =
-        view is ShelfView.Library ||
+        view is ShelfView.Reading ||
+                view is ShelfView.Library ||
                 view is ShelfView.AuthorsList ||
                 view is ShelfView.SeriesList ||
                 view is ShelfView.AuthorDetail ||
@@ -1794,9 +1797,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun openBook(book: BookEntity) {
         viewModel.markOpened(book.id)
-        // Patch 11: capture this view's scroll position before navigating away so
-        // it can be restored exactly on return. Reading is excluded (always
-        // refreshes from top on return, per Patch 10 behaviour for that view).
+        // Patch 11 / Fix #4: capture this view's scroll position before navigating
+        // away. Currently Reading restores this position when returning from Book
+        // Details, while the reader path below continues to use its existing
+        // top-reset behaviour.
         captureScrollState(book.id)
         viewModel.view.value?.let {
             if (it is ShelfView.Reading) {
@@ -1811,9 +1815,7 @@ class MainActivity : AppCompatActivity() {
     private fun openDetails(book: BookEntity) {
         captureScrollState(book.id)
         viewModel.view.value?.let {
-            if (it is ShelfView.Reading) {
-                pendingReadingTopReset = true
-            } else if (isRestoreEligible(it)) {
+            if (isRestoreEligible(it)) {
                 pendingRestoreKey = viewKey(it)
             }
         }
