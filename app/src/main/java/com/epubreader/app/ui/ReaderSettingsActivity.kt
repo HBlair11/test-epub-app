@@ -1,6 +1,5 @@
 package com.epubreader.app.ui
 
-import com.epubreader.app.util.AppUiTheme
 import com.epubreader.app.util.SystemBarController
 
 import android.os.Bundle
@@ -72,7 +71,6 @@ class ReaderSettingsActivity : AppCompatActivity() {
     private var lineTick: Int = 16
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        AppUiTheme.apply(this, AppUiTheme.Screen.READER_SETTINGS)
         super.onCreate(savedInstanceState)
         binding = ActivityReaderSettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)

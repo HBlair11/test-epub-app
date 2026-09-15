@@ -1,6 +1,5 @@
 package com.epubreader.app
 
-import com.epubreader.app.util.AppUiTheme
 import android.os.Bundle
 import android.view.Gravity
 import android.widget.LinearLayout
@@ -19,7 +18,6 @@ import java.util.Calendar
 
 class ReadingStatsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        AppUiTheme.apply(this, AppUiTheme.Screen.MAIN)
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_reading_stats)
         SystemBarController.apply(this)

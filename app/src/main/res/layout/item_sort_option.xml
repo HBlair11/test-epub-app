@@ -25,5 +25,5 @@
         android:layout_height="20dp"
         android:contentDescription="@string/confirm"
         android:src="@drawable/ic_check"
-        android:tint="?attr/colorPrimary" />
+        android:tint="@color/accent" />
 </LinearLayout>

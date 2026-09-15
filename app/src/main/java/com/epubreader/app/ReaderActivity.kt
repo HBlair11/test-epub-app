@@ -1,6 +1,5 @@
 package com.epubreader.app
 
-import com.epubreader.app.util.AppUiTheme
 import com.epubreader.app.util.SystemBarController
 
 import android.annotation.SuppressLint
@@ -265,7 +264,6 @@ class ReaderActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
-        AppUiTheme.apply(this, AppUiTheme.Screen.READER)
         prefs = PrefsManager(applicationContext)
         keepScreenOnController = com.epubreader.app.util.KeepScreenOnController(this, prefs)
         db = AppDatabase.get(applicationContext)
@@ -369,11 +367,10 @@ class ReaderActivity : AppCompatActivity() {
         return t.bgColor to t.inkHex
     }
 
-    /** Reader chrome background. The EPUB content theme remains independent;
-     *  this surface follows the selected app UI theme. */
-    private fun readerSurface(): Int = com.google.android.material.color.MaterialColors.getColor(
-        this, android.R.attr.colorBackground, androidx.core.content.ContextCompat.getColor(this, com.epubreader.app.R.color.reader_chrome_bg)
-    )
+    /** Reader chrome background — STATIC (eggplant) for every reading theme and
+     *  for app day/night. Read from the color resource so palette changes in
+     *  colors.xml propagate here (single source of truth). */
+    private fun readerSurface(): Int = getColor(R.color.reader_chrome_bg)
 
     private fun inkColor(): Int = Color.parseColor(readerColors().second)
 
@@ -484,7 +481,7 @@ class ReaderActivity : AppCompatActivity() {
         // CSS pixels) so the definition card can anchor to it instead of a
         // fixed-position bottom sheet.
         binding.webView.evaluateJavascript(
-            "(function(){var s=window.getSelection&&window.getSelection();if(!s||s.rangeCount===0||!s.toString().trim())return;var r=s.getRangeAt(0);var rect=r.getBoundingClientRect();function p(n){var isText=n&&n.nodeType===3;if(isText){var parent=n.parentNode;var base=p(parent),ti=0,q=n.previousSibling;while(q){if(q.nodeType===3)ti++;q=q.previousSibling;}return base+'/#text:'+ti;}if(n&&n.nodeType!==1)n=n.parentNode;var a=[];while(n&&n.nodeType===1){var i=0,q=n.previousSibling;while(q){if(q.nodeType===n.nodeType&&q.nodeName===n.nodeName)i++;q=q.previousSibling;}a.unshift(n.nodeName.toLowerCase()+':'+i);n=n.parentNode;}return a.join('/');}var walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);var allText='',nodes=[];while(walker.nextNode()){nodes.push({node:walker.currentNode,start:allText.length});allText+=walker.currentNode.textContent;}var t=s.toString().trim();var selStart=0,selEnd=0;var sc=r.startContainer,ec=r.endContainer;for(var i=0;i<nodes.length;i++){if(nodes[i].node===sc)selStart=nodes[i].start+r.startOffset;if(nodes[i].node===ec){selEnd=nodes[i].start+r.endOffset;break;}}var prefix=allText.slice(Math.max(0,selStart-40),selStart);var suffix=allText.slice(selEnd,selEnd+40);LivreSelection.onSelectionPayload(t," + escapedHref + ",p(r.startContainer),r.startOffset,p(r.endContainer),r.endOffset,prefix,suffix,Math.round(rect.left),Math.round(rect.top),Math.round(rect.right),Math.round(rect.bottom));})();",
+            "(function(){var s=window.getSelection&&window.getSelection();if(!s||s.rangeCount===0||!s.toString().trim())return;var r=s.getRangeAt(0),rect=r.getBoundingClientRect();function p(n){if(n&&n.nodeType===3){var parent=n.parentNode,base=p(parent),ti=0,q=n.previousSibling;while(q){if(q.nodeType===3)ti++;q=q.previousSibling;}return base+'/#text:'+ti;}if(n&&n.nodeType!==1)n=n.parentNode;var a=[];while(n&&n.nodeType===1){var i=0,q=n.previousSibling;while(q){if(q.nodeType===n.nodeType&&q.nodeName===n.nodeName)i++;q=q.previousSibling;}a.unshift(n.nodeName.toLowerCase()+':'+i);n=n.parentNode;}return a.join('/');}function point(c,o,start){if(c&&c.nodeType===3)return {path:p(c),offset:o};if(!c)return null;var kids=c.childNodes||[];if(start){if(o>=kids.length)return null;var ch=kids[o];while(ch&&ch.nodeType!==3){if(ch.childNodes&&ch.childNodes.length)ch=ch.childNodes[0];else break;}return ch&&ch.nodeType===3?{path:p(ch),offset:0}:null;}var idx=Math.min(o,kids.length),ch=idx>0?kids[idx-1]:null;while(ch&&ch.nodeType!==3){if(ch.childNodes&&ch.childNodes.length)ch=ch.childNodes[ch.childNodes.length-1];else break;}return ch&&ch.nodeType===3?{path:p(ch),offset:(ch.textContent||'').length}:null;}var walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false),allText='',nodes=[],n;while(walker.nextNode()){n=walker.currentNode;nodes.push({node:n,start:allText.length});allText+=n.textContent||'';}var sp=point(r.startContainer,r.startOffset,true),ep=point(r.endContainer,r.endOffset,false),selStart=-1,selEnd=-1;for(var i=0;i<nodes.length;i++){if(sp&&p(nodes[i].node)===sp.path)selStart=nodes[i].start+sp.offset;if(ep&&p(nodes[i].node)===ep.path)selEnd=nodes[i].start+ep.offset;}var t=s.toString().trim();var prefix=selStart>=0?allText.slice(Math.max(0,selStart-40),selStart):'',suffix=selEnd>=0?allText.slice(selEnd,selEnd+40):'';LivreSelection.onSelectionPayload(t," + escapedHref + ",sp?sp.path:p(r.startContainer),sp?sp.offset:r.startOffset,ep?ep.path:p(r.endContainer),ep?ep.offset:r.endOffset,prefix,suffix,Math.round(rect.left),Math.round(rect.top),Math.round(rect.right),Math.round(rect.bottom));})();",
             null
         )
     }

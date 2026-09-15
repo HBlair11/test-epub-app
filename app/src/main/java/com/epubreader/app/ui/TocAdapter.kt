@@ -1,7 +1,6 @@
 package com.epubreader.app.ui
 
 import android.graphics.Typeface
-import com.google.android.material.color.MaterialColors
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -121,11 +120,9 @@ class TocAdapter(
                 selected
 
             binding.title.setTextColor(
-                MaterialColors.getColor(
-                    binding.root,
-                    if (selected) R.attr.appColorReaderChromeAccent
-                    else R.attr.appColorReaderChromeText,
-                    ContextCompat.getColor(binding.root.context, R.color.reader_chrome_text)
+                ContextCompat.getColor(
+                    binding.root.context,
+                    if (selected) R.color.reader_chrome_accent else R.color.reader_chrome_text
                 )
             )
 

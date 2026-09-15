@@ -24,10 +24,10 @@
         android:layout_marginTop="@dimen/app_row_padding_v"
         android:layout_marginEnd="@dimen/app_row_content_padding_h"
         android:layout_marginBottom="@dimen/app_row_padding_v"
-        app:boxStrokeColor="?attr/colorPrimary"
+        app:boxStrokeColor="@color/accent"
         app:hintEnabled="false"
         app:startIconDrawable="@drawable/ic_search"
-        app:startIconTint="?attr/colorSecondary">
+        app:startIconTint="@color/secondary">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/searchEdit"

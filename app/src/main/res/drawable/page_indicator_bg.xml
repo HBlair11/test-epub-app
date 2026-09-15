@@ -3,6 +3,6 @@
     android:shape="rectangle">
     <!-- Semi-transparent eggplant pill so the persistent page indicator
          (white text) stays readable over both light and dark content. -->
-    <solid android:color="?attr/appColorReaderChromeScrim" />
+    <solid android:color="@color/reader_chrome_scrim" />
     <corners android:radius="10dp" />
 </shape>

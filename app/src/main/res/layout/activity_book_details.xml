@@ -163,7 +163,7 @@
                     android:contentDescription="@string/option_remove"
                     android:padding="10dp"
                     android:src="@drawable/ic_delete"
-                    app:tint="?attr/appColorPop" />
+                    app:tint="@color/pop" />
 
             </LinearLayout>
 
@@ -178,7 +178,7 @@
                 android:layout_marginStart="@dimen/app_row_content_padding_h"
                 android:layout_marginTop="12dp"
                 android:layout_marginEnd="@dimen/app_row_content_padding_h"
-                android:background="?attr/appColorBorder" />
+                android:background="@color/light_border" />
 
 
             <!-- ================================================= -->
@@ -406,7 +406,7 @@
                 android:layout_marginStart="@dimen/app_row_content_padding_h"
                 android:layout_marginTop="16dp"
                 android:layout_marginEnd="@dimen/app_row_content_padding_h"
-                android:background="?attr/appColorBorder" />
+                android:background="@color/light_border" />
 
 
             <!-- ================================================= -->

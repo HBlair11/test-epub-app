@@ -9,29 +9,9 @@
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
         <item name="android:colorBackground">@color/dark_bg</item>
-        <item name="colorPrimary">@color/accent</item>
-        <item name="colorPrimaryVariant">@color/accent_dark</item>
-        <item name="colorControlActivated">@color/accent</item>
-        <item name="colorOnPrimary">@color/white</item>
-        <item name="colorSecondary">@color/secondary</item>
-        <item name="colorOnSecondary">@color/white</item>
         <item name="colorSurface">@color/dark_surface</item>
         <item name="colorOnSurface">@color/dark_text</item>
         <item name="android:textColorPrimary">@color/dark_text</item>
         <item name="android:textColorSecondary">@color/dark_text_muted</item>
-        <item name="appColorBorder">@color/dark_border</item>
-        <item name="appColorPop">@color/pop</item>
-        <item name="appColorPop2">@color/pop2</item>
-        <item name="appColorCoverPlaceholder">@color/cover_placeholder</item>
-        <item name="appColorCoverText">@color/cover_text</item>
-        <item name="appColorBadgeText">@color/dark_text</item>
-        <item name="appColorProgressTrack">@color/progress_track</item>
-        <item name="appColorProgressFill">@color/progress_fill</item>
-        <item name="appColorCompleted">@color/completed</item>
-        <item name="appColorReaderChromeScrim">@color/reader_chrome_scrim</item>
-        <item name="appColorReaderChromeAccent">@color/reader_chrome_accent</item>
-        <item name="appColorReaderChromeText">@color/reader_chrome_text</item>
-        <item name="appColorReaderChromeTextMuted">@color/reader_chrome_text_muted</item>
-        <item name="appColorReaderChromeSurface">@color/reader_chrome_surface</item>
     </style>
 </resources>

@@ -27,6 +27,6 @@
         android:layout_weight="1"
         android:ellipsize="end"
         android:maxLines="2"
-        android:textColor="?android:textColorPrimary"
+        android:textColor="@color/reader_chrome_text"
         android:textSize="15sp" />
 </LinearLayout>

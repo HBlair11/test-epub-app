@@ -50,8 +50,6 @@
 
     <string name="settings_keep_screen_on">Screen On</string>
     <string name="settings_keep_screen_on_summary">Keep the screen on for 10 minutes longer than your current system setting.</string>
-    <string name="settings_web_app_theme">Web App Theme</string>
-    <string name="settings_web_app_theme_summary">Use the web app color theme for the main app and reader controls.</string>
 
     <string name="search_books_hint">Search books…</string>
     <string name="search_in_book_hint">Search this book</string>

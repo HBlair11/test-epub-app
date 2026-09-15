@@ -1,6 +1,5 @@
 package com.epubreader.app
 
-import com.epubreader.app.util.AppUiTheme
 import com.epubreader.app.util.SystemBarController
 
 import android.content.Intent
@@ -38,7 +37,6 @@ class SearchActivity : AppCompatActivity() {
     private val query = MutableStateFlow("")
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        AppUiTheme.apply(this, AppUiTheme.Screen.MAIN)
         repo = BookRepository(applicationContext)
         super.onCreate(savedInstanceState)
         binding = ActivitySearchBinding.inflate(layoutInflater)
