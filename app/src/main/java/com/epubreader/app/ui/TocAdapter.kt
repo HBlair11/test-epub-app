@@ -123,8 +123,8 @@ class TocAdapter(
             binding.title.setTextColor(
                 MaterialColors.getColor(
                     binding.root,
-                    if (selected) com.google.android.material.R.attr.colorPrimary
-                    else android.R.attr.textColorPrimary,
+                    if (selected) R.attr.appColorReaderChromeAccent
+                    else R.attr.appColorReaderChromeText,
                     ContextCompat.getColor(binding.root.context, R.color.reader_chrome_text)
                 )
             )

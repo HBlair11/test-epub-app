@@ -259,8 +259,8 @@
             android:layout_height="wrap_content"
             android:paddingStart="@dimen/app_row_content_padding_h"
             android:paddingEnd="@dimen/app_row_content_padding_h"
-            android:progressTint="?attr/colorPrimary"
-            android:thumbTint="?attr/colorPrimary" />
+            android:progressTint="?attr/appColorReaderChromeAccent"
+            android:thumbTint="?attr/appColorReaderChromeAccent" />
 
         <!-- Percent + Add Bookmark row: same vertical breathing room as the
              icon-button rows above (app_chrome_padding_v on top). Text sits at

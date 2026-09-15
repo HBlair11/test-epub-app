@@ -12,6 +12,10 @@
     </style>
 
     <style name="ReaderToggleBtn" parent="Widget.MaterialComponents.Button.OutlinedButton">
+    <!-- Keep tab text tied to the reader-chrome semantic value so Web Theme
+         changes are reversible without hardcoded colors. Base theme maps
+         this to the original white chrome text. -->
+    <item name="android:textColor">?attr/appColorReaderChromeText</item>
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_weight">1</item>

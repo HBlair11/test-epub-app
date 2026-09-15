@@ -11,6 +11,7 @@
         <item name="android:colorBackground">@color/dark_bg</item>
         <item name="colorPrimary">@color/accent</item>
         <item name="colorPrimaryVariant">@color/accent_dark</item>
+        <item name="colorControlActivated">@color/accent</item>
         <item name="colorOnPrimary">@color/white</item>
         <item name="colorSecondary">@color/secondary</item>
         <item name="colorOnSecondary">@color/white</item>
@@ -28,5 +29,9 @@
         <item name="appColorProgressFill">@color/progress_fill</item>
         <item name="appColorCompleted">@color/completed</item>
         <item name="appColorReaderChromeScrim">@color/reader_chrome_scrim</item>
+        <item name="appColorReaderChromeAccent">@color/reader_chrome_accent</item>
+        <item name="appColorReaderChromeText">@color/reader_chrome_text</item>
+        <item name="appColorReaderChromeTextMuted">@color/reader_chrome_text_muted</item>
+        <item name="appColorReaderChromeSurface">@color/reader_chrome_surface</item>
     </style>
 </resources>

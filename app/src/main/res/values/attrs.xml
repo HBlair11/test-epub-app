@@ -12,4 +12,8 @@
     <attr name="appColorProgressFill" format="color" />
     <attr name="appColorCompleted" format="color" />
     <attr name="appColorReaderChromeScrim" format="color" />
+    <attr name="appColorReaderChromeAccent" format="color" />
+    <attr name="appColorReaderChromeText" format="color" />
+    <attr name="appColorReaderChromeTextMuted" format="color" />
+    <attr name="appColorReaderChromeSurface" format="color" />
 </resources>

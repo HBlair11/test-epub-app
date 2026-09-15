@@ -18,6 +18,7 @@
         <item name="android:fitsSystemWindows">true</item>
         <item name="colorPrimary">@color/accent</item>
         <item name="colorPrimaryVariant">@color/accent_dark</item>
+        <item name="colorControlActivated">@color/accent</item>
         <item name="colorOnPrimary">@color/white</item>
         <item name="colorSecondary">@color/secondary</item>
         <item name="colorOnSecondary">@color/white</item>
@@ -36,6 +37,10 @@
         <item name="appColorProgressFill">@color/progress_fill</item>
         <item name="appColorCompleted">@color/completed</item>
         <item name="appColorReaderChromeScrim">@color/reader_chrome_scrim</item>
+        <item name="appColorReaderChromeAccent">@color/reader_chrome_accent</item>
+        <item name="appColorReaderChromeText">@color/reader_chrome_text</item>
+        <item name="appColorReaderChromeTextMuted">@color/reader_chrome_text_muted</item>
+        <item name="appColorReaderChromeSurface">@color/reader_chrome_surface</item>
     </style>
 
     <!--
@@ -60,6 +65,10 @@
         <item name="android:textColorPrimary">@color/reader_chrome_text</item>
         <item name="android:textColorSecondary">@color/reader_chrome_text_muted</item>
         <item name="appColorReaderChromeScrim">@color/reader_chrome_scrim</item>
+        <item name="appColorReaderChromeAccent">@color/reader_chrome_accent</item>
+        <item name="appColorReaderChromeText">@color/reader_chrome_text</item>
+        <item name="appColorReaderChromeTextMuted">@color/reader_chrome_text_muted</item>
+        <item name="appColorReaderChromeSurface">@color/reader_chrome_surface</item>
         <!-- Settings sheet: static chrome (plum bg + white text + mint accents). -->
         <item name="bottomSheetDialogTheme">@style/Theme.EpubReader.Reader.Sheet</item>
     </style>
@@ -76,9 +85,14 @@
         <item name="android:enforceNavigationBarContrast" tools:targetApi="q">false</item>
         <item name="colorSurface">@color/reader_chrome_surface</item>
         <item name="colorPrimary">@color/reader_chrome_accent</item>
+        <item name="colorControlActivated">@color/reader_chrome_accent</item>
         <item name="colorOnPrimary">@color/palette_eggplant</item>
         <item name="android:textColorPrimary">@color/reader_chrome_text</item>
         <item name="android:textColorSecondary">@color/reader_chrome_text_muted</item>
+        <item name="appColorReaderChromeAccent">@color/reader_chrome_accent</item>
+        <item name="appColorReaderChromeText">@color/reader_chrome_text</item>
+        <item name="appColorReaderChromeTextMuted">@color/reader_chrome_text_muted</item>
+        <item name="appColorReaderChromeSurface">@color/reader_chrome_surface</item>
     </style>
 
     <!-- Patch 17 (Issue #1): full-screen reader settings ACTIVITY. Same static
@@ -91,9 +105,14 @@
         <item name="colorSurface">@color/reader_chrome_surface</item>
         <item name="colorOnSurface">@color/reader_chrome_text</item>
         <item name="colorPrimary">@color/reader_chrome_accent</item>
+        <item name="colorControlActivated">@color/reader_chrome_accent</item>
         <item name="colorOnPrimary">@color/palette_eggplant</item>
         <item name="android:textColorPrimary">@color/reader_chrome_text</item>
         <item name="android:textColorSecondary">@color/reader_chrome_text_muted</item>
+        <item name="appColorReaderChromeAccent">@color/reader_chrome_accent</item>
+        <item name="appColorReaderChromeText">@color/reader_chrome_text</item>
+        <item name="appColorReaderChromeTextMuted">@color/reader_chrome_text_muted</item>
+        <item name="appColorReaderChromeSurface">@color/reader_chrome_surface</item>
     </style>
     <!-- Optional web-app visual theme. It reuses the existing Android architecture
          and changes only theme/color resources; EPUB reading content themes remain
@@ -103,6 +122,7 @@
         <item name="android:colorBackground">@color/web_theme_light_bg</item>
         <item name="colorPrimary">@color/web_theme_accent</item>
         <item name="colorPrimaryVariant">@color/web_theme_accent_dark</item>
+        <item name="colorControlActivated">@color/web_theme_accent</item>
         <item name="colorOnPrimary">@color/white</item>
         <item name="colorSecondary">@color/web_theme_secondary</item>
         <item name="colorOnSecondary">@color/white</item>
@@ -120,6 +140,10 @@
         <item name="appColorProgressFill">@color/web_theme_accent</item>
         <item name="appColorCompleted">@color/web_theme_secondary</item>
         <item name="appColorReaderChromeScrim">@color/web_theme_reader_chrome_scrim</item>
+        <item name="appColorReaderChromeAccent">@color/web_theme_accent</item>
+        <item name="appColorReaderChromeText">@color/web_theme_light_text</item>
+        <item name="appColorReaderChromeTextMuted">@color/web_theme_light_text_muted</item>
+        <item name="appColorReaderChromeSurface">@color/web_theme_light_surface</item>
     </style>
 
     <style name="Theme.EpubReader.Reader.Web" parent="Theme.EpubReader.Reader">
@@ -129,6 +153,7 @@
         <item name="colorOnSurface">@color/web_theme_light_text</item>
         <item name="colorPrimary">@color/web_theme_accent</item>
         <item name="colorPrimaryVariant">@color/web_theme_accent_dark</item>
+        <item name="colorControlActivated">@color/web_theme_accent</item>
         <item name="colorOnPrimary">@color/white</item>
         <item name="colorSecondary">@color/web_theme_secondary</item>
         <item name="colorOnSecondary">@color/white</item>
@@ -144,16 +169,25 @@
         <item name="appColorProgressFill">@color/web_theme_accent</item>
         <item name="appColorCompleted">@color/web_theme_secondary</item>
         <item name="appColorReaderChromeScrim">@color/web_theme_reader_chrome_scrim</item>
+        <item name="appColorReaderChromeAccent">@color/web_theme_accent</item>
+        <item name="appColorReaderChromeText">@color/web_theme_light_text</item>
+        <item name="appColorReaderChromeTextMuted">@color/web_theme_light_text_muted</item>
+        <item name="appColorReaderChromeSurface">@color/web_theme_light_surface</item>
         <item name="bottomSheetDialogTheme">@style/Theme.EpubReader.Reader.Web.Sheet</item>
     </style>
 
     <style name="Theme.EpubReader.Reader.Web.Sheet" parent="Theme.EpubReader.Reader.Sheet">
         <item name="colorSurface">@color/web_theme_light_surface</item>
         <item name="colorPrimary">@color/web_theme_accent</item>
+        <item name="colorControlActivated">@color/web_theme_accent</item>
         <item name="colorPrimaryVariant">@color/web_theme_accent_dark</item>
         <item name="colorOnPrimary">@color/white</item>
         <item name="android:textColorPrimary">@color/web_theme_light_text</item>
         <item name="android:textColorSecondary">@color/web_theme_light_text_muted</item>
+        <item name="appColorReaderChromeAccent">@color/web_theme_accent</item>
+        <item name="appColorReaderChromeText">@color/web_theme_light_text</item>
+        <item name="appColorReaderChromeTextMuted">@color/web_theme_light_text_muted</item>
+        <item name="appColorReaderChromeSurface">@color/web_theme_light_surface</item>
     </style>
 
     <style name="Theme.EpubReader.Settings.Web" parent="Theme.EpubReader.Settings">
@@ -178,6 +212,10 @@
         <item name="appColorProgressFill">@color/web_theme_accent</item>
         <item name="appColorCompleted">@color/web_theme_secondary</item>
         <item name="appColorReaderChromeScrim">@color/web_theme_reader_chrome_scrim</item>
+        <item name="appColorReaderChromeAccent">@color/web_theme_accent</item>
+        <item name="appColorReaderChromeText">@color/web_theme_light_text</item>
+        <item name="appColorReaderChromeTextMuted">@color/web_theme_light_text_muted</item>
+        <item name="appColorReaderChromeSurface">@color/web_theme_light_surface</item>
     </style>
 
 </resources>
